@@ -1,0 +1,5 @@
+{
+  "name": "Document Intelligence Hub",
+  "description": "A hub of intelligent accelerators for document processing. Features a PDF Field Extractor, XPath Extractor, Data Mapping Generator, PDF Compare, and a Rationalizer to group similar documents.",
+  "requestFramePermissions": []
+}

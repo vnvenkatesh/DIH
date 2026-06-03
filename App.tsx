@@ -13,12 +13,14 @@ import { DocumentTextIcon } from './components/icons/DocumentTextIcon';
 import { DevicePhoneMobileIcon } from './components/icons/DevicePhoneMobileIcon';
 import ServerIcon from './components/icons/ServerIcon';
 import HomeIcon from './components/icons/HomeIcon';
-import SettingsPanel from './components/SettingsPanel';
 import LayoutRecommendation from './components/LayoutRecommendation';
 import ApiDocs from './components/ApiDocs';
 import Home from './components/Home';
+import SettingsPage from './components/SettingsPage';
+import Login from './components/Login';
+import { useAuth } from './contexts/AuthContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs';
+type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'settings';
 
 interface NavItem {
   tool: Tool;
@@ -27,7 +29,21 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
+const GearIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </svg>
+);
+
+const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15m-3 0-3-3m0 0 3-3m-3 3H15" />
+  </svg>
+);
+
 const App: React.FC = () => {
+  const { user, logout, isLoading } = useAuth();
   const [activeTool, setActiveTool] = useState<Tool>('home');
   const [filesToCompare, setFilesToCompare] = useState<[File, File] | null>(null);
 
@@ -51,6 +67,21 @@ const App: React.FC = () => {
   ];
 
   const activeItem = navItems.find(item => item.tool === activeTool) ?? null;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <svg className="w-8 h-8 text-indigo-400 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   return (
     <div className="min-h-screen flex font-sans text-slate-800 dark:text-slate-200">
@@ -106,16 +137,44 @@ const App: React.FC = () => {
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="px-4 py-4 border-t border-slate-700 flex items-center justify-between">
-          <span className="text-xs text-slate-500">Designed by Deloitte</span>
-          <SettingsPanel />
+        <div className="px-4 py-4 border-t border-slate-700 space-y-2">
+          {/* User info */}
+          <div className="flex items-center gap-2 px-1">
+            <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white">
+              {user.username[0].toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-slate-200 truncate">{user.username}</p>
+              <p className="text-xs text-slate-500">{user.role}</p>
+            </div>
+          </div>
+          {/* Actions */}
+          <div className="flex items-center gap-1">
+            <span className="flex-1 text-xs text-slate-500">Designed by Deloitte</span>
+            <button
+              onClick={() => setActiveTool('settings')}
+              className={`p-2 rounded-lg transition-colors ${activeTool === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-700'}`}
+              title="Settings"
+              aria-label="Open settings"
+            >
+              <GearIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={logout}
+              className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <LogoutIcon className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </aside>
 
       {/* ── Right Content Area ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900">
 
-        {/* Content Header — hidden on home page */}
+        {/* Content Header — shown for tools only (not home or settings) */}
         {activeItem && (
           <header className="flex-shrink-0 flex items-center gap-4 px-8 py-5 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
             <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400">
@@ -158,6 +217,7 @@ const App: React.FC = () => {
           <div className={activeTool === 'apiDocs' ? '' : 'hidden'}>
             <ApiDocs />
           </div>
+          {activeTool === 'settings' && <SettingsPage />}
         </main>
       </div>
     </div>

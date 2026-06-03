@@ -3,6 +3,9 @@ dotenv.config({ path: '.env.local' });
 import express from 'express';
 import cors from 'cors';
 
+import { initDb } from './db.js';
+import authRouter from './routes/auth.js';
+import usersRouter from './routes/users.js';
 import rationalizerRouter from './routes/rationalizer.js';
 import pdfCompareRouter from './routes/pdfCompare.js';
 import dataMappingRouter from './routes/dataMapping.js';
@@ -22,6 +25,8 @@ app.use(express.json());
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
+app.use('/v1/auth', authRouter);
+app.use('/v1/users', usersRouter);
 app.use('/v1/rationalizer', rationalizerRouter);
 app.use('/v1/pdf-compare', pdfCompareRouter);
 app.use('/v1/data-mapping', dataMappingRouter);
@@ -39,8 +44,15 @@ app.get('/v1/health', (_req, res) => {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
-app.listen(PORT, () => {
-    console.log(`  ✦ API server → http://localhost:${PORT}/v1`);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`  ✦ API server → http://localhost:${PORT}/v1`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialise database:', err);
+    process.exit(1);
+  });
 
 export default app;

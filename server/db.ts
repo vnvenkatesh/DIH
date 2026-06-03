@@ -17,7 +17,8 @@ pool.on('error', (err) => {
 });
 
 export async function initDb(): Promise<void> {
-  console.log('[db] initDb: running CREATE TABLE IF NOT EXISTS...');
+  console.log('[db] initDb: ensuring schema...');
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -28,7 +29,14 @@ export async function initDb(): Promise<void> {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-  console.log('[db] initDb: table ready');
+
+  // Add preference columns (safe to run repeatedly)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS theme VARCHAR(10) DEFAULT 'light'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(20) DEFAULT 'gemini'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gemini_api_key TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_api_key TEXT DEFAULT ''`);
+
+  console.log('[db] initDb: schema ready');
 
   const { rowCount } = await pool.query("SELECT id FROM users WHERE role = 'Admin' LIMIT 1");
   if (!rowCount) {

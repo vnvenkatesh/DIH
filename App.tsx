@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import SyntheticDataGenerator from './components/FieldExtractor';
 import XPathExtractor from './components/XPathExtractor';
 import DataMappingGenerator from './components/DataMappingGenerator';
@@ -18,7 +18,10 @@ import ApiDocs from './components/ApiDocs';
 import Home from './components/Home';
 import SettingsPage from './components/SettingsPage';
 import Login from './components/Login';
+import LLMWarning from './components/LLMWarning';
 import { useAuth } from './contexts/AuthContext';
+import { useSettings } from './contexts/SettingsContext';
+import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
 type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'settings';
 
@@ -42,10 +45,32 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const ACCELERATOR_TOOLS: Tool[] = [
+  'rationalizer', 'pdfCompare', 'dataMappingGenerator',
+  'xpathExtractor', 'syntheticDataGenerator', 'layoutRecommendation',
+];
+
 const App: React.FC = () => {
   const { user, logout, isLoading } = useAuth();
+  const { saveSettings } = useSettings();
   const [activeTool, setActiveTool] = useState<Tool>('home');
   const [filesToCompare, setFilesToCompare] = useState<[File, File] | null>(null);
+
+  // Hydrate SettingsContext (and localStorage) from the user's DB preferences on login.
+  // This ensures services that read from localStorage pick up the right keys.
+  const hydratedUserId = useRef<number | null>(null);
+  useEffect(() => {
+    if (user && hydratedUserId.current !== user.id) {
+      hydratedUserId.current = user.id;
+      saveSettings({
+        theme: user.theme as Theme,
+        llmProvider: user.llmProvider as LLMProvider,
+        geminiApiKey: user.geminiApiKey,
+        claudeApiKey: user.claudeApiKey,
+      });
+    }
+    if (!user) hydratedUserId.current = null;
+  }, [user?.id]);
 
   const handleCompareRequest = (files: [File, File]) => {
     setFilesToCompare(files);
@@ -193,6 +218,11 @@ const App: React.FC = () => {
 
         {/* Tool Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
+          {/* LLM warning — shown for all accelerator tools when no key is configured */}
+          {ACCELERATOR_TOOLS.includes(activeTool) && (
+            <LLMWarning onGoToSettings={() => setActiveTool('settings')} />
+          )}
+
           <div className={activeTool === 'home' ? '' : 'hidden'}>
             <Home onNavigate={(tool) => setActiveTool(tool as Tool)} />
           </div>

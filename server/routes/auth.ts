@@ -6,6 +6,18 @@ import { requireAuth, AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
+function toClientUser(row: any) {
+  return {
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    theme: row.theme ?? 'light',
+    llm_provider: row.llm_provider ?? 'gemini',
+    gemini_api_key: row.gemini_api_key ?? '',
+    claude_api_key: row.claude_api_key ?? '',
+  };
+}
+
 router.post('/login', async (req, res) => {
   try {
     console.log('[auth/login] attempt:', req.body?.username);
@@ -29,7 +41,6 @@ router.post('/login', async (req, res) => {
     );
     const user = rows[0];
     if (!user) {
-      console.log('[auth/login] user not found:', username);
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -37,18 +48,17 @@ router.post('/login', async (req, res) => {
     console.log('[auth/login] comparing password...');
     const valid = await compare(password, user.password_hash);
     if (!valid) {
-      console.log('[auth/login] password mismatch for:', username);
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
 
-    console.log('[auth/login] signing token for:', username, user.role);
+    const clientUser = toClientUser(user);
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
+    res.json({ token, user: clientUser });
     console.log('[auth/login] success:', username);
   } catch (err: any) {
     const message = err?.message ?? String(err);
@@ -57,8 +67,34 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.get('/me', requireAuth as any, (req: AuthRequest, res) => {
-  res.json({ user: req.user });
+router.get('/me', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
+    if (!rows[0]) { res.status(404).json({ error: 'User not found' }); return; }
+    res.json({ user: toClientUser(rows[0]) });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? 'Internal server error' });
+  }
+});
+
+router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const { theme, llm_provider, gemini_api_key, claude_api_key } = req.body ?? {};
+    await pool.query(
+      `UPDATE users
+         SET theme          = COALESCE($1, theme),
+             llm_provider   = COALESCE($2, llm_provider),
+             gemini_api_key = COALESCE($3, gemini_api_key),
+             claude_api_key = COALESCE($4, claude_api_key),
+             updated_at     = NOW()
+       WHERE id = $5`,
+      [theme ?? null, llm_provider ?? null, gemini_api_key ?? null, claude_api_key ?? null, req.user!.id]
+    );
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
+    res.json({ user: toClientUser(rows[0]) });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? 'Internal server error' });
+  }
 });
 
 export default router;

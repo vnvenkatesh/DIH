@@ -2,7 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type UserRole = 'Admin' | 'AppUser';
 
-export interface AuthUser {
+export interface UserPreferences {
+  theme: 'light' | 'dark';
+  llmProvider: 'gemini' | 'claude';
+  geminiApiKey: string;
+  claudeApiKey: string;
+}
+
+export interface AuthUser extends UserPreferences {
   id: number;
   username: string;
   role: UserRole;
@@ -13,6 +20,7 @@ interface AuthContextValue {
   token: string | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  updatePreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -23,6 +31,7 @@ const AuthContext = createContext<AuthContextValue>({
   token: null,
   login: async () => {},
   logout: () => {},
+  updatePreferences: async () => {},
   isLoading: true,
 });
 
@@ -33,6 +42,19 @@ function isTokenExpired(token: string): boolean {
   } catch {
     return true;
   }
+}
+
+/** Map the snake_case server response to the camelCase AuthUser */
+function deserializeUser(raw: any): AuthUser {
+  return {
+    id: raw.id,
+    username: raw.username,
+    role: raw.role,
+    theme: raw.theme ?? 'light',
+    llmProvider: raw.llm_provider ?? 'gemini',
+    geminiApiKey: raw.gemini_api_key ?? '',
+    claudeApiKey: raw.claude_api_key ?? '',
+  };
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -59,16 +81,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (username: string, password: string): Promise<void> => {
-    const res = await fetch('/v1/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'Login failed');
+    let res: Response;
+    try {
+      res = await fetch('/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+    } catch (networkErr: any) {
+      console.error('[login] Network error:', networkErr);
+      throw new Error('Cannot reach the server. Make sure the API server is running (npm run dev).');
     }
-    const { token: t, user: u } = await res.json();
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error('[login] HTTP', res.status, text);
+      let message = `Server error (${res.status})`;
+      try { message = JSON.parse(text).error || message; } catch { /* not JSON */ }
+      throw new Error(message);
+    }
+    const { token: t, user: rawUser } = await res.json();
+    const u = deserializeUser(rawUser);
     setUser(u);
     setToken(t);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ user: u, token: t }));
@@ -80,8 +112,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
+  const updatePreferences = async (prefs: Partial<UserPreferences>): Promise<void> => {
+    if (!token) return;
+    const body: Record<string, string> = {};
+    if (prefs.theme !== undefined) body.theme = prefs.theme;
+    if (prefs.llmProvider !== undefined) body.llm_provider = prefs.llmProvider;
+    if (prefs.geminiApiKey !== undefined) body.gemini_api_key = prefs.geminiApiKey;
+    if (prefs.claudeApiKey !== undefined) body.claude_api_key = prefs.claudeApiKey;
+
+    const res = await fetch('/v1/auth/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return;
+    const { user: rawUser } = await res.json();
+    const updated = deserializeUser(rawUser);
+    setUser(updated);
+    // Keep localStorage in sync
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ user: updated, token }));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, updatePreferences, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

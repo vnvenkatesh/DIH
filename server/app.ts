@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
+import llmRouter from './routes/llm.js';
 import rationalizerRouter from './routes/rationalizer.js';
 import pdfCompareRouter from './routes/pdfCompare.js';
 import dataMappingRouter from './routes/dataMapping.js';
@@ -17,6 +18,7 @@ app.use(express.json({ limit: '50mb' }));
 
 app.use('/v1/auth', authRouter);
 app.use('/v1/users', usersRouter);
+app.use('/v1/llm', llmRouter);
 app.use('/v1/rationalizer', rationalizerRouter);
 app.use('/v1/pdf-compare', pdfCompareRouter);
 app.use('/v1/data-mapping', dataMappingRouter);

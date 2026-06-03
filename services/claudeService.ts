@@ -1,35 +1,29 @@
 import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult } from '../types';
-import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
-const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
-const ANTHROPIC_VERSION = '2023-06-01';
+const AUTH_KEY = 'dih_auth';
 
-function getClaudeApiKey(): string {
-    try {
-        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
-        if (!s.claudeApiKey) throw new Error();
-        return s.claudeApiKey;
-    } catch {
-        throw new Error('Claude API key not configured. Please add it in Settings.');
-    }
+function getToken(): string {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || '{}').token || ''; }
+    catch { return ''; }
 }
 
-async function callClaude(payload: object, extraHeaders: Record<string, string> = {}): Promise<any> {
-    const apiKey = getClaudeApiKey();
-    const resp = await fetch(CLAUDE_API, {
+async function callClaude(payload: { model: string; max_tokens: number; messages: any[] }, extraHeaders: Record<string, string> = {}): Promise<any> {
+    const body: Record<string, any> = {
+        model: payload.model,
+        max_tokens: payload.max_tokens,
+        messages: payload.messages,
+    };
+    if (extraHeaders['anthropic-beta']) body.beta = extraHeaders['anthropic-beta'];
+
+    const resp = await fetch('/v1/llm/claude', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': ANTHROPIC_VERSION,
-            'anthropic-dangerous-request-origin': 'user-provided',
-            ...extraHeaders,
-        },
-        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify(body),
     });
+
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error((err as any)?.error?.message || `Claude API error: ${resp.status}`);
+        throw new Error((err as any)?.error?.message || (err as any)?.error || `Claude API error: ${resp.status}`);
     }
     return resp.json();
 }
@@ -118,10 +112,7 @@ export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 8192,
-        messages: [{
-            role: 'user',
-            content: `${xsdToXmlPrompt}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}`,
-        }],
+        messages: [{ role: 'user', content: `${xsdToXmlPrompt}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}` }],
     });
     return JSON.parse(extractText(result)) as SyntheticDataResult;
 };
@@ -139,14 +130,7 @@ export const extractXPaths = async (
             role: 'user',
             content: [
                 { type: 'text', text: `${xPathExtractorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}` },
-                {
-                    type: 'document',
-                    source: {
-                        type: 'base64',
-                        media_type: 'application/pdf',
-                        data: pdfBase64,
-                    },
-                },
+                { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } },
                 { type: 'text', text: `\n\n--- XML CONTENT ---\n\n${xmlContent}` },
             ],
         }],
@@ -162,10 +146,7 @@ export const generateDataMap = async (
     const result = await callClaude({
         model: 'claude-sonnet-4-6',
         max_tokens: 8192,
-        messages: [{
-            role: 'user',
-            content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}`,
-        }],
+        messages: [{ role: 'user', content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}` }],
     });
     return JSON.parse(extractText(result)) as DataMappingResult;
 };
@@ -195,10 +176,7 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 4096,
-        messages: [{
-            role: 'user',
-            content: `${layoutRecommendationPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${documentText}`,
-        }],
+        messages: [{ role: 'user', content: `${layoutRecommendationPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${documentText}` }],
     });
     return JSON.parse(extractText(result)) as LayoutRecommendationResult;
 };
@@ -211,10 +189,7 @@ export const performSemanticComparison = async (
         const result = await callClaude({
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 4096,
-            messages: [{
-                role: 'user',
-                content: `${semanticComparePrompt}\n\n--- Page A ---\n\n${textA}\n\n--- Page B ---\n\n${textB}`,
-            }],
+            messages: [{ role: 'user', content: `${semanticComparePrompt}\n\n--- Page A ---\n\n${textA}\n\n--- Page B ---\n\n${textB}` }],
         });
         return JSON.parse(extractText(result));
     } catch (error) {

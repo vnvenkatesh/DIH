@@ -19,6 +19,7 @@ import Home from './components/Home';
 import SettingsPage from './components/SettingsPage';
 import Login from './components/Login';
 import LLMWarning from './components/LLMWarning';
+import UserMenu from './components/UserMenu';
 import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
@@ -161,40 +162,20 @@ const App: React.FC = () => {
           ))}
         </nav>
 
-        {/* Sidebar Footer */}
-        <div className="px-4 py-4 border-t border-slate-700 space-y-2">
-          {/* User info */}
-          <div className="flex items-center gap-2 px-1">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white">
-              {user.username[0].toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-slate-200 truncate">{user.username}</p>
-              <p className="text-xs text-slate-500">{user.role}</p>
-            </div>
-          </div>
-          {/* Actions */}
-          <div className="flex items-center gap-1">
-            <span className="flex-1 text-xs text-slate-500">Designed by Deloitte</span>
-            <button
-              onClick={() => setActiveTool('settings')}
-              className={`p-2 rounded-lg transition-colors ${activeTool === 'settings' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-700'}`}
-              title="Settings"
-              aria-label="Open settings"
-            >
-              <GearIcon className="w-5 h-5" />
-            </button>
-            <button
-              onClick={logout}
-              className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-slate-700 transition-colors"
-              title="Sign out"
-              aria-label="Sign out"
-            >
-              <LogoutIcon className="w-5 h-5" />
-            </button>
-          </div>
+        {/* Sidebar Footer — branding only */}
+        <div className="px-4 py-3 border-t border-slate-700">
+          <span className="text-xs text-slate-500">Designed by Deloitte</span>
         </div>
       </aside>
+
+      {/* ── Fixed top-right user menu ── */}
+      <div className="fixed top-3 right-4 z-40">
+        <UserMenu
+          user={user}
+          onSettings={() => setActiveTool('settings')}
+          onLogout={logout}
+        />
+      </div>
 
       {/* ── Right Content Area ── */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900">

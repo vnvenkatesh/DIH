@@ -1,45 +1,29 @@
 
 import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult } from '../types';
-import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
-// In dev the Vite proxy forwards /api/gemini → googleapis.com, bypassing CORS.
-// In production the full URL is used directly.
-const GEMINI_API_BASE = import.meta.env.DEV
-    ? '/api/gemini/models'
-    : 'https://generativelanguage.googleapis.com/v1beta/models';
+const AUTH_KEY = 'dih_auth';
 
-function getApiKey(): string {
-    let apiKey: string | undefined;
-    try {
-        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
-        apiKey = s.geminiApiKey || process.env.API_KEY;
-    } catch {
-        apiKey = process.env.API_KEY;
-    }
-    if (!apiKey) throw new Error('Gemini API key not configured. Please add it in Settings.');
-    return apiKey;
+function getToken(): string {
+    try { return JSON.parse(localStorage.getItem(AUTH_KEY) || '{}').token || ''; }
+    catch { return ''; }
 }
 
 async function callGemini(model: string, contents: object[], generationConfig: object): Promise<any> {
-    const apiKey = getApiKey();
-    const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-    const resp = await fetch(url, {
+    const resp = await fetch('/v1/llm/gemini', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents, generationConfig }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ model, contents, generationConfig }),
     });
 
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
-        throw new Error((err as any)?.error?.message || `Gemini API error ${resp.status}: ${resp.statusText}`);
+        throw new Error((err as any)?.error?.message || (err as any)?.error || `Gemini API error ${resp.status}: ${resp.statusText}`);
     }
 
     return resp.json();
 }
 
 // Thinking models emit "thought" parts before the final output.
-// This helper skips them and returns only the final text.
 function extractJsonText(result: any): string {
     const parts: any[] = result?.candidates?.[0]?.content?.parts ?? [];
     const finalParts = parts.filter((p: any) => p.text !== undefined && !p.thought);
@@ -204,11 +188,11 @@ export const extractXPaths = async (
                     items: {
                         type: 'OBJECT',
                         properties: {
-                            value: { type: 'STRING', description: 'The text value found in both the PDF and the XML.' },
-                            xpath: { type: 'STRING', description: 'The full, absolute XPath to the element in the XML.' },
-                            templateName: { type: 'STRING', description: 'The name of the template (PDF file).' },
-                            pageNumber: { type: 'STRING', description: 'The estimated page number where the value appears.' },
-                            fieldType: { type: 'STRING', description: 'The type of data (String, Date, Integer, etc.).' },
+                            value: { type: 'STRING' },
+                            xpath: { type: 'STRING' },
+                            templateName: { type: 'STRING' },
+                            pageNumber: { type: 'STRING' },
+                            fieldType: { type: 'STRING' },
                         },
                         required: ['value', 'xpath', 'templateName', 'pageNumber', 'fieldType'],
                     },
@@ -248,16 +232,16 @@ export const generateDataMap = async (
                             items: {
                                 type: 'OBJECT',
                                 properties: {
-                                    field: { type: 'STRING', description: 'The placeholder name from the Word document.' },
-                                    xsdPath: { type: 'STRING', description: 'The XPath to the corresponding element in the XSD.' },
-                                    sampleValue: { type: 'STRING', description: 'The synthetic sample data for the field.' },
-                                    templateName: { type: 'STRING', description: 'The name of the document template.' },
-                                    pageNumber: { type: 'STRING', description: 'The estimated page number.' },
+                                    field: { type: 'STRING' },
+                                    xsdPath: { type: 'STRING' },
+                                    sampleValue: { type: 'STRING' },
+                                    templateName: { type: 'STRING' },
+                                    pageNumber: { type: 'STRING' },
                                 },
                                 required: ['field', 'xsdPath', 'sampleValue', 'templateName', 'pageNumber'],
                             },
                         },
-                        generatedXml: { type: 'STRING', description: 'The full, valid XML string.' },
+                        generatedXml: { type: 'STRING' },
                     },
                     required: ['mappings', 'generatedXml'],
                 },
@@ -291,9 +275,9 @@ export const performSemanticComparison = async (
                     items: {
                         type: 'OBJECT',
                         properties: {
-                            textA: { type: 'STRING', description: 'The text snippet from Page A.' },
-                            textB: { type: 'STRING', description: 'The text snippet from Page B.' },
-                            reason: { type: 'STRING', description: 'Explanation of the semantic difference.' },
+                            textA: { type: 'STRING' },
+                            textB: { type: 'STRING' },
+                            reason: { type: 'STRING' },
                         },
                         required: ['textA', 'textB', 'reason'],
                     },
@@ -338,8 +322,8 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
                 responseSchema: {
                     type: 'OBJECT',
                     properties: {
-                        emailVersion: { type: 'STRING', description: 'The condensed email-friendly version.' },
-                        whatsappVersion: { type: 'STRING', description: 'The ultra-condensed WhatsApp version.' },
+                        emailVersion: { type: 'STRING' },
+                        whatsappVersion: { type: 'STRING' },
                     },
                     required: ['emailVersion', 'whatsappVersion'],
                 },
@@ -352,7 +336,7 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
     }
 };
 
-// Embeddings are computed client-side to avoid external API dependency
+// Embeddings are computed client-side (no API call needed)
 const generateKeywordEmbedding = (text: string): number[] => {
     const vector = new Array(768).fill(0);
     const words = text.toLowerCase().match(/\w+/g) || [];

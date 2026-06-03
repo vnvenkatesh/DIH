@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -16,6 +16,12 @@ const EyeSlashIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const Login: React.FC = () => {
   const { login } = useAuth();
+
+  // Login screen is always light — remove dark class regardless of user preference
+  useEffect(() => {
+    document.documentElement.classList.remove('dark');
+  }, []);
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

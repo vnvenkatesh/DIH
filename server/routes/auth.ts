@@ -8,31 +8,52 @@ const router = express.Router();
 
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    console.log('[auth/login] attempt:', req.body?.username);
+
+    const { username, password } = req.body ?? {};
     if (!username || !password) {
       res.status(400).json({ error: 'Username and password are required' });
       return;
     }
-    const { rows } = await pool.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username]);
+
+    if (!process.env.JWT_SECRET) {
+      console.error('[auth/login] JWT_SECRET is not set');
+      res.status(500).json({ error: 'Server misconfiguration: JWT_SECRET is not set' });
+      return;
+    }
+
+    console.log('[auth/login] querying user...');
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
+      [username]
+    );
     const user = rows[0];
     if (!user) {
+      console.log('[auth/login] user not found:', username);
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
+
+    console.log('[auth/login] comparing password...');
     const valid = await compare(password, user.password_hash);
     if (!valid) {
+      console.log('[auth/login] password mismatch for:', username);
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
+
+    console.log('[auth/login] signing token for:', username, user.role);
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
-      process.env.JWT_SECRET!,
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
-  } catch (err) {
-    console.error('[auth/login]', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.log('[auth/login] success:', username);
+  } catch (err: any) {
+    const message = err?.message ?? String(err);
+    console.error('[auth/login] error:', message);
+    res.status(500).json({ error: `Login error: ${message}` });
   }
 });
 

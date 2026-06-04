@@ -336,46 +336,34 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
     }
 };
 
-const accessibilityPrompt = `
-You are a certified digital accessibility expert. Analyze the provided PDF document and evaluate it against these standards:
-1. WCAG 2.1 (Levels A and AA)
-2. PDF/UA (ISO 14289-1)
-3. Section 508 (US Federal)
-4. EN 301 549 (European Standard)
+const accessibilityPrompt = `You are a certified digital accessibility expert. Analyze the provided PDF document and produce a detailed accessibility compliance report covering WCAG 2.1 (A and AA), PDF/UA (ISO 14289-1), Section 508, and EN 301 549.
 
-Check each standard's key criteria. For criteria you cannot directly verify from document content, mark as "warning" if commonly problematic for this document type.
+For criteria you cannot directly verify from the document content, use status "warning" if they are commonly problematic for this document type, or "not-applicable" if genuinely irrelevant.
 
-Return ONLY a JSON object with this exact structure:
-{
-  "overallScore": <0-100>,
-  "grade": <"A"|"B"|"C"|"D"|"F">,
-  "summary": "<2-3 sentence overview>",
-  "standards": [
-    {
-      "name": "<standard name>",
-      "score": <0-100>,
-      "criteria": [
-        {
-          "id": "<e.g. 1.1.1>",
-          "standard": "<standard name>",
-          "level": "<A|AA|AAA if applicable>",
-          "name": "<criterion name>",
-          "status": "<pass|fail|warning|not-applicable>",
-          "severity": "<critical|major|minor> (only if fail or warning)",
-          "issue": "<what is wrong> (only if fail or warning)",
-          "recommendation": "<how to fix it> (only if fail or warning)"
-        }
-      ]
-    }
-  ],
-  "criticalIssues": <count>,
-  "majorIssues": <count>,
-  "minorIssues": <count>,
-  "passed": <count>,
-  "totalChecked": <count>
+You MUST return ONLY a single valid JSON object — no markdown fences, no explanatory text, nothing outside the JSON. Follow this exact structure (the example values below are illustrative only — replace them with your real analysis):
+
+{"overallScore":72,"grade":"C","summary":"The document has reasonable heading structure but lacks alternative text for several images and does not specify a document language, creating significant barriers for screen reader users.","standards":[{"name":"WCAG 2.1","score":68,"criteria":[{"id":"1.1.1","standard":"WCAG 2.1","level":"A","name":"Non-text Content","status":"fail","severity":"critical","issue":"Multiple images found without alternative text descriptions.","recommendation":"Add meaningful alt text to every informational image. Decorative images should be marked as artifacts."},{"id":"2.4.2","standard":"WCAG 2.1","level":"A","name":"Page Titled","status":"pass"},{"id":"1.4.3","standard":"WCAG 2.1","level":"AA","name":"Contrast (Minimum)","status":"warning","severity":"major","issue":"Light grey body text on white background may fall below the 4.5:1 contrast ratio required.","recommendation":"Verify contrast ratio with a tool such as the WebAIM Colour Contrast Checker and adjust text or background colour as needed."}]},{"name":"PDF/UA","score":"75","criteria":[{"id":"PDFUA-1","standard":"PDF/UA","name":"Tagged PDF","status":"warning","severity":"major","issue":"Unable to confirm the document contains full PDF tags from content alone.","recommendation":"Open the document in Adobe Acrobat and run the Accessibility Checker to verify and fix tag structure."}]},{"name":"Section 508","score":70,"criteria":[{"id":"508-1","standard":"Section 508","name":"Text Alternatives","status":"fail","severity":"critical","issue":"Non-text content lacks text alternatives.","recommendation":"Provide text alternatives for all non-text content."}]},{"name":"EN 301 549","score":72,"criteria":[{"id":"EN-9.1.1.1","standard":"EN 301 549","name":"Non-text Content","status":"fail","severity":"critical","issue":"Images without alt text violate clause 9.1.1.1.","recommendation":"Add alt text to all informational images."}]}],"criticalIssues":3,"majorIssues":2,"minorIssues":1,"passed":8,"totalChecked":14}
+
+Strict rules for your output:
+- overallScore: integer 0-100
+- grade: exactly one of the strings "A","B","C","D","F" (A=90-100, B=75-89, C=60-74, D=40-59, F=0-39)
+- standards: array with one entry per standard, covering all four: WCAG 2.1, PDF/UA, Section 508, EN 301 549
+- Each criterion status must be exactly one of: "pass", "fail", "warning", "not-applicable"
+- Only include "severity", "issue", and "recommendation" fields when status is "fail" or "warning"
+- severity must be exactly one of: "critical", "major", "minor"
+- Return at least 5 criteria per standard
+- Output ONLY the JSON object`;
+
+function cleanJson(text: string): string {
+    // Strip markdown code fences if the model wrapped the output
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenced) return fenced[1].trim();
+    // Fallback: extract outermost { ... }
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start !== -1 && end > start) return text.slice(start, end + 1);
+    return text.trim();
 }
-Grading: A=90-100, B=75-89, C=60-74, D=40-59, F=0-39. No text outside the JSON.
-`;
 
 export const scoreAccessibility = async (
     pdfBase64: string,
@@ -388,12 +376,12 @@ export const scoreAccessibility = async (
             [{
                 parts: [
                     { text: accessibilityPrompt },
-                    { inlineData: { mimeType: pdfMimeType, data: pdfBase64 } },
+                    { inlineData: { mimeType: pdfMimeType || 'application/pdf', data: pdfBase64 } },
                 ],
             }],
             { responseMimeType: 'application/json' }
         );
-        return JSON.parse(extractJsonText(result)) as AccessibilityResult;
+        return JSON.parse(cleanJson(extractJsonText(result))) as AccessibilityResult;
     } catch (error) {
         console.error('Gemini scoreAccessibility error:', error);
         throw error;

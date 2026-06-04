@@ -355,7 +355,7 @@ export const scoreAccessibility = async (
 ): Promise<AccessibilityResult> => {
     try {
         const result = await callGemini(
-            'gemini-2.0-flash',
+            'gemini-1.5-flash',
             [{
                 parts: [
                     { text: accessibilityPrompt },

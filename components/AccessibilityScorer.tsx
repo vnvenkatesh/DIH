@@ -158,8 +158,10 @@ const AccessibilityScorer: React.FC = () => {
         setError(null);
         setResult(null);
         try {
-            const text = await extractTextFromPdf(file);
-            if (!text.trim()) throw new Error('Could not extract text from the PDF. The file may be scanned or image-only.');
+            const rawText = await extractTextFromPdf(file);
+            if (!rawText.trim()) throw new Error('Could not extract text from the PDF. The file may be scanned or image-only.');
+            // Truncate to keep the request within proxy timeout limits
+            const text = rawText.slice(0, 4000);
             const res = await scoreAccessibility(text, file.name);
             setResult(res);
             setActiveStandard(0);

@@ -6,6 +6,7 @@ import { LinkIcon } from './icons/LinkIcon';
 import { CodeBracketIcon } from './icons/CodeBracketIcon';
 import { DocumentTextIcon } from './icons/DocumentTextIcon';
 import { DevicePhoneMobileIcon } from './icons/DevicePhoneMobileIcon';
+import { AccessibilityIcon } from './icons/AccessibilityIcon';
 
 interface HomeProps {
   onNavigate: (tool: string) => void;
@@ -71,6 +72,16 @@ const accelerators = [
       'Upload a PDF or Word document and receive AI-optimised versions ready for email and WhatsApp — automatically reformatted for each channel\'s length, structure, and tone requirements.',
     benefit: 'Remove the manual effort of omni-channel content adaptation',
     accent: { bg: 'bg-amber-50 dark:bg-amber-900/20', icon: 'bg-amber-100 dark:bg-amber-800/60 text-amber-600 dark:text-amber-300', border: 'border-amber-100 dark:border-amber-800/50', tag: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' },
+  },
+  {
+    id: 'accessibilityScorer',
+    Icon: AccessibilityIcon,
+    name: 'Accessibility Check',
+    tagline: 'Ensure every customer can read it',
+    description:
+      'Upload a PDF and receive a detailed compliance audit across WCAG 2.1, PDF/UA (ISO 14289), Section 508, and EN 301 549. Get a scored report with severity-ranked issues and actionable remediation steps.',
+    benefit: 'Meet legal accessibility obligations and serve every customer',
+    accent: { bg: 'bg-rose-50 dark:bg-rose-900/20', icon: 'bg-rose-100 dark:bg-rose-800/60 text-rose-600 dark:text-rose-300', border: 'border-rose-100 dark:border-rose-800/50', tag: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300' },
   },
 ];
 
@@ -153,7 +164,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '6', label: 'AI Accelerators', sub: 'ready to use' },
+          { value: '7', label: 'AI Accelerators', sub: 'ready to use' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
           { value: '0', label: 'Data retained', sub: 'after each session' },
           { value: '100%', label: 'Browser-side', sub: 'document processing' },
@@ -244,6 +255,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Build & Test', tools: ['Synthetic Data Generation'], detail: 'Generate realistic, schema-valid synthetic test data without sourcing or masking real client PII — keeping testing clean and compliant.' },
               { phase: 'QA & Review', tools: ['PDF Compare'], detail: 'Confidently validate every document version change between iterations. Semantic comparison catches logic changes that text-level diff misses.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
+              { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },
             ].map(({ phase, tools, detail }) => (
               <div key={phase} className="md:pl-12 relative">
                 <div className="absolute left-3.5 top-4 w-3 h-3 rounded-full bg-indigo-500 border-2 border-white dark:border-slate-900 hidden md:block" />

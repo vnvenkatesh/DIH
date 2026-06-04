@@ -1,5 +1,5 @@
 
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult } from '../types';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -332,6 +332,70 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
         return JSON.parse(extractJsonText(result)) as LayoutRecommendationResult;
     } catch (error) {
         console.error('Gemini generateLayoutRecommendations error:', error);
+        throw error;
+    }
+};
+
+const accessibilityPrompt = `
+You are a certified digital accessibility expert. Analyze the provided PDF document and evaluate it against these standards:
+1. WCAG 2.1 (Levels A and AA)
+2. PDF/UA (ISO 14289-1)
+3. Section 508 (US Federal)
+4. EN 301 549 (European Standard)
+
+Check each standard's key criteria. For criteria you cannot directly verify from document content, mark as "warning" if commonly problematic for this document type.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "overallScore": <0-100>,
+  "grade": <"A"|"B"|"C"|"D"|"F">,
+  "summary": "<2-3 sentence overview>",
+  "standards": [
+    {
+      "name": "<standard name>",
+      "score": <0-100>,
+      "criteria": [
+        {
+          "id": "<e.g. 1.1.1>",
+          "standard": "<standard name>",
+          "level": "<A|AA|AAA if applicable>",
+          "name": "<criterion name>",
+          "status": "<pass|fail|warning|not-applicable>",
+          "severity": "<critical|major|minor> (only if fail or warning)",
+          "issue": "<what is wrong> (only if fail or warning)",
+          "recommendation": "<how to fix it> (only if fail or warning)"
+        }
+      ]
+    }
+  ],
+  "criticalIssues": <count>,
+  "majorIssues": <count>,
+  "minorIssues": <count>,
+  "passed": <count>,
+  "totalChecked": <count>
+}
+Grading: A=90-100, B=75-89, C=60-74, D=40-59, F=0-39. No text outside the JSON.
+`;
+
+export const scoreAccessibility = async (
+    pdfBase64: string,
+    pdfMimeType: string,
+    _fileName: string
+): Promise<AccessibilityResult> => {
+    try {
+        const result = await callGemini(
+            'gemini-2.5-flash',
+            [{
+                parts: [
+                    { text: accessibilityPrompt },
+                    { inlineData: { mimeType: pdfMimeType, data: pdfBase64 } },
+                ],
+            }],
+            { responseMimeType: 'application/json' }
+        );
+        return JSON.parse(extractJsonText(result)) as AccessibilityResult;
+    } catch (error) {
+        console.error('Gemini scoreAccessibility error:', error);
         throw error;
     }
 };

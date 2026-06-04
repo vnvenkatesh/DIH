@@ -73,3 +73,32 @@ export interface LayoutRecommendationResult {
     emailVersion: string;
     whatsappVersion: string;
 }
+
+export interface AccessibilityCriterion {
+  id: string;
+  standard: string;
+  level?: string;
+  name: string;
+  status: 'pass' | 'fail' | 'warning' | 'not-applicable';
+  severity?: 'critical' | 'major' | 'minor';
+  issue?: string;
+  recommendation?: string;
+}
+
+export interface AccessibilityStandard {
+  name: string;
+  score: number;
+  criteria: AccessibilityCriterion[];
+}
+
+export interface AccessibilityResult {
+  overallScore: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  summary: string;
+  standards: AccessibilityStandard[];
+  criticalIssues: number;
+  majorIssues: number;
+  minorIssues: number;
+  passed: number;
+  totalChecked: number;
+}

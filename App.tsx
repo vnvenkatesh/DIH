@@ -18,13 +18,15 @@ import ApiDocs from './components/ApiDocs';
 import Home from './components/Home';
 import SettingsPage from './components/SettingsPage';
 import Login from './components/Login';
+import AccessibilityScorer from './components/AccessibilityScorer';
+import { AccessibilityIcon } from './components/icons/AccessibilityIcon';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
 import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'settings';
+type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'settings';
 
 interface NavItem {
   tool: Tool;
@@ -48,7 +50,7 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const ACCELERATOR_TOOLS: Tool[] = [
   'rationalizer', 'pdfCompare', 'dataMappingGenerator',
-  'xpathExtractor', 'syntheticDataGenerator', 'layoutRecommendation',
+  'xpathExtractor', 'syntheticDataGenerator', 'layoutRecommendation', 'accessibilityScorer',
 ];
 
 const App: React.FC = () => {
@@ -89,6 +91,7 @@ const App: React.FC = () => {
     { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
     { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
+    { tool: 'accessibilityScorer', label: 'Accessibility Check', description: 'Score PDF accessibility compliance', icon: <AccessibilityIcon className="w-5 h-5" /> },
     { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
   ];
 
@@ -224,6 +227,9 @@ const App: React.FC = () => {
           </div>
           <div className={activeTool === 'layoutRecommendation' ? '' : 'hidden'}>
             <LayoutRecommendation />
+          </div>
+          <div className={activeTool === 'accessibilityScorer' ? '' : 'hidden'}>
+            <AccessibilityScorer />
           </div>
           <div className={activeTool === 'apiDocs' ? '' : 'hidden'}>
             <ApiDocs />

@@ -1,6 +1,6 @@
 import * as gemini from './geminiService';
 import * as claude from './claudeService';
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 function getProvider(): 'claude' | 'gemini' {
@@ -48,6 +48,15 @@ export const generateLayoutRecommendations = (documentText: string): Promise<Lay
     getProvider() === 'claude'
         ? claude.generateLayoutRecommendations(documentText)
         : gemini.generateLayoutRecommendations(documentText);
+
+export const scoreAccessibility = (
+    pdfBase64: string,
+    pdfMimeType: string,
+    fileName: string
+): Promise<AccessibilityResult> =>
+    getProvider() === 'claude'
+        ? claude.scoreAccessibility(pdfBase64, pdfMimeType, fileName)
+        : gemini.scoreAccessibility(pdfBase64, pdfMimeType, fileName);
 
 // Embeddings are always computed client-side
 export const embedContentBatch = gemini.embedContentBatch;

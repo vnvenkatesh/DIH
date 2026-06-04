@@ -133,22 +133,35 @@ const ScoreBar: React.FC<{ score: number }> = ({ score }) => {
 
 // ── Main Component ─────────────────────────────────────────────────────────
 
+interface PdfMeta {
+    name: string;
+    sizeKb: number;
+    pages: number;
+    analyzedChars: number;
+}
+
+function formatSize(bytes: number): string {
+    if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+    return `${Math.round(bytes / 1024)} KB`;
+}
+
 const AccessibilityScorer: React.FC = () => {
     const [file, setFile] = useState<File | null>(null);
     const [result, setResult] = useState<AccessibilityResult | null>(null);
+    const [pdfMeta, setPdfMeta] = useState<PdfMeta | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const extractTextFromPdf = async (f: File): Promise<string> => {
+    const extractTextFromPdf = async (f: File): Promise<{ text: string; pages: number }> => {
         const arrayBuffer = await f.arrayBuffer();
         const pdf = await (pdfjsLib as any).getDocument({ data: arrayBuffer }).promise;
-        const pages: string[] = [];
+        const pageTexts: string[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
-            pages.push(content.items.map((item: any) => item.str).join(' '));
+            pageTexts.push(content.items.map((item: any) => item.str).join(' '));
         }
-        return pages.join('\n');
+        return { text: pageTexts.join('\n'), pages: pdf.numPages };
     };
 
     const handleScore = useCallback(async () => {
@@ -156,11 +169,12 @@ const AccessibilityScorer: React.FC = () => {
         setIsLoading(true);
         setError(null);
         setResult(null);
+        setPdfMeta(null);
         try {
-            const rawText = await extractTextFromPdf(file);
+            const { text: rawText, pages } = await extractTextFromPdf(file);
             if (!rawText.trim()) throw new Error('Could not extract text from the PDF. The file may be scanned or image-only.');
-            // Truncate to keep the request within proxy timeout limits
             const text = rawText.slice(0, 4000);
+            setPdfMeta({ name: file.name, sizeKb: file.size, pages, analyzedChars: text.length });
             const res = await scoreAccessibility(text, file.name);
             setResult(res);
         } catch (err) {
@@ -170,7 +184,7 @@ const AccessibilityScorer: React.FC = () => {
         }
     }, [file]);
 
-    const handleReset = () => { setFile(null); setResult(null); setError(null); };
+    const handleReset = () => { setFile(null); setResult(null); setError(null); setPdfMeta(null); };
 
     if (isLoading) {
         return (
@@ -206,6 +220,30 @@ const AccessibilityScorer: React.FC = () => {
 
         return (
             <div className="space-y-5">
+                {/* Document info strip */}
+                {pdfMeta && (
+                    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <svg className="w-4 h-4 text-rose-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                            </svg>
+                            <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate max-w-xs" title={pdfMeta.name}>
+                                {pdfMeta.name}
+                            </span>
+                        </div>
+                        {[
+                            { label: 'Size',     value: formatSize(pdfMeta.sizeKb) },
+                            { label: 'Pages',    value: pdfMeta.pages.toString() },
+                            { label: 'Analysed', value: `${pdfMeta.analyzedChars.toLocaleString()} chars` },
+                        ].map(({ label, value }) => (
+                            <div key={label} className="flex items-center gap-1.5 text-sm">
+                                <span className="text-slate-400 dark:text-slate-500">{label}:</span>
+                                <span className="font-medium text-slate-700 dark:text-slate-300">{value}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Score overview */}
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                     <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">

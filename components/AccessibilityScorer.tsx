@@ -138,7 +138,6 @@ const AccessibilityScorer: React.FC = () => {
     const [result, setResult] = useState<AccessibilityResult | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [activeStandard, setActiveStandard] = useState(0);
 
     const extractTextFromPdf = async (f: File): Promise<string> => {
         const arrayBuffer = await f.arrayBuffer();
@@ -164,7 +163,6 @@ const AccessibilityScorer: React.FC = () => {
             const text = rawText.slice(0, 4000);
             const res = await scoreAccessibility(text, file.name);
             setResult(res);
-            setActiveStandard(0);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');
         } finally {
@@ -179,7 +177,7 @@ const AccessibilityScorer: React.FC = () => {
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-10">
                 <Loader />
                 <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-4">
-                    Analysing document against WCAG 2.1, PDF/UA, Section 508 and EN 301 549…
+                    Analysing document against WCAG 2.1…
                 </p>
             </div>
         );
@@ -200,33 +198,32 @@ const AccessibilityScorer: React.FC = () => {
     }
 
     if (result) {
-        const std = result.standards[activeStandard];
-        const passCount = std?.criteria.filter(c => c.status === 'pass').length ?? 0;
-        const failCount = std?.criteria.filter(c => c.status === 'fail').length ?? 0;
-        const warnCount = std?.criteria.filter(c => c.status === 'warning').length ?? 0;
+        const wcag = result.standards[0];
+        const criteria = wcag?.criteria ?? [];
+        const passCount = criteria.filter(c => c.status === 'pass').length;
+        const failCount = criteria.filter(c => c.status === 'fail').length;
+        const warnCount = criteria.filter(c => c.status === 'warning').length;
 
         return (
-            <div className="space-y-6">
-                {/* Overview card */}
+            <div className="space-y-5">
+                {/* Score overview */}
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
                     <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
                         <ScoreGauge score={result.overallScore} />
                         <div className="flex-1 min-w-0 text-center sm:text-left">
                             <div className="flex flex-wrap items-center gap-3 justify-center sm:justify-start mb-2">
-                                <h3 className="text-xl font-bold text-slate-900 dark:text-white">Accessibility Report</h3>
+                                <h3 className="text-xl font-bold text-slate-900 dark:text-white">WCAG 2.1 Report</h3>
                                 <span className={`text-2xl font-extrabold w-10 h-10 rounded-xl flex items-center justify-center border-2 ${gradeStyle[result.grade]}`}>
                                     {result.grade}
                                 </span>
                             </div>
                             <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">{result.summary}</p>
-
-                            {/* Issue summary */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 {[
-                                    { label: 'Passed',   value: result.passed,         cls: 'text-emerald-600 dark:text-emerald-400' },
-                                    { label: 'Critical', value: result.criticalIssues,  cls: 'text-red-600 dark:text-red-400' },
-                                    { label: 'Major',    value: result.majorIssues,     cls: 'text-orange-600 dark:text-orange-400' },
-                                    { label: 'Minor',    value: result.minorIssues,     cls: 'text-amber-600 dark:text-amber-400' },
+                                    { label: 'Passed',   value: passCount,              cls: 'text-emerald-600 dark:text-emerald-400' },
+                                    { label: 'Failed',   value: failCount,              cls: 'text-red-600 dark:text-red-400' },
+                                    { label: 'Warnings', value: warnCount,              cls: 'text-amber-600 dark:text-amber-400' },
+                                    { label: 'Checked',  value: criteria.length,        cls: 'text-slate-600 dark:text-slate-300' },
                                 ].map(({ label, value, cls }) => (
                                     <div key={label} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl px-3 py-2 text-center">
                                         <p className={`text-2xl font-extrabold ${cls}`}>{value}</p>
@@ -238,51 +235,18 @@ const AccessibilityScorer: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Standards breakdown */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-                    {/* Tabs */}
-                    <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
-                        {result.standards.map((s, i) => (
-                            <button
-                                key={s.name}
-                                onClick={() => setActiveStandard(i)}
-                                className={`flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                                    activeStandard === i
-                                        ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                                        : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                                }`}
-                            >
-                                {s.name}
-                            </button>
-                        ))}
-                    </div>
-
-                    {std && (
-                        <div className="p-5 space-y-4">
-                            {/* Standard score + mini stats */}
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                <div className="flex-1">
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{std.name} compliance</span>
-                                        <span className="text-sm font-bold text-slate-800 dark:text-slate-200">{std.score}/100</span>
-                                    </div>
-                                    <ScoreBar score={std.score} />
-                                </div>
-                                <div className="flex gap-3 text-xs text-center flex-shrink-0">
-                                    <span className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 font-semibold">{passCount} passed</span>
-                                    <span className="px-2 py-1 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 font-semibold">{failCount} failed</span>
-                                    {warnCount > 0 && <span className="px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 font-semibold">{warnCount} warnings</span>}
-                                </div>
-                            </div>
-
-                            {/* Criteria list */}
-                            <div className="space-y-2">
-                                {std.criteria.map((c, i) => (
-                                    <CriterionRow key={`${c.id}-${i}`} c={c} />
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                {/* Itemised criteria — issues first, then passes */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 space-y-2">
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
+                        WCAG 2.1 Criteria — {criteria.length} checked
+                    </h4>
+                    {[...criteria]
+                        .sort((a, b) => {
+                            const order = { fail: 0, warning: 1, pass: 2, 'not-applicable': 3 };
+                            return (order[a.status] ?? 4) - (order[b.status] ?? 4);
+                        })
+                        .map((c, i) => <CriterionRow key={`${c.id}-${i}`} c={c} />)
+                    }
                 </div>
 
                 <div className="text-center">
@@ -299,11 +263,10 @@ const AccessibilityScorer: React.FC = () => {
             <div className="text-center mb-8">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Accessibility Check</h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400 max-w-xl mx-auto">
-                    Upload a PDF to receive a detailed compliance audit against WCAG 2.1, PDF/UA, Section 508 and EN 301 549.
-                    Get an overall score, issue breakdown, and actionable recommendations.
+                    Upload a PDF to receive an itemised WCAG 2.1 compliance report. Each criterion is scored pass, fail, or warning with a specific fix recommendation.
                 </p>
                 <div className="flex flex-wrap justify-center gap-2 mt-3">
-                    {['WCAG 2.1', 'PDF/UA', 'Section 508', 'EN 301 549'].map(s => (
+                    {['Level A', 'Level AA', 'WCAG 2.1'].map(s => (
                         <span key={s} className="text-xs px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 border border-rose-100 dark:border-rose-800 font-medium">
                             {s}
                         </span>

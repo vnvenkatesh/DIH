@@ -50,13 +50,12 @@ export const generateLayoutRecommendations = (documentText: string): Promise<Lay
         : gemini.generateLayoutRecommendations(documentText);
 
 export const scoreAccessibility = (
-    pdfBase64: string,
-    pdfMimeType: string,
+    documentText: string,
     fileName: string
 ): Promise<AccessibilityResult> =>
     getProvider() === 'claude'
-        ? claude.scoreAccessibility(pdfBase64, pdfMimeType, fileName)
-        : gemini.scoreAccessibility(pdfBase64, pdfMimeType, fileName);
+        ? claude.scoreAccessibility(documentText, fileName)
+        : gemini.scoreAccessibility(documentText, fileName);
 
 // Embeddings are always computed client-side
 export const embedContentBatch = gemini.embedContentBatch;

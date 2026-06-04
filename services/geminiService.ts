@@ -336,29 +336,29 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
     }
 };
 
-const accessibilityPrompt = `You are a certified digital accessibility expert. Analyze the provided PDF document and produce a detailed accessibility compliance report covering WCAG 2.1 (A and AA), PDF/UA (ISO 14289-1), Section 508, and EN 301 549.
+const accessibilityPrompt = `You are a certified digital accessibility expert. You have been given the extracted text content of a PDF document. Analyse it for accessibility compliance against WCAG 2.1 (A and AA), PDF/UA (ISO 14289-1), Section 508, and EN 301 549.
 
-For criteria you cannot directly verify from the document content, use status "warning" if they are commonly problematic for this document type, or "not-applicable" if genuinely irrelevant.
+Because this analysis is based on extracted text rather than the raw PDF binary, apply these rules:
+- Criteria that CAN be assessed from text: heading hierarchy, reading order, language indicators, link text quality, document title, table structure, list usage, paragraph flow, use of colour descriptions in text.
+- Criteria that CANNOT be fully verified from text alone (e.g. tagged PDF structure, image alt text, contrast ratios, form labels) must be set to status "warning" with a note that manual PDF inspection is required.
 
-You MUST return ONLY a single valid JSON object — no markdown fences, no explanatory text, nothing outside the JSON. Follow this exact structure (the example values below are illustrative only — replace them with your real analysis):
+You MUST return ONLY a single valid JSON object — no markdown fences, no explanatory text, nothing outside the JSON. Follow this example structure exactly (replace values with your real analysis):
 
-{"overallScore":72,"grade":"C","summary":"The document has reasonable heading structure but lacks alternative text for several images and does not specify a document language, creating significant barriers for screen reader users.","standards":[{"name":"WCAG 2.1","score":68,"criteria":[{"id":"1.1.1","standard":"WCAG 2.1","level":"A","name":"Non-text Content","status":"fail","severity":"critical","issue":"Multiple images found without alternative text descriptions.","recommendation":"Add meaningful alt text to every informational image. Decorative images should be marked as artifacts."},{"id":"2.4.2","standard":"WCAG 2.1","level":"A","name":"Page Titled","status":"pass"},{"id":"1.4.3","standard":"WCAG 2.1","level":"AA","name":"Contrast (Minimum)","status":"warning","severity":"major","issue":"Light grey body text on white background may fall below the 4.5:1 contrast ratio required.","recommendation":"Verify contrast ratio with a tool such as the WebAIM Colour Contrast Checker and adjust text or background colour as needed."}]},{"name":"PDF/UA","score":"75","criteria":[{"id":"PDFUA-1","standard":"PDF/UA","name":"Tagged PDF","status":"warning","severity":"major","issue":"Unable to confirm the document contains full PDF tags from content alone.","recommendation":"Open the document in Adobe Acrobat and run the Accessibility Checker to verify and fix tag structure."}]},{"name":"Section 508","score":70,"criteria":[{"id":"508-1","standard":"Section 508","name":"Text Alternatives","status":"fail","severity":"critical","issue":"Non-text content lacks text alternatives.","recommendation":"Provide text alternatives for all non-text content."}]},{"name":"EN 301 549","score":72,"criteria":[{"id":"EN-9.1.1.1","standard":"EN 301 549","name":"Non-text Content","status":"fail","severity":"critical","issue":"Images without alt text violate clause 9.1.1.1.","recommendation":"Add alt text to all informational images."}]}],"criticalIssues":3,"majorIssues":2,"minorIssues":1,"passed":8,"totalChecked":14}
+{"overallScore":72,"grade":"C","summary":"The document has a clear heading hierarchy and good link descriptions, but several programmatic accessibility properties such as PDF tagging and image alt text require manual verification with a dedicated accessibility checker.","standards":[{"name":"WCAG 2.1","score":68,"criteria":[{"id":"1.1.1","standard":"WCAG 2.1","level":"A","name":"Non-text Content","status":"warning","severity":"major","issue":"Cannot confirm alt text for images from extracted text alone.","recommendation":"Open the PDF in Adobe Acrobat, run the Accessibility Checker, and add alt text to all informational images."},{"id":"1.3.1","standard":"WCAG 2.1","level":"A","name":"Info and Relationships","status":"pass"},{"id":"2.4.2","standard":"WCAG 2.1","level":"A","name":"Page Titled","status":"pass"},{"id":"2.4.4","standard":"WCAG 2.1","level":"A","name":"Link Purpose","status":"fail","severity":"major","issue":"Several links use generic text such as 'click here' or 'read more'.","recommendation":"Replace generic link text with descriptive text that identifies the link destination."},{"id":"3.1.1","standard":"WCAG 2.1","level":"A","name":"Language of Page","status":"warning","severity":"minor","issue":"No explicit language declaration detected in the extracted text.","recommendation":"Set the document language in PDF Properties > Description > Language."}]},{"name":"PDF/UA","score":65,"criteria":[{"id":"PDFUA-1","standard":"PDF/UA","name":"Tagged PDF","status":"warning","severity":"critical","issue":"Cannot confirm tagged PDF structure from extracted text.","recommendation":"Verify tagging using Acrobat's Accessibility Checker or PAC 2024."},{"id":"PDFUA-2","standard":"PDF/UA","name":"Logical Reading Order","status":"pass"},{"id":"PDFUA-3","standard":"PDF/UA","name":"Document Title","status":"warning","severity":"minor","issue":"Document metadata title could not be verified from content alone.","recommendation":"Set a descriptive title in File > Properties > Description."},{"id":"PDFUA-4","standard":"PDF/UA","name":"Bookmarks","status":"warning","severity":"minor","issue":"Navigation bookmarks cannot be confirmed from extracted text.","recommendation":"Add bookmarks for documents longer than a few pages."},{"id":"PDFUA-5","standard":"PDF/UA","name":"Heading Structure","status":"pass"}]},{"name":"Section 508","score":70,"criteria":[{"id":"508-1","standard":"Section 508","name":"Text Alternatives","status":"warning","severity":"major","issue":"Alt text for non-text elements requires manual verification.","recommendation":"Use Acrobat's Accessibility Checker to confirm all images have appropriate alt text."},{"id":"508-2","standard":"Section 508","name":"Adaptable Content","status":"pass"},{"id":"508-3","standard":"Section 508","name":"Distinguishable","status":"warning","severity":"major","issue":"Colour contrast cannot be assessed from extracted text.","recommendation":"Check all text/background colour combinations meet 4.5:1 ratio using a contrast analyser."},{"id":"508-4","standard":"Section 508","name":"Keyboard Navigation","status":"warning","severity":"minor","issue":"Tab order and focus indicators require interactive testing.","recommendation":"Test keyboard navigation using a screen reader such as NVDA or JAWS."},{"id":"508-5","standard":"Section 508","name":"Consistent Navigation","status":"pass"}]},{"name":"EN 301 549","score":72,"criteria":[{"id":"EN-9.1.1.1","standard":"EN 301 549","name":"Non-text Content","status":"warning","severity":"major","issue":"Alt text compliance requires verification in the source PDF.","recommendation":"Inspect the PDF with PAC 2024 or Acrobat to confirm alt text on all images."},{"id":"EN-9.1.3.1","standard":"EN 301 549","name":"Info and Relationships","status":"pass"},{"id":"EN-9.2.4.2","standard":"EN 301 549","name":"Page Titled","status":"pass"},{"id":"EN-9.3.1.1","standard":"EN 301 549","name":"Language of Page","status":"warning","severity":"minor","issue":"Language metadata requires verification.","recommendation":"Set document language in PDF properties."},{"id":"EN-9.4.1.2","standard":"EN 301 549","name":"Name, Role, Value","status":"warning","severity":"major","issue":"Programmatic name and role of form controls require interactive testing.","recommendation":"Use PAC 2024 to validate form field accessibility."}]}],"criticalIssues":0,"majorIssues":6,"minorIssues":4,"passed":8,"totalChecked":18}
 
-Strict rules for your output:
+Strict output rules:
 - overallScore: integer 0-100
-- grade: exactly one of the strings "A","B","C","D","F" (A=90-100, B=75-89, C=60-74, D=40-59, F=0-39)
-- standards: array with one entry per standard, covering all four: WCAG 2.1, PDF/UA, Section 508, EN 301 549
-- Each criterion status must be exactly one of: "pass", "fail", "warning", "not-applicable"
-- Only include "severity", "issue", and "recommendation" fields when status is "fail" or "warning"
-- severity must be exactly one of: "critical", "major", "minor"
-- Return at least 5 criteria per standard
-- Output ONLY the JSON object`;
+- grade: exactly one of "A","B","C","D","F" (A=90-100, B=75-89, C=60-74, D=40-59, F=0-39)
+- standards: array with entries for WCAG 2.1, PDF/UA, Section 508, EN 301 549
+- status: exactly one of "pass","fail","warning","not-applicable"
+- Include "severity","issue","recommendation" ONLY when status is "fail" or "warning"
+- severity: exactly one of "critical","major","minor"
+- At least 5 criteria per standard
+- Output ONLY the JSON object, nothing else`;
 
 function cleanJson(text: string): string {
-    // Strip markdown code fences if the model wrapped the output
     const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenced) return fenced[1].trim();
-    // Fallback: extract outermost { ... }
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start !== -1 && end > start) return text.slice(start, end + 1);
@@ -366,8 +366,7 @@ function cleanJson(text: string): string {
 }
 
 export const scoreAccessibility = async (
-    pdfBase64: string,
-    pdfMimeType: string,
+    documentText: string,
     _fileName: string
 ): Promise<AccessibilityResult> => {
     try {
@@ -376,7 +375,7 @@ export const scoreAccessibility = async (
             [{
                 parts: [
                     { text: accessibilityPrompt },
-                    { inlineData: { mimeType: pdfMimeType || 'application/pdf', data: pdfBase64 } },
+                    { text: `\n\n--- DOCUMENT TEXT ---\n\n${documentText}` },
                 ],
             }],
             { responseMimeType: 'application/json' }

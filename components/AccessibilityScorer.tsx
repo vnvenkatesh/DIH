@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
 import { AccessibilityResult, AccessibilityCriterion } from '../types';
 import { scoreAccessibility } from '../services/llmService';
 import FileUploader from './FileUploader';
@@ -139,13 +140,17 @@ const AccessibilityScorer: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [activeStandard, setActiveStandard] = useState(0);
 
-    const toBase64 = (f: File): Promise<string> =>
-        new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(f);
-            reader.onload = () => resolve((reader.result as string).split(',')[1]);
-            reader.onerror = reject;
-        });
+    const extractTextFromPdf = async (f: File): Promise<string> => {
+        const arrayBuffer = await f.arrayBuffer();
+        const pdf = await (pdfjsLib as any).getDocument({ data: arrayBuffer }).promise;
+        const pages: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            pages.push(content.items.map((item: any) => item.str).join(' '));
+        }
+        return pages.join('\n');
+    };
 
     const handleScore = useCallback(async () => {
         if (!file) return;
@@ -153,8 +158,9 @@ const AccessibilityScorer: React.FC = () => {
         setError(null);
         setResult(null);
         try {
-            const base64 = await toBase64(file);
-            const res = await scoreAccessibility(base64, file.type || 'application/pdf', file.name);
+            const text = await extractTextFromPdf(file);
+            if (!text.trim()) throw new Error('Could not extract text from the PDF. The file may be scanned or image-only.');
+            const res = await scoreAccessibility(text, file.name);
             setResult(res);
             setActiveStandard(0);
         } catch (err) {

@@ -40,10 +40,10 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
     const { model, max_tokens, messages, beta } = req.body;
 
     const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [req.user!.id]);
-    const apiKey = rows[0]?.claude_api_key;
+    const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
 
     if (!apiKey) {
-      res.status(400).json({ error: 'Claude API key not configured. Go to Settings → LLM Provider.' });
+      res.status(400).json({ error: { message: 'Claude API key not configured. Go to Settings → LLM Provider.' } });
       return;
     }
 
@@ -60,10 +60,14 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
       body: JSON.stringify({ model, max_tokens, messages }),
     });
 
-    const data = await upstream.json();
+    const data = await upstream.json() as any;
+    if (upstream.status === 401) {
+      res.status(400).json({ error: { message: 'Claude API key is invalid. Please update it in Settings → LLM Provider.' } });
+      return;
+    }
     res.status(upstream.status).json(data);
   } catch (err: any) {
-    res.status(500).json({ error: err?.message ?? 'Claude proxy error' });
+    res.status(500).json({ error: { message: err?.message ?? 'Claude proxy error' } });
   }
 });
 

@@ -478,7 +478,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                             if (Array.isArray(semanticDiffs)) {
                                 for (const diff of semanticDiffs) {
                                     overallDifferenceCounter++;
-                                    const isSame = diff.kind === 'same';
+                                    const isSame = (diff.kind ?? '').toLowerCase() === 'same';
                                     const bboxA = findBboxForSnippet(diff.textA, itemsA) || { left: 0, top: 0, width: 0, height: 0 };
                                     const bboxB = findBboxForSnippet(diff.textB, itemsB) || { left: 0, top: 0, width: 0, height: 0 };
 

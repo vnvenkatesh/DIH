@@ -209,7 +209,7 @@ export const performSemanticComparison = async (
             max_tokens: 4096,
             messages: [{ role: 'user', content: `${semanticComparePrompt}\n\n--- Page A ---\n\n${textA}\n\n--- Page B ---\n\n${textB}` }],
         });
-        return JSON.parse(extractText(result));
+        return JSON.parse(cleanJson(extractText(result)));
     } catch (error) {
         console.error('Error calling Claude API for semantic comparison:', error);
         return [];

@@ -294,7 +294,7 @@ export const performSemanticComparison = async (
                             textA: { type: 'STRING' },
                             textB: { type: 'STRING' },
                             reason: { type: 'STRING' },
-                            kind: { type: 'STRING', enum: ['diff', 'same'] },
+                            kind: { type: 'STRING' },
                         },
                         required: ['textA', 'textB', 'reason', 'kind'],
                     },

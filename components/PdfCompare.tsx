@@ -126,7 +126,6 @@ const PdfPages: React.FC<{
 
                                 if(h.bbox.width === 0 && h.bbox.height === 0) return null;
 
-                                const isSemanticallyEqual = h.highlightKind === 'semantically-same';
                                 return (
                                     <div
                                         key={uniqueId}
@@ -135,7 +134,7 @@ const PdfPages: React.FC<{
                                             if (el) highlightElementRefs.current.set(uniqueId, el);
                                             else highlightElementRefs.current.delete(uniqueId);
                                         }}
-                                        className={`absolute ${isSemanticallyEqual ? 'bg-green-400/50' : side === 'A' ? 'bg-red-500/30' : 'bg-green-500/30'} ${isCurrent ? 'outline outline-4 outline-offset-2 outline-blue-500 z-20' : ''} focus:outline-none focus:ring-4 focus:ring-blue-500/50`}
+                                        className={`absolute ${side === 'A' ? 'bg-red-500/30' : 'bg-green-500/30'} ${isCurrent ? 'outline outline-4 outline-offset-2 outline-blue-500 z-20' : ''} focus:outline-none focus:ring-4 focus:ring-blue-500/50`}
                                         style={h.bbox}
                                         onMouseEnter={(e) => onMouseEnter(e, h.tooltipContent)}
                                         onMouseLeave={onMouseLeave}

@@ -108,17 +108,20 @@ Instructions:
 `;
 
 const semanticComparePrompt = `
-You are a meticulous quality assurance analyst. Your task is to compare two pages of a document and identify all semantic differences.
+You are a meticulous quality assurance analyst. Your task is to compare two pages of a document and identify both semantic differences and semantically-equivalent paraphrases.
 
 Instructions:
 1. You will be given the text content of "Page A" and "Page B".
 2. Analyze their meaning, intent, and the information they convey.
-3. Ignore minor differences in wording or layout if the core meaning is identical.
-4. Identify substantive differences in meaning, missing information, or added information.
-5. For each semantic difference, provide:
-    - "textA": The specific snippet from Page A that is different or missing in Page B. Use "" if entirely new in Page B.
-    - "textB": The specific snippet from Page B that is different or missing in Page A. Use "" if removed from Page A.
-    - "reason": A brief one-sentence explanation of the semantic difference.
+3. Identify TWO categories:
+   a) kind="diff": Content where the meaning, facts, or information substantively differ — including additions, removals, or changed meaning.
+   b) kind="same": Content where the meaning is identical but the wording, phrasing, or sentence structure is noticeably different (paraphrases, synonyms, restructured sentences).
+4. Ignore purely cosmetic changes (trivial punctuation, capitalisation, or whitespace with no wording difference).
+5. For each item provide:
+    - "textA": The specific snippet from Page A. Use "" if the content is entirely new in Page B.
+    - "textB": The specific snippet from Page B. Use "" if the content was removed from Page A.
+    - "reason": A brief one-sentence explanation for kind="diff" items. Use "" for kind="same" items.
+    - "kind": Either "diff" (meaning changed) or "same" (same meaning, different wording).
 6. Format the final output as a JSON array of objects.
 7. The entire response must be ONLY the JSON array. Do not include any other text, comments, or markdown formatting.
 `;
@@ -199,7 +202,7 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
 export const performSemanticComparison = async (
     textA: string,
     textB: string
-): Promise<Array<{ textA: string; textB: string; reason: string }>> => {
+): Promise<Array<{ textA: string; textB: string; reason: string; kind: 'diff' | 'same' }>> => {
     try {
         const result = await callClaude({
             model: 'claude-haiku-4-5-20251001',

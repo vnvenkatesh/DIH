@@ -47,6 +47,7 @@ export interface Highlight {
     height: number;
   };
   tooltipContent: React.ReactNode;
+  highlightKind?: 'diff' | 'semantically-same';
 }
 
 export interface ComparisonDifference {

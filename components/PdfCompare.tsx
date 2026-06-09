@@ -126,6 +126,7 @@ const PdfPages: React.FC<{
 
                                 if(h.bbox.width === 0 && h.bbox.height === 0) return null;
 
+                                const isSemanticallyEqual = h.highlightKind === 'semantically-same';
                                 return (
                                     <div
                                         key={uniqueId}
@@ -134,7 +135,7 @@ const PdfPages: React.FC<{
                                             if (el) highlightElementRefs.current.set(uniqueId, el);
                                             else highlightElementRefs.current.delete(uniqueId);
                                         }}
-                                        className={`absolute ${side === 'A' ? 'bg-red-500/30' : 'bg-green-500/30'} ${isCurrent ? 'outline outline-4 outline-offset-2 outline-blue-500 z-20' : ''} focus:outline-none focus:ring-4 focus:ring-blue-500/50`}
+                                        className={`absolute ${isSemanticallyEqual ? 'bg-green-400/50' : side === 'A' ? 'bg-red-500/30' : 'bg-green-500/30'} ${isCurrent ? 'outline outline-4 outline-offset-2 outline-blue-500 z-20' : ''} focus:outline-none focus:ring-4 focus:ring-blue-500/50`}
                                         style={h.bbox}
                                         onMouseEnter={(e) => onMouseEnter(e, h.tooltipContent)}
                                         onMouseLeave={onMouseLeave}
@@ -470,21 +471,27 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                     setLoadingMessage(`Performing AI semantic analysis on page ${pageNum}...`);
                     const textA = itemsA.map(i => i.str).join(' ');
                     const textB = itemsB.map(i => i.str).join(' ');
-                    
+
                     if (textA.trim() || textB.trim()) {
                         try {
                             const semanticDiffs = await performSemanticComparison(textA, textB);
-                            
+
                             if (Array.isArray(semanticDiffs)) {
                                 for (const diff of semanticDiffs) {
                                     overallDifferenceCounter++;
-                                    const tooltip = createTooltip("Semantic Difference", <p className="mt-1">{diff.reason}</p>, overallDifferenceCounter);
-                                    
+                                    const isSame = diff.kind === 'same';
                                     const bboxA = findBboxForSnippet(diff.textA, itemsA) || { left: 0, top: 0, width: 0, height: 0 };
                                     const bboxB = findBboxForSnippet(diff.textB, itemsB) || { left: 0, top: 0, width: 0, height: 0 };
-                                    
-                                    pageHighlightsA.push({ bbox: bboxA, tooltipContent: tooltip });
-                                    pageHighlightsB.push({ bbox: bboxB, tooltipContent: tooltip });
+
+                                    if (isSame) {
+                                        const tooltip = createTooltip("Semantically Same", null, overallDifferenceCounter);
+                                        pageHighlightsA.push({ bbox: bboxA, tooltipContent: tooltip, highlightKind: 'semantically-same' });
+                                        pageHighlightsB.push({ bbox: bboxB, tooltipContent: tooltip, highlightKind: 'semantically-same' });
+                                    } else {
+                                        const tooltip = createTooltip("Semantic Difference", <p className="mt-1">{diff.reason}</p>, overallDifferenceCounter);
+                                        pageHighlightsA.push({ bbox: bboxA, tooltipContent: tooltip });
+                                        pageHighlightsB.push({ bbox: bboxB, tooltipContent: tooltip });
+                                    }
                                 }
                             }
                         } catch (semanticErr) {

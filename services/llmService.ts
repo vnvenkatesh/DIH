@@ -39,7 +39,7 @@ export const generateDataMap = (
 export const performSemanticComparison = (
     textA: string,
     textB: string
-): Promise<Array<{ textA: string; textB: string; reason: string }>> =>
+): Promise<Array<{ textA: string; textB: string; reason: string; kind: 'diff' | 'same' }>> =>
     getProvider() === 'claude'
         ? claude.performSemanticComparison(textA, textB)
         : gemini.performSemanticComparison(textA, textB);

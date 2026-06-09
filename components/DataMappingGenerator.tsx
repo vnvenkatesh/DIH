@@ -23,7 +23,8 @@ async function fileToString(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   if (file.name.toLowerCase().endsWith('.docx')) {
     try {
-      const result = await mammoth.extractRawText({ arrayBuffer });
+      // Use HTML conversion so table structure (rows/cells) is preserved for the LLM
+      const result = await mammoth.convertToHtml({ arrayBuffer });
       return result.value;
     } catch {
       // fall through to text read
@@ -91,8 +92,8 @@ function consolidateMappings(all: DataMapping[]): ConsolidatedDataMapping[] {
   return Array.from(byField.values())
     .map(({ field, xsdPaths, sampleValues, templates }) => ({
       field,
-      xsdPath:      xsdPaths.length    ? mostCommon(xsdPaths)    : 'TBD',
-      sampleValue:  sampleValues.length ? mostCommon(sampleValues) : 'TBD',
+      xsdPath:      xsdPaths.length    ? mostCommon(xsdPaths)    : 'path not found',
+      sampleValue:  sampleValues.length ? mostCommon(sampleValues) : '',
       templateCount: templates.size,
       templates: Array.from(templates).sort(),
     }))
@@ -510,14 +511,14 @@ const DataMappingGenerator: React.FC = () => {
                     <tr key={i} className="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors">
                       <td className="px-4 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">{m.field}</td>
                       <td className="px-4 py-3 font-mono text-xs break-all">
-                        {m.xsdPath === 'TBD'
-                          ? <span className="italic text-amber-600 dark:text-amber-400">TBD</span>
+                        {m.xsdPath === 'path not found'
+                          ? <span className="italic text-amber-600 dark:text-amber-400">path not found</span>
                           : <span className="text-indigo-600 dark:text-indigo-400">{m.xsdPath}</span>}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        {m.sampleValue === 'TBD'
-                          ? <span className="italic text-amber-600 dark:text-amber-400">TBD</span>
-                          : <span className="text-slate-600 dark:text-slate-300">{m.sampleValue}</span>}
+                        {m.sampleValue
+                          ? <span className="text-slate-600 dark:text-slate-300">{m.sampleValue}</span>
+                          : <span className="italic text-slate-400">—</span>}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <TemplatesBadge mapping={m} total={doneCount} />

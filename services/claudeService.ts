@@ -73,23 +73,38 @@ Instructions:
 `;
 
 const dataMappingGeneratorPrompt = `
-You are an expert template designer and data architect. Your task is to map placeholder fields from a Word document template to the correct elements in an XML Schema Definition (XSD) and generate a valid sample XML.
+You are an expert template designer and data architect. Your task is to identify EVERY variable data field in a Word document and map each one to its XPath in an XSD schema.
 
 Instructions:
-1.  You will be provided with the text content of a Word document, the document's filename (Template Name), and the full text of an XSD file.
-2.  Identify Dynamic Fields: Scan the Word document text for potential dynamic fields identified by patterns like <placeholder>, [placeholder], or common business terms.
-3.  Strict Filtering: ONLY include fields explicitly identified in the Word document. Do NOT list all fields from the XSD.
-4.  Analyze XSD Schema: Parse the provided XSD content to understand the schema structure.
-5.  For each field identified in the Word document, determine the correct XPath to the corresponding leaf element within the XSD.
-6.  Sample Data Priority:
-    - Priority 1: If the Word document contains actual data next to a field, use that as the sampleValue.
-    - Priority 2: If no data is found, generate a realistic synthetic sample value.
-7.  Use the provided Template Name for the 'templateName' field. Estimate the 'pageNumber' where the field likely appears.
-8.  Generate XML: Create a valid XML string that strictly conforms to the provided XSD. Populate with the sample data.
-9.  Return a JSON object with two keys:
-    - "mappings": An array of objects with "field", "xsdPath", "sampleValue", "templateName", and "pageNumber".
-    - "generatedXml": A string containing the full, valid XML.
-10. The entire response must be ONLY the JSON object. Do not include any other text, comments, or markdown formatting.
+1.  You will be given the HTML content of a Word document (which preserves table structure), the document's filename (Template Name), and the full text of an XSD file.
+
+2.  **Extract EVERY Variable Field** — scan the entire document exhaustively. Include ALL of the following:
+    - Explicit placeholders in any format: <FieldName>, [FieldName], {{FieldName}}, {FieldName}, <<FieldName>>
+    - Labeled fields: any "Label:" or "Label -" or "Label " followed by a value, blank space, or underscores
+    - Table cells: extract the column/row header as the field name and the corresponding data cell as the value — do NOT skip table fields
+    - Blank lines or underscore sequences after a label (the label is the field name; the value is blank)
+    - Any text that looks like it represents a data point with a label (e.g., "Date of Birth", "Policy Number", "Customer Name", "Address", "Amount Due")
+    - Fields with actual filled-in values (extract both the label and the value)
+    - ALL fields regardless of whether they appear filled in or empty
+
+3.  **NEVER list fields from the XSD that are not present in the document.** Only include fields found in the Word document itself.
+
+4.  **XSD Mapping:** For each field found in the document:
+    - Search the XSD for an xs:element or xs:attribute whose name or path semantically matches the field.
+    - If found, provide the full XPath (e.g., /Root/Customer/Name).
+    - If NO match exists in the XSD, set xsdPath to exactly "path not found".
+
+5.  **Sample Values:**
+    - If the document has an actual value for the field, use it as sampleValue.
+    - If the field is blank or a placeholder, generate a realistic synthetic sample value based on the field name (e.g., for "Date" use "2024-06-15", for "Name" use "Jane Smith").
+
+6.  Use the provided Template Name for 'templateName'. Estimate 'pageNumber' from document position.
+
+7.  **Generate XML:** Create a valid XML string conforming to the XSD using only the fields that have a valid XSD path. Use sample values to populate it.
+
+8.  Return ONLY a JSON object — no markdown, no explanation:
+    - "mappings": Array of objects, each with "field", "xsdPath", "sampleValue", "templateName", "pageNumber"
+    - "generatedXml": Valid XML string (empty string if no fields mapped to XSD)
 `;
 
 const semanticComparePrompt = `
@@ -146,9 +161,9 @@ export const generateDataMap = async (
     const result = await callClaude({
         model: 'claude-sonnet-4-6',
         max_tokens: 8192,
-        messages: [{ role: 'user', content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}` }],
+        messages: [{ role: 'user', content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT (HTML) ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}` }],
     });
-    return JSON.parse(extractText(result)) as DataMappingResult;
+    return JSON.parse(cleanJson(extractText(result))) as DataMappingResult;
 };
 
 const layoutRecommendationPrompt = `

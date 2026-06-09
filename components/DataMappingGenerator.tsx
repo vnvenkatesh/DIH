@@ -19,16 +19,61 @@ interface FileProgress {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// Convert mammoth HTML to structured text that preserves table label-value pairs.
+// This produces a much cleaner representation for the LLM than raw HTML tags.
+function htmlToStructuredText(html: string): string {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const lines: string[] = [];
+
+  function processElement(el: Element): void {
+    const tag = el.tagName.toLowerCase();
+
+    if (tag === 'table') {
+      const rows = Array.from(el.querySelectorAll('tr'));
+      const grid = rows
+        .map(r => Array.from(r.querySelectorAll('td, th')).map(c => c.textContent?.trim() ?? ''))
+        .filter(r => r.some(c => c.length > 0));
+
+      if (grid.length === 0) return;
+      const maxCols = Math.max(...grid.map(r => r.length));
+
+      if (maxCols <= 2) {
+        for (const [label = '', value = ''] of grid) {
+          if (label) lines.push(`${label}: ${value}`);
+        }
+      } else {
+        const [headers = [], ...dataRows] = grid;
+        for (const row of dataRows) {
+          row.forEach((cell, i) => {
+            if (headers[i] && cell) lines.push(`${headers[i]}: ${cell}`);
+          });
+        }
+      }
+      lines.push('');
+      return;
+    }
+
+    if (['div', 'section', 'article', 'ul', 'ol', 'body'].includes(tag)) {
+      for (const child of el.children) processElement(child);
+      return;
+    }
+
+    const text = el.textContent?.trim();
+    if (text) lines.push(text);
+  }
+
+  processElement(doc.body);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 async function fileToString(file: File): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   if (file.name.toLowerCase().endsWith('.docx')) {
-    try {
-      // Use HTML conversion so table structure (rows/cells) is preserved for the LLM
-      const result = await mammoth.convertToHtml({ arrayBuffer });
-      return result.value;
-    } catch {
-      // fall through to text read
-    }
+    // No try/catch — surface mammoth errors to the per-file error handler
+    // rather than silently falling through to a binary-as-text read
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    return htmlToStructuredText(result.value);
   }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -224,6 +269,7 @@ const DataMappingGenerator: React.FC = () => {
     const xsdContent = await fileToString(xsdFile);
     const allMappings: DataMapping[] = [];
     let firstXml = '';
+    const perFileErrors: string[] = [];
 
     for (let i = 0; i < docxFiles.length; i++) {
       const file = docxFiles[i];
@@ -247,6 +293,7 @@ const DataMappingGenerator: React.FC = () => {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        perFileErrors.push(`${file.name}: ${msg}`);
         setFileProgress(prev =>
           prev.map((p, idx) => idx === i
             ? { ...p, status: 'error', fieldCount: 0, error: msg }
@@ -259,7 +306,11 @@ const DataMappingGenerator: React.FC = () => {
     setIsLoading(false);
 
     if (allMappings.length === 0) {
-      setError('No fields could be extracted from the uploaded files. Please check that the documents contain placeholder fields and try again.');
+      if (perFileErrors.length > 0) {
+        setError(`Processing failed:\n\n${perFileErrors.join('\n')}`);
+      } else {
+        setError('No fields could be extracted. The document may not contain recognizable labeled fields or tables. Check the browser console for details.');
+      }
       return;
     }
 
@@ -421,12 +472,14 @@ const DataMappingGenerator: React.FC = () => {
 
       {/* ── Error ── */}
       {error && (
-        <div className="text-center text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-4 rounded-lg">
-          <p className="font-bold">Error</p>
-          <p className="text-sm mt-1">{error}</p>
-          <button onClick={handleReset} className="mt-4 bg-red-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-600 transition-colors text-sm">
-            Try Again
-          </button>
+        <div className="text-red-500 dark:text-red-400 bg-red-100 dark:bg-red-900/20 p-4 rounded-lg">
+          <p className="font-bold text-center">Error</p>
+          <pre className="text-sm mt-2 whitespace-pre-wrap break-words font-sans">{error}</pre>
+          <div className="text-center mt-4">
+            <button onClick={handleReset} className="bg-red-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-600 transition-colors text-sm">
+              Try Again
+            </button>
+          </div>
         </div>
       )}
 

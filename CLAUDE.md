@@ -25,18 +25,27 @@ npm run preview      # Preview production build
 | Component | Purpose | Inputs |
 |---|---|---|
 | `Rationalizer.tsx` | Groups similar PDFs by hash or semantic embedding | Multiple PDFs |
-| `PdfCompare.tsx` | Side-by-side semantic diff of two PDFs | Two PDFs |
+| `PdfCompare.tsx` | Side-by-side exact and semantic diff of two PDFs | Two PDFs |
 | `DataMappingGenerator.tsx` | Maps Word doc fields to XSD schema, generates XML | DOCX + XSD |
 | `XPathExtractor.tsx` | Extracts PDF data and maps to XML XPath locations | PDF + XML |
 | `FieldExtractor.tsx` | Generates synthetic data from an XSD schema | XSD |
+| `LayoutRecommendation.tsx` | Reformats a customer communication document into optimised Email and WhatsApp versions | PDF or DOCX |
+| `AccessibilityScorer.tsx` | Scores a PDF against WCAG 2.1 Level A/AA criteria | PDF |
 
 ### AI Service Layer
 
-All Gemini API calls go through `services/geminiService.ts`. Two model tiers:
-- `gemini-2.5-flash` — simpler tasks (field extraction, semantic comparison)
-- `gemini-2.5-pro` — complex tasks (XPath mapping, data mapping generation)
+All LLM calls are routed through `services/llmService.ts`, which reads the user's provider preference (`llmProvider` in `dih_settings` localStorage key) and delegates to the appropriate backend:
 
-Structured responses use JSON Schema validation. Client-side cosine similarity on embeddings is used as a fallback when the API is unavailable (Rationalizer).
+- `services/geminiService.ts` — Gemini provider. Two model tiers:
+  - `gemini-2.5-flash` — simpler tasks (field extraction, semantic comparison, layout, accessibility)
+  - `gemini-2.5-pro` — complex tasks (XPath mapping, data mapping generation)
+- `services/claudeService.ts` — Claude (Anthropic) provider. Model tiers:
+  - `claude-haiku-4-5-20251001` — simpler tasks
+  - `claude-sonnet-4-6` — complex tasks (XPath extraction, data mapping)
+
+Both services call a server-side proxy (`server/routes/llm.ts`) at `/v1/llm/gemini` and `/v1/llm/claude` respectively. The proxy fetches the user's API key from the database (with `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` env var fallback) and forwards the request to the upstream LLM API.
+
+Structured responses use JSON Schema validation (Gemini only). Client-side cosine similarity on embeddings is used as a fallback when the API is unavailable (Rationalizer).
 
 ### Document Processing
 

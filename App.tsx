@@ -4,6 +4,7 @@ import SyntheticDataGenerator from './components/FieldExtractor';
 import XPathExtractor from './components/XPathExtractor';
 import DataMappingGenerator from './components/DataMappingGenerator';
 import PdfCompare from './components/PdfCompare';
+import PdfVisualCompare from './components/PdfVisualCompare';
 import Rationalizer from './components/Rationalizer';
 import { Squares2X2Icon } from './components/icons/Squares2X2Icon';
 import { ArrowsRightLeftIcon } from './components/icons/ArrowsRightLeftIcon';
@@ -26,7 +27,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'settings';
+type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'settings';
 
 interface NavItem {
   tool: Tool;
@@ -87,6 +88,17 @@ const App: React.FC = () => {
   const navItems: NavItem[] = [
     { tool: 'rationalizer', label: 'Rationalizer', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
     { tool: 'pdfCompare', label: 'PDF Compare', description: 'Side-by-side semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
+    {
+      tool: 'pdfVisualCompare',
+      label: 'PDF Visual Diff',
+      description: 'Visual page diff, no AI',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      ),
+    },
     { tool: 'dataMappingGenerator', label: 'Data Mapping Generator', description: 'Map fields to XSD schema', icon: <LinkIcon className="w-5 h-5" /> },
     { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
     { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
@@ -215,6 +227,9 @@ const App: React.FC = () => {
           </div>
           <div className={activeTool === 'pdfCompare' ? '' : 'hidden'}>
             <PdfCompare initialFiles={filesToCompare} onInitialFilesConsumed={handleCompareFilesConsumed} />
+          </div>
+          <div className={activeTool === 'pdfVisualCompare' ? '' : 'hidden'}>
+            <PdfVisualCompare />
           </div>
           <div className={activeTool === 'dataMappingGenerator' ? '' : 'hidden'}>
             <DataMappingGenerator />

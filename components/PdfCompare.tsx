@@ -94,6 +94,17 @@ const PdfSinglePage: React.FC<{ doc: pdfjsLib.PDFDocumentProxy; pageNum: number;
 };
 
 
+const highlightBgClass = (kind: Highlight['highlightKind']): string => {
+    switch (kind) {
+        case 'semantically-same': return 'bg-green-500/30';
+        case 'added':             return 'bg-blue-500/30';
+        case 'removed':           return 'bg-red-500/30';
+        case 'modified':
+        case 'diff':
+        default:                  return 'bg-yellow-500/30';
+    }
+};
+
 const PdfPages: React.FC<{
     doc: pdfjsLib.PDFDocumentProxy | null;
     side: 'A' | 'B';
@@ -134,7 +145,7 @@ const PdfPages: React.FC<{
                                             if (el) highlightElementRefs.current.set(uniqueId, el);
                                             else highlightElementRefs.current.delete(uniqueId);
                                         }}
-                                        className={`absolute ${side === 'A' ? 'bg-red-500/30' : 'bg-green-500/30'} ${isCurrent ? 'outline outline-4 outline-offset-2 outline-blue-500 z-20' : ''} focus:outline-none focus:ring-4 focus:ring-blue-500/50`}
+                                        className={`absolute ${highlightBgClass(h.highlightKind)} ${isCurrent ? 'outline outline-4 outline-offset-2 outline-blue-500 z-20' : ''} focus:outline-none focus:ring-4 focus:ring-blue-500/50`}
                                         style={h.bbox}
                                         onMouseEnter={(e) => onMouseEnter(e, h.tooltipContent)}
                                         onMouseLeave={onMouseLeave}
@@ -164,7 +175,7 @@ const multiplyMatrices = (m1: number[], m2: number[]): number[] => {
 const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesConsumed }) => {
     const [pdfFileA, setPdfFileA] = useState<File | null>(null);
     const [pdfFileB, setPdfFileB] = useState<File | null>(null);
-    const [comparisonMode, setComparisonMode] = useState<'exact' | 'semantic'>('exact');
+    const [comparisonMode, setComparisonMode] = useState<'exact' | 'semantic'>('semantic');
     const [results, setResults] = useState<ComparisonDifference[] | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
@@ -412,7 +423,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
         <div className="font-mono text-xs whitespace-pre-wrap break-words">
             {diffWordsWithSpace(original, changed).map((part, index) => (
                 <span key={index} className={
-                    part.added ? 'bg-green-200 dark:bg-green-900/80 text-green-800 dark:text-green-300' :
+                    part.added ? 'bg-blue-200 dark:bg-blue-900/80 text-blue-800 dark:text-blue-300' :
                     part.removed ? 'bg-red-200 dark:bg-red-900/80 text-red-800 dark:text-red-300 line-through' :
                     ''
                 }>
@@ -488,8 +499,8 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                                         pageHighlightsB.push({ bbox: bboxB, tooltipContent: tooltip, highlightKind: 'semantically-same' });
                                     } else {
                                         const tooltip = createTooltip("Semantic Difference", <p className="mt-1">{diff.reason}</p>, overallDifferenceCounter);
-                                        pageHighlightsA.push({ bbox: bboxA, tooltipContent: tooltip });
-                                        pageHighlightsB.push({ bbox: bboxB, tooltipContent: tooltip });
+                                        pageHighlightsA.push({ bbox: bboxA, tooltipContent: tooltip, highlightKind: 'diff' });
+                                        pageHighlightsB.push({ bbox: bboxB, tooltipContent: tooltip, highlightKind: 'diff' });
                                     }
                                 }
                             }
@@ -538,8 +549,8 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                             if (removedText.replace(/\s+/g, '') !== addedText.replace(/\s+/g, '')) {
                                 overallDifferenceCounter++;
                                 const tooltip = createTooltip("Text Modified", createDiffTooltip(removedText, addedText), overallDifferenceCounter);
-                                pageHighlightsA.push({ bbox: getBboxForItems(removedParaItems), tooltipContent: tooltip });
-                                pageHighlightsB.push({ bbox: getBboxForItems(addedParaItems), tooltipContent: tooltip });
+                                pageHighlightsA.push({ bbox: getBboxForItems(removedParaItems), tooltipContent: tooltip, highlightKind: 'modified' });
+                                pageHighlightsB.push({ bbox: getBboxForItems(addedParaItems), tooltipContent: tooltip, highlightKind: 'modified' });
                             }
                             
                             indexA += removedParas.length;
@@ -551,8 +562,8 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                                 if(paraItems) {
                                     overallDifferenceCounter++;
                                     const tooltip = createTooltip("Text Added", createDiffTooltip('', paraText), overallDifferenceCounter);
-                                    pageHighlightsB.push({ bbox: getBboxForItems(paraItems), tooltipContent: tooltip });
-                                    pageHighlightsA.push({ bbox: {left:0,top:0,width:0,height:0}, tooltipContent: ''});
+                                    pageHighlightsB.push({ bbox: getBboxForItems(paraItems), tooltipContent: tooltip, highlightKind: 'added' });
+                                    pageHighlightsA.push({ bbox: {left:0,top:0,width:0,height:0}, tooltipContent: '', highlightKind: 'added' });
                                 }
                                 indexB++;
                             });
@@ -562,8 +573,8 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                                  if(paraItems) {
                                     overallDifferenceCounter++;
                                     const tooltip = createTooltip("Text Removed", createDiffTooltip(paraText, ''), overallDifferenceCounter);
-                                    pageHighlightsA.push({ bbox: getBboxForItems(paraItems), tooltipContent: tooltip });
-                                    pageHighlightsB.push({ bbox: {left:0,top:0,width:0,height:0}, tooltipContent: ''});
+                                    pageHighlightsA.push({ bbox: getBboxForItems(paraItems), tooltipContent: tooltip, highlightKind: 'removed' });
+                                    pageHighlightsB.push({ bbox: {left:0,top:0,width:0,height:0}, tooltipContent: '', highlightKind: 'removed' });
                                 }
                                 indexA++;
                             });
@@ -629,7 +640,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
              <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
                     <ArrowsRightLeftIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-                    PDF Compare
+                    PDF Semantic Compare
                 </h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400">
                     Compare two PDFs side-by-side and highlight textual or semantic differences.

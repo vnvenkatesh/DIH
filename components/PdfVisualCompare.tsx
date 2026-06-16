@@ -314,12 +314,20 @@ const PdfVisualCompare: React.FC = () => {
         const parasA = groupIntoParagraphs(filteredA);
         const parasB = groupIntoParagraphs(filteredB);
 
-        const textA = parasA.map(p =>
-          applyExclusions(p.map(i => i.str).join(' '), exclusions),
-        ).filter(t => t.length > 0);
-        const textB = parasB.map(p =>
-          applyExclusions(p.map(i => i.str).join(' '), exclusions),
-        ).filter(t => t.length > 0);
+        // Build index maps so textA[i] always resolves back to the correct parasA[j]
+        // even when some paragraphs are entirely consumed by exclusions and filtered out.
+        const paraMapA: { paraIdx: number; text: string }[] = [];
+        parasA.forEach((p, i) => {
+          const t = applyExclusions(p.map(ii => ii.str).join(' '), exclusions);
+          if (t.length > 0) paraMapA.push({ paraIdx: i, text: t });
+        });
+        const paraMapB: { paraIdx: number; text: string }[] = [];
+        parasB.forEach((p, i) => {
+          const t = applyExclusions(p.map(ii => ii.str).join(' '), exclusions);
+          if (t.length > 0) paraMapB.push({ paraIdx: i, text: t });
+        });
+        const textA = paraMapA.map(x => x.text);
+        const textB = paraMapB.map(x => x.text);
 
         const rawDiff = diffArrays(textA, textB);
 
@@ -359,8 +367,10 @@ const PdfVisualCompare: React.FC = () => {
             idxA += part.values.length;
             idxB += part.values.length;
           } else if (part.type === 'modified') {
-            const leftItems = parasA.slice(idxA, idxA + part.removed.length).flat();
-            const rightItems = parasB.slice(idxB, idxB + part.added.length).flat();
+            const leftItems = paraMapA.slice(idxA, idxA + part.removed.length)
+              .flatMap(x => parasA[x.paraIdx]);
+            const rightItems = paraMapB.slice(idxB, idxB + part.added.length)
+              .flatMap(x => parasB[x.paraIdx]);
             const leftText = part.removed.join(' ');
             const rightText = part.added.join(' ');
             leftHighlights.push({ type: 'modified', bbox: getBbox(leftItems), leftText, rightText });
@@ -371,7 +381,7 @@ const PdfVisualCompare: React.FC = () => {
             idxB += part.added.length;
           } else if (part.type === 'removed') {
             for (const txt of part.values) {
-              const items = parasA[idxA] ?? [];
+              const items = paraMapA[idxA] ? parasA[paraMapA[idxA].paraIdx] : [];
               leftHighlights.push({ type: 'removed', bbox: getBbox(items), leftText: txt, rightText: '' });
               totalRemoved++;
               pageChanges++;
@@ -379,7 +389,7 @@ const PdfVisualCompare: React.FC = () => {
             }
           } else if (part.type === 'added') {
             for (const txt of part.values) {
-              const items = parasB[idxB] ?? [];
+              const items = paraMapB[idxB] ? parasB[paraMapB[idxB].paraIdx] : [];
               rightHighlights.push({ type: 'added', bbox: getBbox(items), leftText: '', rightText: txt });
               totalAdded++;
               pageChanges++;

@@ -8,6 +8,13 @@ import { DocumentTextIcon } from './icons/DocumentTextIcon';
 import { DevicePhoneMobileIcon } from './icons/DevicePhoneMobileIcon';
 import { AccessibilityIcon } from './icons/AccessibilityIcon';
 
+const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+
 interface HomeProps {
   onNavigate: (tool: string) => void;
 }
@@ -26,12 +33,22 @@ const accelerators = [
   {
     id: 'pdfCompare',
     Icon: ArrowsRightLeftIcon,
-    name: 'PDF Compare',
-    tagline: 'See exactly what changed',
+    name: 'PDF Semantic Compare',
+    tagline: 'See what changed in meaning',
     description:
-      'Compare two PDF documents side-by-side with highlighted paragraph-level or AI semantic diffs. No more missed changes buried in 40-page policy documents.',
+      'Compare two PDFs side-by-side with paragraph-level exact diffs or AI-powered semantic analysis that catches logic changes even when wording differs. No more missed intent shifts in 40-page policy documents.',
     benefit: 'Catch every change — textual or meaning-level',
     accent: { bg: 'bg-sky-50 dark:bg-sky-900/20', icon: 'bg-sky-100 dark:bg-sky-800/60 text-sky-600 dark:text-sky-300', border: 'border-sky-100 dark:border-sky-800/50', tag: 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300' },
+  },
+  {
+    id: 'pdfVisualCompare',
+    Icon: EyeIcon,
+    name: 'PDF Exact Compare',
+    tagline: 'Pixel-precise visual diff, no AI',
+    description:
+      'Upload two PDFs and get a page-by-page visual diff with colour-coded highlights — blue for added, red for removed, orange for modified. Hover any highlight to see the exact text. Strip out timestamps or page numbers before diffing using the exclusion panel.',
+    benefit: 'Validate changes without sending any content to an AI service',
+    accent: { bg: 'bg-teal-50 dark:bg-teal-900/20', icon: 'bg-teal-100 dark:bg-teal-800/60 text-teal-600 dark:text-teal-300', border: 'border-teal-100 dark:border-teal-800/50', tag: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' },
   },
   {
     id: 'dataMappingGenerator',
@@ -134,7 +151,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           style={{ backgroundImage: 'radial-gradient(circle at 70% 30%, white 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
         <div className="relative max-w-2xl">
           <span className="inline-block mb-4 px-3 py-1 text-xs font-semibold tracking-widest uppercase bg-white/20 rounded-full">
-            AI-Powered · CCM Accelerators
+            AI-Powered &amp; AI-Free · CCM Accelerators
           </span>
           <h2 className="text-3xl md:text-4xl font-extrabold leading-tight mb-4">
             Accelerate Every Stage of Your CCM Implementation
@@ -164,7 +181,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '7', label: 'AI Accelerators', sub: 'ready to use' },
+          { value: '8', label: 'Accelerators', sub: '7 AI-powered, 1 AI-free' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
           { value: '0', label: 'Data retained', sub: 'after each session' },
           { value: '100%', label: 'Browser-side', sub: 'document processing' },
@@ -253,7 +270,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
               { phase: 'Build & Test', tools: ['Synthetic Data Generation'], detail: 'Generate realistic, schema-valid synthetic test data without sourcing or masking real client PII — keeping testing clean and compliant.' },
-              { phase: 'QA & Review', tools: ['PDF Compare'], detail: 'Confidently validate every document version change between iterations. Semantic comparison catches logic changes that text-level diff misses.' },
+              { phase: 'QA & Review', tools: ['PDF Semantic Compare', 'PDF Exact Compare'], detail: 'Validate every document version change between iterations. Use Exact Compare for a fast, AI-free pixel diff; switch to Semantic Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },
             ].map(({ phase, tools, detail }) => (

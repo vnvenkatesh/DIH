@@ -87,10 +87,10 @@ const App: React.FC = () => {
 
   const navItems: NavItem[] = [
     { tool: 'rationalizer', label: 'Rationalizer', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
-    { tool: 'pdfCompare', label: 'PDF Compare', description: 'Side-by-side semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
+    { tool: 'pdfCompare', label: 'PDF Semantic Compare', description: 'AI-powered semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
     {
       tool: 'pdfVisualCompare',
-      label: 'PDF Visual Diff',
+      label: 'PDF Exact Compare',
       description: 'Visual page diff, no AI',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

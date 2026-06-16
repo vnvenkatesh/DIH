@@ -135,7 +135,7 @@ const PdfPageCanvas: React.FC<{ doc: pdfjsLib.PDFDocumentProxy; pageNum: number 
     };
   }, [doc, pageNum]);
 
-  return <canvas ref={canvasRef} className="block w-full" />;
+  return <canvas ref={canvasRef} className="block" />;
 };
 
 const PageViewer: React.FC<{
@@ -154,7 +154,7 @@ const PageViewer: React.FC<{
   }
 
   return (
-    <div className="relative shadow-md rounded-sm overflow-hidden">
+    <div className="relative shadow-md rounded-sm">
       <PdfPageCanvas doc={doc} pageNum={pageNum} />
       <div className="absolute inset-0 pointer-events-none">
         {highlights.map((h, i) => {
@@ -416,7 +416,7 @@ const PdfVisualCompare: React.FC = () => {
     setTooltip({
       content: buildTooltipContent(h),
       x: rect.left + rect.width / 2,
-      y: rect.top + window.scrollY,
+      y: rect.top,
     });
   };
 
@@ -432,22 +432,22 @@ const PdfVisualCompare: React.FC = () => {
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
           <ArrowsRightLeftIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-          PDF Visual Diff
+          PDF Exact Compare
         </h2>
         <p className="mt-2 text-slate-600 dark:text-slate-400">
-          Compare two PDFs side-by-side with visual difference highlighting. No AI required.
+          Side-by-side visual diff of every page — no AI required.
         </p>
       </div>
 
       {/* ── File upload ── */}
       <div className="grid md:grid-cols-2 gap-6 mb-6">
         {fileA
-          ? <FilePlaceholder file={fileA} label="PDF A (Left)" onClear={() => { setFileA(null); setPdfDocA(null); setPageResults(null); }} />
-          : <FileUploader onFileChange={setFileA} acceptedFileType="application/pdf" fileTypeName="PDF A" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />
+          ? <FilePlaceholder file={fileA} label="Original PDF" onClear={() => { setFileA(null); setPdfDocA(null); setPageResults(null); }} />
+          : <FileUploader onFileChange={setFileA} acceptedFileType="application/pdf" fileTypeName="Original PDF" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />
         }
         {fileB
-          ? <FilePlaceholder file={fileB} label="PDF B (Right)" onClear={() => { setFileB(null); setPdfDocB(null); setPageResults(null); }} />
-          : <FileUploader onFileChange={setFileB} acceptedFileType="application/pdf" fileTypeName="PDF B" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />
+          ? <FilePlaceholder file={fileB} label="Revised PDF" onClear={() => { setFileB(null); setPdfDocB(null); setPageResults(null); }} />
+          : <FileUploader onFileChange={setFileB} acceptedFileType="application/pdf" fileTypeName="Revised PDF" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />
         }
       </div>
 
@@ -618,7 +618,7 @@ const PdfVisualCompare: React.FC = () => {
               </div>
               {/* Side-by-side pages */}
               <div className="grid grid-cols-2">
-                <div className="border-r border-slate-200 dark:border-slate-600 p-3 bg-slate-100 dark:bg-slate-900">
+                <div className="border-r border-slate-200 dark:border-slate-600 p-3 bg-slate-100 dark:bg-slate-900 overflow-auto">
                   <PageViewer
                     doc={pdfDocA}
                     pageNum={result.pageNum}
@@ -627,7 +627,7 @@ const PdfVisualCompare: React.FC = () => {
                     onLeave={() => setTooltip(null)}
                   />
                 </div>
-                <div className="p-3 bg-slate-100 dark:bg-slate-900">
+                <div className="p-3 bg-slate-100 dark:bg-slate-900 overflow-auto">
                   <PageViewer
                     doc={pdfDocB}
                     pageNum={result.pageNum}

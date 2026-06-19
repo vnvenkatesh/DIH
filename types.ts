@@ -47,7 +47,7 @@ export interface Highlight {
     height: number;
   };
   tooltipContent: React.ReactNode;
-  highlightKind?: 'diff' | 'semantically-same' | 'added' | 'removed' | 'modified';
+  highlightKind?: 'diff' | 'semantically-same' | 'added' | 'removed' | 'modified' | 'font' | 'pixel-diff';
 }
 
 export interface ComparisonDifference {

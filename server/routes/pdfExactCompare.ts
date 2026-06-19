@@ -1,8 +1,10 @@
 // ---------------------------------------------------------------------------
 // POST /v1/pdf-exact-compare
 //
-// Compares two uploaded PDFs page-by-page using word-level exact diffing.
-// No AI involved. Mirrors /v1/pdf-compare but mode is always 'exact'.
+// No-AI exact comparison of two PDFs. Always word-level text diff.
+// Optional font/color detection controlled by the `diffMode` field:
+//   simple  (default) – text diff + font size & style comparison
+//   precise            – simple + best-effort fill-colour comparison
 // ---------------------------------------------------------------------------
 
 import { Router, Request, Response } from 'express';
@@ -10,16 +12,21 @@ import multer from 'multer';
 import { diffWordsWithSpace } from 'diff';
 import { extractPagesText } from '../lib/pdf.js';
 import { requireAuth } from '../middleware/auth.js';
+import {
+    extractPagesWithFontData,
+    compareFontPages,
+    FontDiff,
+} from '../lib/pdfFont.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 interface PageDiff {
     page: number;
-    type: 'removed' | 'added' | 'modified';
+    type: 'removed' | 'added' | 'modified' | 'font' | 'color';
     textA: string;
     textB: string;
-    reason: null;
+    reason: string | null;
 }
 
 async function handler(req: Request, res: Response): Promise<void> {
@@ -30,6 +37,8 @@ async function handler(req: Request, res: Response): Promise<void> {
     if (!fileA) { res.status(400).json({ error: 'fileA is required.' }); return; }
     if (!fileB) { res.status(400).json({ error: 'fileB is required.' }); return; }
 
+    const diffMode: string = (req.body?.diffMode as string) || 'simple';
+
     try {
         const [pagesA, pagesB] = await Promise.all([
             extractPagesText(fileA.buffer),
@@ -39,6 +48,9 @@ async function handler(req: Request, res: Response): Promise<void> {
         const numPages = Math.max(pagesA.length, pagesB.length);
         const differences: PageDiff[] = [];
 
+        // ------------------------------------------------------------------
+        // Text diff (word-level, page-by-page)
+        // ------------------------------------------------------------------
         for (let p = 0; p < numPages; p++) {
             const pageNum = p + 1;
             const textA = pagesA[p] ?? '';
@@ -66,12 +78,26 @@ async function handler(req: Request, res: Response): Promise<void> {
                     }
                 }
             }
-
             if (pendingRemoved !== null) {
                 differences.push({ page: pageNum, type: 'removed', textA: pendingRemoved, textB: '', reason: null });
             }
         }
 
+        // ------------------------------------------------------------------
+        // Font diff (simple + precise)
+        // ------------------------------------------------------------------
+        if (diffMode === 'simple' || diffMode === 'precise') {
+            const [fontPagesA, fontPagesB] = await Promise.all([
+                extractPagesWithFontData(fileA.buffer),
+                extractPagesWithFontData(fileB.buffer),
+            ]);
+            const fontDiffs: FontDiff[] = compareFontPages(fontPagesA, fontPagesB, numPages);
+            for (const fd of fontDiffs) {
+                differences.push({ page: fd.page, type: fd.type, textA: fd.textA, textB: fd.textB, reason: fd.reason });
+            }
+        }
+
+        differences.sort((a, b) => a.page - b.page);
         res.json({ totalDifferences: differences.length, differences });
     } catch (err: unknown) {
         res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

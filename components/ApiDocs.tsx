@@ -255,6 +255,122 @@ Content-Type: application/json
 }`,
   },
   {
+    id: 'pdf-exact-compare',
+    method: 'POST',
+    path: '/pdf-exact-compare',
+    title: 'PDF Exact Compare',
+    shortDescription: 'No-AI word-level diff with optional font & colour detection',
+    description:
+      'Compares two PDF documents page-by-page using word-level exact diffing — no AI involved. Pass diffMode=simple (default) to also detect font size and style changes, or diffMode=precise to additionally attempt fill-colour detection. Requires a valid Bearer token (login via /v1/auth/login).',
+    requestParams: [
+      { name: 'fileA', type: 'File (multipart)', required: true, description: 'The reference PDF file.' },
+      { name: 'fileB', type: 'File (multipart)', required: true, description: 'The PDF to compare against the reference.' },
+      { name: 'diffMode', type: '"simple" | "precise"', required: false, description: '`simple` (default) adds font size & style detection on top of text diff. `precise` additionally attempts fill-colour comparison.' },
+    ],
+    responseParams: [
+      { name: 'totalDifferences', type: 'number', required: true, description: 'Total count of differences found across all pages.' },
+      { name: 'differences', type: 'PageDiff[]', required: true, description: 'Per-page difference list.' },
+      { name: 'differences[].page', type: 'number', required: true, description: 'Page number (1-based) where the difference was found.' },
+      { name: 'differences[].type', type: '"added" | "removed" | "modified" | "font" | "color"', required: true, description: 'Nature of the change. `font` means same text but different font size or style. `color` means same text but different fill colour (precise mode only).' },
+      { name: 'differences[].textA', type: 'string', required: true, description: 'Original text from fileA.' },
+      { name: 'differences[].textB', type: 'string', required: true, description: 'Changed text from fileB.' },
+      { name: 'differences[].reason', type: 'string | null', required: true, description: 'Human-readable description of the font or colour change. null for text-content diffs.' },
+    ],
+    curlExample: `curl -X POST "${BASE_URL}/pdf-exact-compare" \\\n  -H "Authorization: Bearer <token>" \\\n  -F "fileA=@contract_v1.pdf" \\\n  -F "fileB=@contract_v2.pdf" \\\n  -F "diffMode=simple"`,
+    requestExample: `POST ${BASE_URL}/pdf-exact-compare
+Content-Type: multipart/form-data
+Authorization: Bearer <token>
+
+fileA     = @contract_v1.pdf
+fileB     = @contract_v2.pdf
+diffMode  = simple`,
+    responseExample: `HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "totalDifferences": 3,
+  "differences": [
+    {
+      "page": 1,
+      "type": "modified",
+      "textA": "Payment due within 30 days.",
+      "textB": "Payment due within 14 days.",
+      "reason": null
+    },
+    {
+      "page": 1,
+      "type": "font",
+      "textA": "TERMS AND CONDITIONS",
+      "textB": "TERMS AND CONDITIONS",
+      "reason": "Font changed — size 10.0pt → 14.0pt"
+    }
+  ]
+}`,
+  },
+  {
+    id: 'api-exact-compare',
+    method: 'POST',
+    path: '/api/exact-compare',
+    title: 'Exact Compare (Basic Auth)',
+    shortDescription: 'Structured exact diff with severity, position, and font detection',
+    description:
+      'Compares two PDFs with word-level exact diffing and returns a richly structured JSON response including a sequential diff ID, page number, diff type, page position (Top/Middle/Bottom), and severity (Major/Minor). Supports the same diffMode options as /pdf-exact-compare. Protected by HTTP Basic Authentication — pass credentials as base64-encoded username:password in the Authorization header.',
+    requestParams: [
+      { name: 'fileA', type: 'File (multipart)', required: true, description: 'The reference PDF file.' },
+      { name: 'fileB', type: 'File (multipart)', required: true, description: 'The PDF to compare against the reference.' },
+      { name: 'diffMode', type: '"simple" | "precise"', required: false, description: '`simple` (default) adds font size & style detection. `precise` additionally attempts fill-colour comparison.' },
+    ],
+    responseParams: [
+      { name: 'areDocumentsSame', type: '"Yes" | "No"', required: true, description: 'Whether the two documents are identical.' },
+      { name: 'differences.difference', type: 'Diff[]', required: true, description: 'Array of structured difference objects.' },
+      { name: 'differences.difference[].diffID', type: 'number', required: true, description: 'Sequential identifier for this difference, starting at 1.' },
+      { name: 'differences.difference[].PageNumber', type: 'number', required: true, description: 'Page number (1-based) where the difference was found.' },
+      { name: 'differences.difference[].typeOfDiff', type: '"added" | "removed" | "modified" | "Font" | "Color"', required: true, description: 'Nature of the change.' },
+      { name: 'differences.difference[].positionInPage', type: '"Top" | "Middle" | "Bottom"', required: true, description: 'Approximate vertical position of the difference on the page relative to other diffs on that page.' },
+      { name: 'differences.difference[].diffSeverity', type: '"Major" | "Minor"', required: true, description: 'Major if the changed text is ≥5 words; Minor otherwise. Font/Color diffs are always Minor.' },
+      { name: 'differences.difference[].textA', type: 'string', required: true, description: 'Original text from fileA.' },
+      { name: 'differences.difference[].textB', type: 'string', required: true, description: 'Changed text from fileB.' },
+      { name: 'differences.difference[].reason', type: 'string', required: false, description: 'Description of a font or colour change. Omitted for text-content diffs.' },
+    ],
+    curlExample: `curl -X POST "${BASE_URL}/api/exact-compare" \\\n  -H "Authorization: Basic $(echo -n 'admin:Admin@123' | base64)" \\\n  -F "fileA=@contract_v1.pdf" \\\n  -F "fileB=@contract_v2.pdf" \\\n  -F "diffMode=simple"`,
+    requestExample: `POST ${BASE_URL}/api/exact-compare
+Content-Type: multipart/form-data
+Authorization: Basic YWRtaW46QWRtaW5AMTIz
+
+fileA     = @contract_v1.pdf
+fileB     = @contract_v2.pdf
+diffMode  = simple`,
+    responseExample: `HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "areDocumentsSame": "No",
+  "differences": {
+    "difference": [
+      {
+        "diffID": 1,
+        "PageNumber": 1,
+        "typeOfDiff": "modified",
+        "positionInPage": "Top",
+        "diffSeverity": "Major",
+        "textA": "Payment due within 30 days.",
+        "textB": "Payment due within 14 days."
+      },
+      {
+        "diffID": 2,
+        "PageNumber": 1,
+        "typeOfDiff": "Font",
+        "positionInPage": "Middle",
+        "diffSeverity": "Minor",
+        "textA": "TERMS AND CONDITIONS",
+        "textB": "TERMS AND CONDITIONS",
+        "reason": "Font changed — size 10.0pt → 14.0pt"
+      }
+    ]
+  }
+}`,
+  },
+  {
     id: 'layout-recommendation',
     method: 'POST',
     path: '/layout-recommendation',
@@ -393,7 +509,12 @@ const ApiDocs: React.FC = () => {
 
         <div className="mt-6 px-1">
           <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Auth</p>
-          <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">No authentication required.</p>
+          {['pdf-exact-compare'].includes(activeId)
+            ? <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">Bearer token — obtain via <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">/v1/auth/login</code>.</p>
+            : ['api-exact-compare'].includes(activeId)
+            ? <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">HTTP Basic Auth — <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">Authorization: Basic base64(user:pass)</code>.</p>
+            : <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">No authentication required.</p>
+          }
         </div>
       </aside>
 

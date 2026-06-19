@@ -100,7 +100,9 @@ const highlightBgClass = (kind: Highlight['highlightKind']): string => {
         case 'added':             return 'bg-blue-500/30';
         case 'removed':           return 'bg-red-500/30';
         case 'modified':
-        case 'diff':
+        case 'diff':              return 'bg-yellow-500/30';
+        case 'font':              return 'bg-orange-400/40';
+        case 'pixel-diff':        return 'bg-purple-500/30';
         default:                  return 'bg-yellow-500/30';
     }
 };
@@ -176,6 +178,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
     const [pdfFileA, setPdfFileA] = useState<File | null>(null);
     const [pdfFileB, setPdfFileB] = useState<File | null>(null);
     const [comparisonMode, setComparisonMode] = useState<'exact' | 'semantic'>('semantic');
+    const [exactDiffMode, setExactDiffMode] = useState<'simple' | 'precise'>('simple');
     const [results, setResults] = useState<ComparisonDifference[] | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
@@ -419,6 +422,88 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
         return paragraphs; 
     };
 
+    const getDominantHeight = (items: TextItemWithBounds[]): number => {
+        const hs = items.filter(i => i.h > 0).map(i => i.h).sort((a, b) => a - b);
+        return hs.length ? hs[Math.floor(hs.length / 2)] : 0;
+    };
+
+    const renderPageToCanvas = async (doc: pdfjsLib.PDFDocumentProxy, pageNum: number, scale: number): Promise<HTMLCanvasElement> => {
+        const page = await doc.getPage(pageNum);
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d')!, viewport } as any).promise;
+        return canvas;
+    };
+
+    const findPixelDiffRegions = (cA: HTMLCanvasElement, cB: HTMLCanvasElement): Highlight['bbox'][] => {
+        const w = Math.min(cA.width, cB.width);
+        const h = Math.min(cA.height, cB.height);
+        if (w === 0 || h === 0) return [];
+
+        const dA = cA.getContext('2d')!.getImageData(0, 0, w, h).data;
+        const dB = cB.getContext('2d')!.getImageData(0, 0, w, h).data;
+
+        const BLOCK = 10;
+        const cols = Math.ceil(w / BLOCK);
+        const rows = Math.ceil(h / BLOCK);
+        const diffBlocks = new Set<number>();
+
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                let diffPx = 0;
+                let total = 0;
+                for (let dy = 0; dy < BLOCK && r * BLOCK + dy < h; dy++) {
+                    for (let dx = 0; dx < BLOCK && c * BLOCK + dx < w; dx++) {
+                        const i = ((r * BLOCK + dy) * w + (c * BLOCK + dx)) * 4;
+                        total++;
+                        if (Math.abs(dA[i] - dB[i]) + Math.abs(dA[i+1] - dB[i+1]) + Math.abs(dA[i+2] - dB[i+2]) > 30) {
+                            diffPx++;
+                        }
+                    }
+                }
+                if (diffPx / total > 0.05) diffBlocks.add(r * cols + c);
+            }
+        }
+
+        const regions: Highlight['bbox'][] = [];
+        const visited = new Set<number>();
+        for (const blk of diffBlocks) {
+            if (visited.has(blk)) continue;
+            const queue = [blk];
+            visited.add(blk);
+            let minR = Math.floor(blk / cols), maxR = minR;
+            let minC = blk % cols,            maxC = minC;
+            while (queue.length) {
+                const cur = queue.shift()!;
+                const cr = Math.floor(cur / cols), cc = cur % cols;
+                for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+                    const nr = cr + dr, nc = cc + dc;
+                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                        const nb = nr * cols + nc;
+                        if (diffBlocks.has(nb) && !visited.has(nb)) {
+                            visited.add(nb); queue.push(nb);
+                            minR = Math.min(minR, nr); maxR = Math.max(maxR, nr);
+                            minC = Math.min(minC, nc); maxC = Math.max(maxC, nc);
+                        }
+                    }
+                }
+            }
+            regions.push({
+                left:   minC * BLOCK,
+                top:    minR * BLOCK,
+                width:  (maxC - minC + 1) * BLOCK,
+                height: (maxR - minR + 1) * BLOCK,
+            });
+        }
+        return regions;
+    };
+
+    const bboxOverlaps = (a: Highlight['bbox'], b: Highlight['bbox']): boolean =>
+        a.left < b.left + b.width && a.left + a.width > b.left &&
+        a.top  < b.top  + b.height && a.top + a.height > b.top;
+
     const createDiffTooltip = (original: string, changed: string) => (
         <div className="font-mono text-xs whitespace-pre-wrap break-words">
             {diffWordsWithSpace(original, changed).map((part, index) => (
@@ -539,7 +624,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                         if (part.changed) {
                             const removedParas = part.removed;
                             const addedParas = part.added;
-                            
+
                             const removedParaItems = paragraphsA.slice(indexA, indexA + removedParas.length).flat();
                             const addedParaItems = paragraphsB.slice(indexB, indexB + addedParas.length).flat();
 
@@ -552,7 +637,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                                 pageHighlightsA.push({ bbox: getBboxForItems(removedParaItems), tooltipContent: tooltip, highlightKind: 'modified' });
                                 pageHighlightsB.push({ bbox: getBboxForItems(addedParaItems), tooltipContent: tooltip, highlightKind: 'modified' });
                             }
-                            
+
                             indexA += removedParas.length;
                             indexB += addedParas.length;
 
@@ -579,8 +664,55 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
                                 indexA++;
                             });
                         } else {
+                            // Unchanged text — check font size in Simple/Precise mode
+                            for (let k = 0; k < part.value.length; k++) {
+                                const paraA = paragraphsA[indexA + k];
+                                const paraB = paragraphsB[indexB + k];
+                                if (paraA && paraB) {
+                                    const hA = getDominantHeight(paraA);
+                                    const hB = getDominantHeight(paraB);
+                                    if (hA > 0 && hB > 0 && Math.abs(hA - hB) > 1) {
+                                        overallDifferenceCounter++;
+                                        const tooltip = createTooltip(
+                                            'Font Size Changed',
+                                            <p className="mt-1 text-xs">Size: <span className="line-through text-red-300">{hA.toFixed(1)}px</span> → <span className="text-blue-300">{hB.toFixed(1)}px</span></p>,
+                                            overallDifferenceCounter
+                                        );
+                                        pageHighlightsA.push({ bbox: getBboxForItems(paraA), tooltipContent: tooltip, highlightKind: 'font' });
+                                        pageHighlightsB.push({ bbox: getBboxForItems(paraB), tooltipContent: tooltip, highlightKind: 'font' });
+                                    }
+                                }
+                            }
                             indexA += part.value.length;
                             indexB += part.value.length;
+                        }
+                    }
+
+                    // Precise mode: canvas pixel diff to catch color/rendering changes
+                    if (exactDiffMode === 'precise' && pageNum <= docA.numPages && pageNum <= docB.numPages) {
+                        try {
+                            setLoadingMessage(`Rendering page ${pageNum} for visual comparison...`);
+                            const [cA, cB] = await Promise.all([
+                                renderPageToCanvas(docA, pageNum, scale),
+                                renderPageToCanvas(docB, pageNum, scale),
+                            ]);
+                            const pixelRegions = findPixelDiffRegions(cA, cB);
+                            for (const region of pixelRegions) {
+                                // Skip regions already covered by text/font highlights
+                                const covered = pageHighlightsA.some(h => bboxOverlaps(h.bbox, region));
+                                if (!covered && region.width > 5 && region.height > 5) {
+                                    overallDifferenceCounter++;
+                                    const tooltip = createTooltip(
+                                        'Visual Difference',
+                                        <p className="mt-1 text-xs">Color or rendering difference detected at this location.</p>,
+                                        overallDifferenceCounter
+                                    );
+                                    pageHighlightsA.push({ bbox: region, tooltipContent: tooltip, highlightKind: 'pixel-diff' });
+                                    pageHighlightsB.push({ bbox: region, tooltipContent: tooltip, highlightKind: 'pixel-diff' });
+                                }
+                            }
+                        } catch {
+                            // Pixel diff failed for this page — skip silently
                         }
                     }
                 }
@@ -598,13 +730,13 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
             setIsLoading(false);
             setLoadingMessage('');
         }
-    }, [pdfFileA, pdfFileB, comparisonMode, pdfDocA, pdfDocB]);
+    }, [pdfFileA, pdfFileB, comparisonMode, exactDiffMode, pdfDocA, pdfDocB]);
 
     useEffect(() => {
         if (hasCompared.current) {
             handleCompare();
         }
-    }, [comparisonMode, handleCompare]);
+    }, [comparisonMode, exactDiffMode, handleCompare]);
 
     const handleMouseEnter = useCallback((e: React.MouseEvent, content: React.ReactNode) => {
         const target = e.target as HTMLElement;
@@ -653,12 +785,33 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
             </div>
 
             <div className='flex flex-col items-center gap-6 mb-6'>
-                <ToggleSwitch 
+                <ToggleSwitch
                     leftLabel="Exact Compare"
                     rightLabel="Semantic Compare"
                     enabled={comparisonMode === 'semantic'}
                     onChange={(enabled) => setComparisonMode(enabled ? 'semantic' : 'exact')}
                 />
+                {comparisonMode === 'exact' && (
+                    <div className="flex items-center gap-3 text-sm">
+                        <span className="text-slate-500 dark:text-slate-400 font-medium">Depth:</span>
+                        {(['simple', 'precise'] as const).map(mode => (
+                            <button
+                                key={mode}
+                                onClick={() => setExactDiffMode(mode)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors capitalize ${
+                                    exactDiffMode === mode
+                                        ? 'bg-indigo-600 text-white shadow'
+                                        : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                                }`}
+                            >
+                                {mode}
+                            </button>
+                        ))}
+                        <span className="text-xs text-slate-400 dark:text-slate-500">
+                            {exactDiffMode === 'simple' ? 'Text + font size & style' : 'Text + font + pixel-level color diff'}
+                        </span>
+                    </div>
+                )}
                 <div className="flex items-center gap-4">
                      <button
                         onClick={handleCompare}

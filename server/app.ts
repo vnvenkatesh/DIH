@@ -10,6 +10,7 @@ import dataMappingRouter from './routes/dataMapping.js';
 import xpathExtractorRouter from './routes/xpathExtractor.js';
 import syntheticDataRouter from './routes/syntheticData.js';
 import layoutRecommendationRouter from './routes/layoutRecommendation.js';
+import exactCompareApiRouter from './routes/exactCompareApi.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/v1/data-mapping', dataMappingRouter);
 app.use('/v1/xpath-extractor', xpathExtractorRouter);
 app.use('/v1/synthetic-data', syntheticDataRouter);
 app.use('/v1/layout-recommendation', layoutRecommendationRouter);
+app.use('/v1/api', exactCompareApiRouter);
 
 app.get('/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

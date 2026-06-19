@@ -9,6 +9,26 @@ import { DocumentTextIcon } from './icons/DocumentTextIcon';
 import { XmlFileIcon } from './icons/XmlFileIcon';
 import FileUploader from './FileUploader';
 
+function parseFieldsFromXml(xmlString: string): { field: string; value: string }[] {
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xmlString, 'application/xml');
+        const fields: { field: string; value: string }[] = [];
+        const traverse = (node: Element) => {
+            if (node.children.length === 0) {
+                const value = node.textContent?.trim() || '';
+                if (value) fields.push({ field: node.localName, value });
+            } else {
+                Array.from(node.children).forEach(traverse);
+            }
+        };
+        if (doc.documentElement) traverse(doc.documentElement);
+        return fields;
+    } catch {
+        return [];
+    }
+}
+
 const SyntheticDataGenerator: React.FC = () => {
   const [xsdFile, setXsdFile] = useState<File | null>(null);
   const [extractedData, setExtractedData] = useState<any[] | null>(null);
@@ -39,8 +59,13 @@ const SyntheticDataGenerator: React.FC = () => {
     try {
         const xsdContent = await fileToString(xsdFile);
         const result = await generateSyntheticDataFromXsd(xsdContent);
-        
-        setExtractedData(result.fields);
+
+        let fields = Array.isArray(result.fields) ? result.fields : [];
+        if (fields.length === 0 && result.generatedXml) {
+            fields = parseFieldsFromXml(result.generatedXml);
+        }
+
+        setExtractedData(fields);
         setGeneratedXml(result.generatedXml || null);
     } catch (err) {
       console.error(err);
@@ -158,7 +183,7 @@ const SyntheticDataGenerator: React.FC = () => {
         </div>
       )}
 
-      {extractedData && (
+      {extractedData && extractedData.length > 0 && (
         <div>
            {/* Summary Section */}
            <div className="mb-6 bg-slate-100 dark:bg-slate-700 p-4 rounded-lg flex flex-col md:flex-row justify-between items-center gap-4">

@@ -47,9 +47,9 @@ Instructions:
     - Dates: Realistic dates in appropriate formats.
     - Numbers: Realistic values for counts, prices, etc.
 4.  Ensure the XML is well-formed and valid against the provided XSD.
-5.  Format the final output as a JSON object with:
-    - "fields": A JSON array of objects, where each object has a "field" key (the element/attribute name) and a "value" key (the generated synthetic value).
-    - "generatedXml": A string containing the full, valid XML.
+5.  **CRITICAL — Format the final output as a JSON object with BOTH fields populated:**
+    - "fields": A JSON array listing EVERY element and attribute from the schema with its generated value. This array MUST NOT be empty. Each item must have exactly two keys: "field" (the element/attribute name as a string) and "value" (the generated synthetic value as a string).
+    - "generatedXml": A string containing the full, valid XML document.
 6.  The entire response must be ONLY the JSON object. Do not include any other text, comments, or markdown formatting.
 `;
 

@@ -11,6 +11,7 @@ import xpathExtractorRouter from './routes/xpathExtractor.js';
 import syntheticDataRouter from './routes/syntheticData.js';
 import layoutRecommendationRouter from './routes/layoutRecommendation.js';
 import exactCompareApiRouter from './routes/exactCompareApi.js';
+import pdfExactCompareRouter from './routes/pdfExactCompare.js';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use('/v1/xpath-extractor', xpathExtractorRouter);
 app.use('/v1/synthetic-data', syntheticDataRouter);
 app.use('/v1/layout-recommendation', layoutRecommendationRouter);
 app.use('/v1/api', exactCompareApiRouter);
+app.use('/v1/pdf-exact-compare', pdfExactCompareRouter);
 
 app.get('/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

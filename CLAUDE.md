@@ -58,6 +58,12 @@ Structured responses use JSON Schema validation (Gemini only). Client-side cosin
 
 `FileUploader.tsx` handles drag-and-drop with file type validation. `ResultsTable.tsx` renders tabular AI output. `types.ts` holds all shared TypeScript interfaces.
 
+## Development Rules
+
+**Accelerator isolation**: Fixing or modifying one accelerator must not break another. Each accelerator is self-contained — verify that any change scoped to one tool does not have unintended side effects on others.
+
+**Shared code changes**: If a fix requires modifying shared code (`services/geminiService.ts`, `services/claudeService.ts`, `services/llmService.ts`, `ResultsTable.tsx`, `FileUploader.tsx`, `types.ts`, server middleware, or any other file used by more than one accelerator), do **not** edit the shared code directly. Instead, create an accelerator-specific copy of the relevant function, component, or module and apply the change only there. Reference the original shared code from all other accelerators unchanged.
+
 ## Key Config
 
 - `vite.config.ts`: Dev server binds to `0.0.0.0:3000`, passes `GEMINI_API_KEY` from env to client via `define`

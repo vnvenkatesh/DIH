@@ -132,7 +132,7 @@ export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<
         max_tokens: 8192,
         messages: [{ role: 'user', content: `${xsdToXmlPrompt}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}` }],
     });
-    return JSON.parse(extractText(result)) as SyntheticDataResult;
+    return JSON.parse(cleanJson(extractText(result))) as SyntheticDataResult;
 };
 
 export const extractXPaths = async (
@@ -153,7 +153,7 @@ export const extractXPaths = async (
             ],
         }],
     }, { 'anthropic-beta': 'pdfs-2024-09-25' });
-    return JSON.parse(extractText(result)) as XPathMapping[];
+    return JSON.parse(cleanJson(extractText(result))) as XPathMapping[];
 };
 
 export const generateDataMap = async (
@@ -196,7 +196,7 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
         max_tokens: 4096,
         messages: [{ role: 'user', content: `${layoutRecommendationPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${documentText}` }],
     });
-    return JSON.parse(extractText(result)) as LayoutRecommendationResult;
+    return JSON.parse(cleanJson(extractText(result))) as LayoutRecommendationResult;
 };
 
 export const performSemanticComparison = async (

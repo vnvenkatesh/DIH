@@ -69,8 +69,8 @@ Instructions:
     - The estimated **Page Number** in the PDF where this value appears (e.g., "1").
     - The **Data Type** of the field based on the XML value (e.g., "String", "Date", "Currency", "Integer", "Boolean").
     - Use the provided **Template Name** for the 'templateName' field.
-6.  Compile a list of all successful mappings.
-7.  Format the final output as a JSON array of objects.
+6.  **CRITICAL — Compile ALL successful mappings. The result array MUST NOT be empty** unless the PDF and XML share absolutely no matching values whatsoever.
+7.  Format the final output as a JSON array of objects. Each object must have exactly the keys: "value", "xpath", "templateName", "pageNumber", "fieldType".
 8.  The entire response must be ONLY the JSON array. Do not include any other text, comments, or markdown formatting.
 `;
 

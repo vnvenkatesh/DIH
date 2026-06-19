@@ -48,7 +48,12 @@ const XPathExtractor: React.FC = () => {
             const xmlContent = await fileToString(xmlFile);
             // Pass the PDF filename as the template name
             const extractedResults = await extractXPaths(pdfBase64, pdfFile.type, xmlContent, pdfFile.name);
-            setResults(extractedResults);
+            const safeResults = Array.isArray(extractedResults) ? extractedResults : [];
+            if (safeResults.length === 0) {
+                setError('No matching fields were found between the PDF and XML. Ensure the PDF content corresponds to the uploaded XML file.');
+                return;
+            }
+            setResults(safeResults);
         } catch (err) {
             console.error(err);
             setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');

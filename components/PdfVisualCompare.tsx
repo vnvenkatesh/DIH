@@ -76,19 +76,22 @@ const multiplyMatrices = (m1: number[], m2: number[]): number[] => [
   m1[0]*m2[4]+m1[2]*m2[5]+m1[4], m1[1]*m2[4]+m1[3]*m2[5]+m1[5],
 ];
 
-// Squared Euclidean distance in RGB space between two "#rrggbb" strings.
-// Anti-aliasing noise between two renderings of the same text is typically
-// <30 units; genuine color changes (black→red, black→blue) are >80 units.
-const colorDistSq = (a: string, b: string): number => {
-  if (a === b) return 0;
-  const p = (h: string, o: number) => parseInt(h.slice(o, o+2), 16);
-  const dr = p(a,1)-p(b,1), dg = p(a,3)-p(b,3), db = p(a,5)-p(b,5);
-  return dr*dr + dg*dg + db*db;
+// Classify a "#rrggbb" average ink color into a broad perceptual bucket.
+// Bucket comparison is immune to anti-aliasing / rendering variation between
+// PDF files: two slightly different shades of black both map to 'dark', while
+// genuinely different ink colors (black vs red, black vs blue) map to different
+// buckets and will be flagged as a style change.
+const colorBucket = (hex: string): string => {
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  const lum = (r + g + b) / 3;
+  if (lum > 190) return 'light'; // near-white / very light — treat as no-ink
+  if (r > g * 1.4 && r > b * 1.4) return 'red';
+  if (b > r * 1.4 && b > g * 1.1) return 'blue';
+  if (g > r * 1.4 && g > b * 1.4) return 'green';
+  return 'dark'; // black, dark gray, or any dark neutral
 };
-// Threshold: 40² = 1600 — ignores rendering/anti-aliasing noise while catching
-// genuine color changes (a 40-unit distance is about the same as a ~28% shift
-// on a single RGB channel, clearly perceptible when solid colors differ).
-const COLOR_DIST_SQ_THRESHOLD = 1600;
 
 const wordBbox = (w: Word): BBox => ({
   left: Math.round(w.x), top: Math.round(w.y),
@@ -211,9 +214,11 @@ const extractPageWords = async (
     const content = await page.getTextContent();
     const vp = page.getViewport({ scale: SCALE });
 
-    // Collect raw items with canvas-space positions
+    // Collect raw items with canvas-space positions.
+    // item.width from pdfjs is already in device/canvas space — no scaling needed.
     interface RawItem {
       str: string; x: number; y: number; h: number; charW: number;
+      width: number; // canvas-px advance width (from pdfjs item.width)
       lineY: number; fontName: string; fontSize: number; bold: boolean; italic: boolean;
     }
     const rawItems: RawItem[] = [];
@@ -230,9 +235,11 @@ const extractPageWords = async (
       const fontSize = Math.round(fontH * 0.5 * 10) / 10;
       const charW = fontH * 0.58;
       const lineY = Math.round(itemY / 3) * 3;
+      // item.width is in device space (canvas px); fall back to estimate if absent/zero
+      const itemW = (item as any).width > 0 ? (item as any).width : item.str.length * charW;
       rawItems.push({
-        str: item.str, x: itemX, y: itemY - fontH, h: fontH, charW, lineY,
-        fontName, fontSize, bold, italic,
+        str: item.str, x: itemX, y: itemY - fontH, h: fontH, charW,
+        width: itemW, lineY, fontName, fontSize, bold, italic,
       });
     }
 
@@ -240,16 +247,30 @@ const extractPageWords = async (
     rawItems.sort((a, b) => a.lineY !== b.lineY ? a.lineY - b.lineY : a.x - b.x);
 
     // Build page-level joined string and char→item/offset maps.
+    // Use item.width to compute inter-item gap: if the gap to the next item is
+    // smaller than 20% of the line height, the items are physically adjacent
+    // glyphs (no word space) and should be joined WITHOUT a space separator.
+    // This prevents "[G-XXXXX" (one item in AK) from tokenizing differently than
+    // "[" "G" "-" "XXXXX" (four adjacent items in AR).
     let joined = '';
     const charToItem: RawItem[] = [];
     const charLocalOffset: number[] = [];
 
     for (let i = 0; i < rawItems.length; i++) {
       if (i > 0) {
-        // Space separator — maps to last char of previous item for bbox fallback
-        joined += ' ';
-        charToItem.push(rawItems[i-1]);
-        charLocalOffset.push(Math.max(0, rawItems[i-1].str.length - 1));
+        const prev = rawItems[i - 1];
+        const cur  = rawItems[i];
+        const sameLine = Math.abs(cur.lineY - prev.lineY) < prev.h * 0.5;
+        const gap = sameLine ? cur.x - (prev.x + prev.width) : Infinity;
+        const spaceThreshold = prev.h * 0.20; // ~20% of em = typical min word-space
+
+        if (!sameLine || gap >= spaceThreshold) {
+          // Cross-line or word-space gap → insert space separator
+          joined += ' ';
+          charToItem.push(prev);
+          charLocalOffset.push(Math.max(0, prev.str.length - 1));
+        }
+        // else: adjacent glyphs → no separator inserted
       }
       const ri = rawItems[i];
       for (let c = 0; c < ri.str.length; c++) {
@@ -326,7 +347,9 @@ const sampleWordColor = (canvas: HTMLCanvasElement, word: Word): string => {
   const x = Math.max(0, Math.floor(word.x));
   const y = Math.max(0, Math.floor(word.y));
   const w = Math.min(canvas.width - x, Math.max(1, Math.ceil(word.w)));
-  const h = Math.min(canvas.height - y, Math.max(1, Math.ceil(word.h)));
+  // Sample only the top 70% of the glyph bbox to avoid underline/strikethrough
+  // pixels at the bottom that would skew the average for decorated text.
+  const h = Math.min(canvas.height - y, Math.max(1, Math.ceil(word.h * 0.70)));
   if (w <= 0 || h <= 0) return '#000000';
   const data = ctx.getImageData(x, y, w, h).data;
   let rSum = 0, gSum = 0, bSum = 0, count = 0;
@@ -477,7 +500,9 @@ const diffWords = (
   // style attributes are checked on unchanged words, not how text tokens compare.
   const normForCompare = (s: string) =>
     s.normalize('NFKC')
-     .replace(/[ ­​‌‍﻿]/g, '')
+     .replace(/‑/g, '-')           // non-breaking hyphen ‑ → regular
+     .replace(/[‒–—]/g, '-') // en/em dashes → hyphen
+     .replace(/[ ­​‌‍﻿]/g, '') // invisible
      .replace(/\s+/g, ' ')
      .trim();
 
@@ -497,11 +522,12 @@ const diffWords = (
         if (!wObjA || !wObjB) continue;
         const reasons: string[] = [];
 
-        // Color (both modes) — use distance threshold to ignore anti-aliasing noise
+        // Color (both modes) — bucket comparison ignores anti-aliasing variation
+        // while catching genuine color changes (black→red, black→blue).
         if (canvasA && canvasB) {
           const colA = sampleWordColor(canvasA, wObjA);
           const colB = sampleWordColor(canvasB, wObjB);
-          if (colorDistSq(colA, colB) > COLOR_DIST_SQ_THRESHOLD)
+          if (colorBucket(colA) !== colorBucket(colB))
             reasons.push(`Color: ${colA} → ${colB}`);
         }
 

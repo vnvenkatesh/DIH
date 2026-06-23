@@ -41,6 +41,7 @@ interface PageResult {
   leftHighlights: DiffHighlight[];
   rightHighlights: DiffHighlight[];
   changeCount: number;
+  pageShift: boolean; // Precise mode: content matched on different page numbers
 }
 
 interface Summary {
@@ -53,6 +54,7 @@ interface Summary {
   totalRemoved: number;
   totalStyle: number;
   totalVisual: number;
+  totalPageShift: number;
 }
 
 interface TooltipState { content: React.ReactNode; x: number; y: number; }
@@ -182,6 +184,33 @@ const checkWordStyleReasons = (
     if (wA.italic !== wB.italic) reasons.push(wA.italic ? 'Italic removed' : 'Italic added');
   }
   return reasons;
+};
+
+// ── Paragraph grouping ─────────────────────────────────────────────────────────
+// Groups visual lines into logical paragraphs by Y-gap detection.
+// Paragraph-level LCS is immune to text-reflow: same paragraph wrapped
+// across different visual lines in two PDFs still compares equal.
+interface Paragraph { words: Word[]; text: string; normIdent: string; }
+
+const buildParagraphs = (words: Word[], exclusions: string[]): Paragraph[] => {
+  const lines = buildLines(words, exclusions);
+  if (lines.length === 0) return [];
+  const groups: Line[][] = [[lines[0]]];
+  for (let i = 1; i < lines.length; i++) {
+    const prev = groups[groups.length - 1];
+    const prevLine = prev[prev.length - 1];
+    const gap = lines[i].bbox.top - (prevLine.bbox.top + prevLine.bbox.height);
+    if (gap > prevLine.bbox.height * 0.5) {
+      groups.push([lines[i]]);
+    } else {
+      prev.push(lines[i]);
+    }
+  }
+  return groups.map(ls => {
+    const allWords = ls.flatMap(l => l.words);
+    const text = allWords.map(w => w.text).join(' ');
+    return { words: allWords, text, normIdent: normForLineIdentity(text) };
+  });
 };
 
 // ── Word bag for Jaccard similarity ──────────────────────────────────────────
@@ -566,13 +595,12 @@ const diffLines = (
   let navSeq = 0;
   const nav = () => `${pageTag}-${navSeq++}`;
 
-  const linesA = buildLines(wordsA, exclusions);
-  const linesB = buildLines(wordsB, exclusions);
+  // Paragraph-level comparison: immune to text-reflow differences
+  // (same text wrapped differently between PDFs maps to identical normIdent).
+  const parasA = buildParagraphs(wordsA, exclusions);
+  const parasB = buildParagraphs(wordsB, exclusions);
 
-  // Word-level diff within one matched/substituted line pair.
-  // styleOnly=true  → emit style highlights only (line text is identical).
-  // styleOnly=false → emit removed/added highlights for changed words.
-  const diffWordPair = (lineA: Line, lineB: Line, styleOnly: boolean) => {
+  const diffWordPair = (lineA: Paragraph, lineB: Paragraph, styleOnly: boolean) => {
     const wd = diffArrays(
       lineA.words.map(w => w.text),
       lineB.words.map(w => w.text),
@@ -611,48 +639,48 @@ const diffLines = (
     }
   };
 
-  // Line-level LCS using aggressively-stripped normIdent
-  const lineDiff = diffArrays(
-    linesA.map(l => l.normIdent),
-    linesB.map(l => l.normIdent),
+  // Paragraph-level LCS
+  const paraDiff = diffArrays(
+    parasA.map(p => p.normIdent),
+    parasB.map(p => p.normIdent),
     { comparator: (a: string, b: string) => a === b }
   );
 
   let iA = 0, iB = 0, pi = 0;
-  while (pi < lineDiff.length) {
-    const part = lineDiff[pi];
+  while (pi < paraDiff.length) {
+    const part = paraDiff[pi];
 
     if (!part.added && !part.removed) {
-      // Textually identical lines — style check only
+      // Textually identical paragraphs — style check only
       for (let k = 0; k < part.value.length; k++) {
-        const la = linesA[iA + k], lb = linesB[iB + k];
+        const la = parasA[iA + k], lb = parasB[iB + k];
         if (la && lb) diffWordPair(la, lb, true);
       }
       iA += part.value.length; iB += part.value.length; pi++;
 
     } else if (part.removed) {
-      const nxt = lineDiff[pi + 1];
+      const nxt = paraDiff[pi + 1];
       const nAdded = nxt?.added ? nxt.value.length : 0;
 
       if (nAdded > 0) {
-        // Substitution block: pair removed ↔ added lines for word-level diff
+        // Substitution block: pair removed ↔ added paragraphs for word-level diff
         const pairs = Math.min(part.value.length, nAdded);
         for (let k = 0; k < pairs; k++) {
-          const la = linesA[iA + k], lb = linesB[iB + k];
+          const la = parasA[iA + k], lb = parasB[iB + k];
           if (la && lb) diffWordPair(la, lb, false);
         }
         for (let k = pairs; k < part.value.length; k++) {
-          const la = linesA[iA + k];
+          const la = parasA[iA + k];
           if (la) la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
         }
         for (let k = pairs; k < nAdded; k++) {
-          const lb = linesB[iB + k];
+          const lb = parasB[iB + k];
           if (lb) lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
         }
         iA += part.value.length; iB += nAdded; pi += 2;
       } else {
         for (let k = 0; k < part.value.length; k++) {
-          const la = linesA[iA + k];
+          const la = parasA[iA + k];
           if (la) la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
         }
         iA += part.value.length; pi++;
@@ -660,7 +688,7 @@ const diffLines = (
 
     } else {
       for (let k = 0; k < part.value.length; k++) {
-        const lb = linesB[iB + k];
+        const lb = parasB[iB + k];
         if (lb) lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
       }
       iB += part.value.length; pi++;
@@ -731,7 +759,7 @@ const PageViewer: React.FC<{
     return <MissingPagePlaceholder pageNum={pageNum} side={missingSide} />;
   }
   return (
-    <div className="relative shadow-md rounded-sm">
+    <div className="relative shadow-md rounded-sm overflow-hidden">
       <PdfPageCanvas doc={doc} pageNum={pageNum} />
       <div className="absolute inset-0 pointer-events-none">
         {highlights.map((h, i) => {
@@ -845,7 +873,7 @@ const PdfVisualCompare: React.FC = () => {
 
       // Step 3: Diff each matched pair
       const results: PageResult[] = [];
-      let totAdded=0, totRemoved=0, totStyle=0, totVisual=0;
+      let totAdded=0, totRemoved=0, totStyle=0, totVisual=0, totPageShift=0;
       const allNavIds: string[] = [];
       const missedInB: number[] = [], extraInB: number[] = [];
 
@@ -853,8 +881,8 @@ const PdfVisualCompare: React.FC = () => {
         const pair = pairings[pi];
         const { aPage, bPage } = pair;
 
-        if (aPage === null) { extraInB.push(bPage!); results.push({ pairing: pair, leftHighlights:[], rightHighlights:[], changeCount:0 }); continue; }
-        if (bPage === null) { missedInB.push(aPage!); results.push({ pairing: pair, leftHighlights:[], rightHighlights:[], changeCount:0 }); continue; }
+        if (aPage === null) { extraInB.push(bPage!); results.push({ pairing: pair, leftHighlights:[], rightHighlights:[], changeCount:0, pageShift:false }); continue; }
+        if (bPage === null) { missedInB.push(aPage!); results.push({ pairing: pair, leftHighlights:[], rightHighlights:[], changeCount:0, pageShift:false }); continue; }
 
         setLoadingMessage(`Comparing page A:${aPage} ↔ B:${bPage}…`);
 
@@ -872,7 +900,11 @@ const PdfVisualCompare: React.FC = () => {
           ]);
         } catch { /* continue without canvas-based checks */ }
 
-        // Word-level diff
+        // Detect page-position shift (Precise mode only — Simple mode ignores layout)
+        const pageShift = diffMode === 'precise' && aPage !== bPage;
+        if (pageShift) totPageShift++;
+
+        // Paragraph-level diff
         const { left, right } = diffLines(wA, wB, canvasA, canvasB, diffMode, exclusions, pageTag);
 
         // Pixel diff (Precision only)
@@ -906,7 +938,7 @@ const PdfVisualCompare: React.FC = () => {
           .map(h => h.navId);
         allNavIds.push(...pageNavIds);
 
-        results.push({ pairing: pair, leftHighlights:leftH, rightHighlights:rightH, changeCount:added+removed+style+visual });
+        results.push({ pairing: pair, leftHighlights:leftH, rightHighlights:rightH, changeCount:added+removed+style+visual, pageShift });
       }
 
       setPageResults(results);
@@ -917,6 +949,7 @@ const PdfVisualCompare: React.FC = () => {
         missedInB, extraInB,
         totalAdded: totAdded, totalRemoved: totRemoved,
         totalStyle: totStyle, totalVisual: totVisual,
+        totalPageShift: totPageShift,
       });
     } catch (e) {
       console.error(e);
@@ -947,7 +980,8 @@ const PdfVisualCompare: React.FC = () => {
 
   const activeParsedExclusions = parseExclusions(exclusionInput);
   const totalDiffs = (summary?.totalAdded ?? 0) + (summary?.totalRemoved ?? 0) + (summary?.totalStyle ?? 0) + (summary?.totalVisual ?? 0);
-  const hasDiffs = totalDiffs > 0 || (summary?.missedInB.length ?? 0) > 0 || (summary?.extraInB.length ?? 0) > 0;
+  const hasDiffs = totalDiffs > 0 || (summary?.missedInB.length ?? 0) > 0 || (summary?.extraInB.length ?? 0) > 0
+    || (diffMode === 'precise' && (summary?.totalPageShift ?? 0) > 0);
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-10">
@@ -1083,6 +1117,7 @@ const PdfVisualCompare: React.FC = () => {
             <StatCard value={summary.totalRemoved} label="Words Removed" colorClass="text-red-600 dark:text-red-400" />
             <StatCard value={summary.totalStyle}   label="Style Changes" colorClass="text-yellow-600 dark:text-yellow-400" />
             {diffMode==='precise' && <StatCard value={summary.totalVisual} label="Visual Diffs" colorClass="text-purple-600 dark:text-purple-400" />}
+            {diffMode==='precise' && summary.totalPageShift > 0 && <StatCard value={summary.totalPageShift} label="Page Shifts" colorClass="text-purple-600 dark:text-purple-400" />}
           </div>
 
           {/* Legend */}
@@ -1149,10 +1184,17 @@ const PdfVisualCompare: React.FC = () => {
                         : aPage ? `Page A:${aPage} — missing in B`
                         : `Page B:${bPage} — not in A`}
                     </span>
-                    {result.changeCount > 0
-                      ? <span className="text-xs bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 px-2.5 py-0.5 rounded-full font-medium">{result.changeCount} change{result.changeCount!==1?'s':''}</span>
-                      : (aPage && bPage && <span className="text-xs text-green-600 dark:text-green-400 font-medium">Identical</span>)
-                    }
+                    <div className="flex items-center gap-2">
+                      {result.pageShift && (
+                        <span className="text-xs bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 px-2.5 py-0.5 rounded-full font-medium">
+                          Page position differs
+                        </span>
+                      )}
+                      {result.changeCount > 0
+                        ? <span className="text-xs bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 px-2.5 py-0.5 rounded-full font-medium">{result.changeCount} change{result.changeCount!==1?'s':''}</span>
+                        : (aPage && bPage && !result.pageShift && <span className="text-xs text-green-600 dark:text-green-400 font-medium">Identical</span>)
+                      }
+                    </div>
                   </div>
 
                   {/* File labels */}

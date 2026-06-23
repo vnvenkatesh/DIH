@@ -107,11 +107,26 @@ const applyExclusion = (text: string, exclusions: string[]): string => {
 };
 
 // ── Word bag for Jaccard similarity ──────────────────────────────────────────
+// Exclude stopwords and very common legal boilerplate terms so that pages
+// from different document sections don't get falsely paired just because they
+// share "the", "Contract", "means", etc.  Only content-specific words (≥4
+// chars, not in the exclusion set) contribute to the similarity score.
+const JACCARD_STOPWORDS = new Set([
+  'the','a','an','of','in','is','are','was','were','to','and','or','for','be','as',
+  'with','this','it','that','at','by','on','from','may','will','not','no','has',
+  'have','any','all','each','its','their','such','other','which','when','where',
+  'who','how','what','per','than','been','being','more','also','only','both',
+  'contract','means','shall','upon','under','plan','benefit','coverage','policy',
+  'person','amount','date','claim','stated','provided','pursuant','section',
+  'days','year','time','following','applicable','including','without',
+]);
+
 const wordBagOf = (words: Word[]): Map<string, number> => {
   const bag = new Map<string, number>();
   for (const w of words) {
     const k = w.text.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (k) bag.set(k, (bag.get(k) ?? 0) + 1);
+    if (k.length >= 4 && !JACCARD_STOPWORDS.has(k))
+      bag.set(k, (bag.get(k) ?? 0) + 1);
   }
   return bag;
 };
@@ -396,6 +411,43 @@ const bboxOverlaps = (a: BBox, b: BBox): boolean =>
   a.left < b.left+b.width && a.left+a.width > b.left &&
   a.top  < b.top+b.height  && a.top+a.height  > b.top;
 
+// Merge adjacent same-type highlights on the same line into a single box.
+// Prevents dozens of individual word boxes for a run of changed words — shows
+// one overlay span per contiguous changed sequence instead.
+const mergeRunHighlights = (highlights: DiffHighlight[]): DiffHighlight[] => {
+  if (highlights.length <= 1) return highlights;
+  const sorted = [...highlights].sort(
+    (a, b) => a.bbox.top !== b.bbox.top ? a.bbox.top - b.bbox.top : a.bbox.left - b.bbox.left
+  );
+  const result: DiffHighlight[] = [];
+  let cur = { ...sorted[0], bbox: { ...sorted[0].bbox } };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const h = sorted[i];
+    // Same type, same line (within 70% of line height), horizontally adjacent
+    // (gap ≤ 1.2 × line height — one em-ish gap allowed between tokens)
+    const sameLine  = Math.abs(h.bbox.top - cur.bbox.top) < cur.bbox.height * 0.7;
+    const adjacent  = h.bbox.left <= cur.bbox.left + cur.bbox.width + cur.bbox.height * 1.2;
+    const sameType  = h.type === cur.type;
+
+    if (sameType && sameLine && adjacent) {
+      const right  = h.bbox.left + h.bbox.width;
+      const top    = Math.min(cur.bbox.top, h.bbox.top);
+      const bottom = Math.max(cur.bbox.top + cur.bbox.height, h.bbox.top + h.bbox.height);
+      cur = {
+        ...cur,
+        bbox:  { left: Math.min(cur.bbox.left, h.bbox.left), top, width: right - Math.min(cur.bbox.left, h.bbox.left), height: bottom - top },
+        text: cur.text ? cur.text + ' ' + h.text : h.text,
+      };
+    } else {
+      result.push(cur);
+      cur = { ...h, bbox: { ...h.bbox } };
+    }
+  }
+  result.push(cur);
+  return result;
+};
+
 // ── Word-level diff for a matched page pair ───────────────────────────────────
 const diffWords = (
   wordsA: Word[], wordsB: Word[],
@@ -406,8 +458,17 @@ const diffWords = (
 ): { left: DiffHighlight[]; right: DiffHighlight[] } => {
   const left: DiffHighlight[] = [], right: DiffHighlight[] = [];
 
+  // In Simple mode, also strip words that are purely whitespace or invisible
+  // after normalization (non-breaking spaces, soft hyphens, etc.) so those
+  // never appear as removed/added tokens.
   const filt = (ws: Word[]) =>
-    ws.filter(w => applyExclusion(w.text, exclusions).length > 0);
+    ws.filter(w => {
+      const after = applyExclusion(w.text, exclusions);
+      if (!after.length) return false;
+      if (mode === 'simple' && !after.normalize('NFKC').replace(/[\s­​-‍﻿]/g, '').length)
+        return false;
+      return true;
+    });
   const wA = filt(wordsA), wB = filt(wordsB);
 
   // Normalize before comparing: NFKC resolves ligatures (ﬁ→fi, ﬂ→fl etc.),
@@ -702,8 +763,8 @@ const PdfVisualCompare: React.FC = () => {
           }
         }
 
-        const leftH = [...left, ...pixelHighlights.filter(h => h.navId.startsWith('L-'))];
-        const rightH = [...right, ...pixelHighlights.filter(h => h.navId.startsWith('R-'))];
+        const leftH  = mergeRunHighlights([...left,  ...pixelHighlights.filter(h => h.navId.startsWith('L-'))]);
+        const rightH = mergeRunHighlights([...right, ...pixelHighlights.filter(h => h.navId.startsWith('R-'))]);
 
         // Count
         const added   = right.filter(h => h.type==='added').length;

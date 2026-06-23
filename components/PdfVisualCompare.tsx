@@ -76,6 +76,20 @@ const multiplyMatrices = (m1: number[], m2: number[]): number[] => [
   m1[0]*m2[4]+m1[2]*m2[5]+m1[4], m1[1]*m2[4]+m1[3]*m2[5]+m1[5],
 ];
 
+// Squared Euclidean distance in RGB space between two "#rrggbb" strings.
+// Anti-aliasing noise between two renderings of the same text is typically
+// <30 units; genuine color changes (black→red, black→blue) are >80 units.
+const colorDistSq = (a: string, b: string): number => {
+  if (a === b) return 0;
+  const p = (h: string, o: number) => parseInt(h.slice(o, o+2), 16);
+  const dr = p(a,1)-p(b,1), dg = p(a,3)-p(b,3), db = p(a,5)-p(b,5);
+  return dr*dr + dg*dg + db*db;
+};
+// Threshold: 40² = 1600 — ignores rendering/anti-aliasing noise while catching
+// genuine color changes (a 40-unit distance is about the same as a ~28% shift
+// on a single RGB channel, clearly perceptible when solid colors differ).
+const COLOR_DIST_SQ_THRESHOLD = 1600;
+
 const wordBbox = (w: Word): BBox => ({
   left: Math.round(w.x), top: Math.round(w.y),
   width: Math.max(Math.round(w.w), 4),
@@ -287,6 +301,10 @@ const renderPageToCanvas = async (
 };
 
 // ── Color sampling from canvas ────────────────────────────────────────────────
+// Averages all "ink" pixels (non-transparent, not near-white) in the word bbox.
+// Averaging is more stable than most-common-pixel for anti-aliased text because
+// minor rendering variations between PDF files shift the dominant shade by only
+// a few counts, while the average stays nearly constant.
 const sampleWordColor = (canvas: HTMLCanvasElement, word: Word): string => {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '#000000';
@@ -296,17 +314,16 @@ const sampleWordColor = (canvas: HTMLCanvasElement, word: Word): string => {
   const h = Math.min(canvas.height - y, Math.max(1, Math.ceil(word.h)));
   if (w <= 0 || h <= 0) return '#000000';
   const data = ctx.getImageData(x, y, w, h).data;
-  const counts = new Map<string, number>();
+  let rSum = 0, gSum = 0, bSum = 0, count = 0;
   for (let i = 0; i < data.length; i += 4) {
     if (data[i+3] < 128) continue;
     if (data[i] > 220 && data[i+1] > 220 && data[i+2] > 220) continue; // near-white
-    const hex = `#${data[i].toString(16).padStart(2,'0')}${data[i+1].toString(16).padStart(2,'0')}${data[i+2].toString(16).padStart(2,'0')}`;
-    counts.set(hex, (counts.get(hex) ?? 0) + 1);
+    rSum += data[i]; gSum += data[i+1]; bSum += data[i+2];
+    count++;
   }
-  if (!counts.size) return '#000000';
-  let best = '#000000', bestN = 0;
-  for (const [c, n] of counts) if (n > bestN) { bestN = n; best = c; }
-  return best;
+  if (!count) return '#000000';
+  const toHex = (v: number) => Math.round(v / count).toString(16).padStart(2, '0');
+  return `#${toHex(rSum)}${toHex(gSum)}${toHex(bSum)}`;
 };
 
 // ── Pixel diff (Precision mode, non-text regions only) ────────────────────────
@@ -419,16 +436,21 @@ const diffWords = (
         if (!wObjA || !wObjB) continue;
         const reasons: string[] = [];
 
-        // Color (both modes)
+        // Color (both modes) — use distance threshold to ignore anti-aliasing noise
         if (canvasA && canvasB) {
           const colA = sampleWordColor(canvasA, wObjA);
           const colB = sampleWordColor(canvasB, wObjB);
-          if (colA !== colB) reasons.push(`Color: ${colA} → ${colB}`);
+          if (colorDistSq(colA, colB) > COLOR_DIST_SQ_THRESHOLD)
+            reasons.push(`Color: ${colA} → ${colB}`);
         }
 
         // Font/style (Precision only)
         if (mode === 'precise') {
-          if (wObjA.fontName && wObjB.fontName && wObjA.fontName !== wObjB.fontName)
+          // Strip PDF subset prefix (e.g. "ABCDE+Arial-Bold" → "arial-bold") so
+          // two files embedding the same font under different subset tags compare equal.
+          const baseFontName = (fn: string) => fn.replace(/^[A-Z]{6}\+/,'').toLowerCase();
+          if (wObjA.fontName && wObjB.fontName &&
+              baseFontName(wObjA.fontName) !== baseFontName(wObjB.fontName))
             reasons.push(`Font: ${wObjA.fontName} → ${wObjB.fontName}`);
           if (Math.abs(wObjA.fontSize - wObjB.fontSize) > 0.5)
             reasons.push(`Size: ${wObjA.fontSize.toFixed(1)}pt → ${wObjB.fontSize.toFixed(1)}pt`);

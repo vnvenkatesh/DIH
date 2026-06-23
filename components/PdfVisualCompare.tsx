@@ -86,11 +86,14 @@ const colorBucket = (hex: string): string => {
   const g = parseInt(hex.slice(3,5), 16);
   const b = parseInt(hex.slice(5,7), 16);
   const lum = (r + g + b) / 3;
-  if (lum > 190) return 'light'; // near-white / very light — treat as no-ink
-  if (r > g * 1.4 && r > b * 1.4) return 'red';
+  if (lum > 190) return 'light';
+  // Require clearly-red ratio so brownish/orange template-field text (which sits
+  // near the red/dark boundary) doesn't straddle buckets between two PDFs.
+  if (r > g * 1.8 && r > b * 2.5 && r > 120) return 'red';
+  if (r > g * 1.1 && r > b * 1.4 && lum < 190) return 'warm'; // orange/tan/brown
   if (b > r * 1.4 && b > g * 1.1) return 'blue';
   if (g > r * 1.4 && g > b * 1.4) return 'green';
-  return 'dark'; // black, dark gray, or any dark neutral
+  return 'dark';
 };
 
 const wordBbox = (w: Word): BBox => ({
@@ -107,6 +110,78 @@ const applyExclusion = (text: string, exclusions: string[]): string => {
   for (const ex of exclusions)
     r = r.replace(new RegExp(ex.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
   return r.trim();
+};
+
+// ── Text normalisation (module-level) ─────────────────────────────────────────
+const normForCompare = (s: string) =>
+  s.normalize('NFKC')
+   .replace(/‑/g, '-')
+   .replace(/[‒–—]/g, '-')
+   .replace(/[ ­​‌‍﻿]/g, '')
+   .replace(/\s+/g, ' ')
+   .trim();
+
+// Strips ALL non-alphanumeric characters — used only for line identity matching.
+// Makes "[THE ABC COMPANY]" and "[ THE ABC COMPANY]" (bracket split differently)
+// produce the same string, eliminating tokenisation-boundary false positives.
+const normForLineIdentity = (s: string): string =>
+  s.normalize('NFKC').replace(/[^a-zA-Z0-9]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
+
+// ── Line grouping ──────────────────────────────────────────────────────────────
+interface Line { words: Word[]; text: string; normIdent: string; bbox: BBox; }
+
+const buildLines = (words: Word[], exclusions: string[]): Line[] => {
+  if (words.length === 0) return [];
+  const filtered = words.filter(w => {
+    const after = applyExclusion(w.text, exclusions);
+    if (!after.length) return false;
+    if (!after.normalize('NFKC').replace(/[\s­​‌‍﻿]/g, '').length) return false;
+    return true;
+  });
+  if (filtered.length === 0) return [];
+  const sorted = [...filtered].sort((a, b) => a.lineY !== b.lineY ? a.lineY - b.lineY : a.x - b.x);
+  const groups: Word[][] = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const grp = groups[groups.length - 1];
+    const avgH = grp.reduce((s, w) => s + w.h, 0) / grp.length;
+    if (Math.abs(cur.lineY - grp[0].lineY) < avgH * 0.55) {
+      grp.push(cur);
+    } else {
+      groups.push([cur]);
+    }
+  }
+  return groups.map(ws => {
+    const text = ws.map(w => w.text).join(' ');
+    const minX = Math.min(...ws.map(w => w.x));
+    const minY = Math.min(...ws.map(w => w.y));
+    const maxX = Math.max(...ws.map(w => w.x + w.w));
+    const maxY = Math.max(...ws.map(w => w.y + w.h));
+    return { words: ws, text, normIdent: normForLineIdentity(text),
+             bbox: { left: minX, top: minY, width: maxX - minX, height: maxY - minY } };
+  });
+};
+
+// ── Per-word style check helper ────────────────────────────────────────────────
+const checkWordStyleReasons = (
+  wA: Word, wB: Word,
+  canvasA: HTMLCanvasElement, canvasB: HTMLCanvasElement,
+  mode: 'simple' | 'precise',
+): string[] => {
+  const reasons: string[] = [];
+  const colA = sampleWordColor(canvasA, wA);
+  const colB = sampleWordColor(canvasB, wB);
+  if (colorBucket(colA) !== colorBucket(colB)) reasons.push(`Color: ${colA} → ${colB}`);
+  if (mode === 'precise') {
+    const baseFn = (fn: string) => fn.replace(/^[A-Z]{6}\+/, '').toLowerCase();
+    if (wA.fontName && wB.fontName && baseFn(wA.fontName) !== baseFn(wB.fontName))
+      reasons.push(`Font: ${wA.fontName} → ${wB.fontName}`);
+    if (Math.abs(wA.fontSize - wB.fontSize) > 0.5)
+      reasons.push(`Size: ${wA.fontSize.toFixed(1)}pt → ${wB.fontSize.toFixed(1)}pt`);
+    if (wA.bold !== wB.bold) reasons.push(wA.bold ? 'Bold removed' : 'Bold added');
+    if (wA.italic !== wB.italic) reasons.push(wA.italic ? 'Italic removed' : 'Italic added');
+  }
+  return reasons;
 };
 
 // ── Word bag for Jaccard similarity ──────────────────────────────────────────
@@ -471,8 +546,16 @@ const mergeRunHighlights = (highlights: DiffHighlight[]): DiffHighlight[] => {
   return result;
 };
 
-// ── Word-level diff for a matched page pair ───────────────────────────────────
-const diffWords = (
+// ── Line-level diff for a matched page pair ───────────────────────────────────
+//
+// Core insight: two PDFs with identical visual text may have different internal
+// item boundaries (e.g. "[THE" in one file vs "[" + "THE" in another). A
+// word-level LCS then misaligns, cascading into dozens of false positives.
+//
+// Fix: group words into visual LINES, diff the full normalised line string.
+// Lines whose text is identical compare equal regardless of how pdfjs split the
+// internal items.  Only actually-changed lines fall through to word-level diff.
+const diffLines = (
   wordsA: Word[], wordsB: Word[],
   canvasA: HTMLCanvasElement | null, canvasB: HTMLCanvasElement | null,
   mode: 'simple' | 'precise',
@@ -480,93 +563,110 @@ const diffWords = (
   pageTag: string,
 ): { left: DiffHighlight[]; right: DiffHighlight[] } => {
   const left: DiffHighlight[] = [], right: DiffHighlight[] = [];
-
-  // In Simple mode, also strip words that are purely whitespace or invisible
-  // after normalization (non-breaking spaces, soft hyphens, etc.) so those
-  // never appear as removed/added tokens.
-  const filt = (ws: Word[]) =>
-    ws.filter(w => {
-      const after = applyExclusion(w.text, exclusions);
-      if (!after.length) return false;
-      if (mode === 'simple' && !after.normalize('NFKC').replace(/[\s­​-‍﻿]/g, '').length)
-        return false;
-      return true;
-    });
-  const wA = filt(wordsA), wB = filt(wordsB);
-
-  // Normalize before comparing: NFKC resolves ligatures (ﬁ→fi, ﬂ→fl etc.),
-  // strips invisible/soft-hyphen chars, collapses whitespace.
-  // Used in both modes — the simple/precise distinction governs only which
-  // style attributes are checked on unchanged words, not how text tokens compare.
-  const normForCompare = (s: string) =>
-    s.normalize('NFKC')
-     .replace(/‑/g, '-')           // non-breaking hyphen ‑ → regular
-     .replace(/[‒–—]/g, '-') // en/em dashes → hyphen
-     .replace(/[ ­​‌‍﻿]/g, '') // invisible
-     .replace(/\s+/g, ' ')
-     .trim();
-
-  const rawDiff = diffArrays(
-    wA.map(w => w.text), wB.map(w => w.text),
-    { comparator: (a: string, b: string) => normForCompare(a) === normForCompare(b) },
-  );
-
-  let iA = 0, iB = 0, navSeq = 0;
+  let navSeq = 0;
   const nav = () => `${pageTag}-${navSeq++}`;
 
-  for (const part of rawDiff) {
+  const linesA = buildLines(wordsA, exclusions);
+  const linesB = buildLines(wordsB, exclusions);
+
+  // Word-level diff within one matched/substituted line pair.
+  // styleOnly=true  → emit style highlights only (line text is identical).
+  // styleOnly=false → emit removed/added highlights for changed words.
+  const diffWordPair = (lineA: Line, lineB: Line, styleOnly: boolean) => {
+    const wd = diffArrays(
+      lineA.words.map(w => w.text),
+      lineB.words.map(w => w.text),
+      { comparator: (a: string, b: string) => normForCompare(a) === normForCompare(b) }
+    );
+    let wia = 0, wib = 0;
+    for (const wp of wd) {
+      if (!wp.added && !wp.removed) {
+        if (canvasA && canvasB)
+          for (let wi = 0; wi < wp.value.length; wi++) {
+            const wa = lineA.words[wia + wi], wb = lineB.words[wib + wi];
+            if (!wa || !wb) continue;
+            const reasons = checkWordStyleReasons(wa, wb, canvasA, canvasB, mode);
+            if (reasons.length) {
+              const id = nav();
+              left.push({ type: 'style', bbox: wordBbox(wa), text: wa.text, styleReason: reasons.join(' · '), navId: `L-${id}` });
+              right.push({ type: 'style', bbox: wordBbox(wb), text: wb.text, styleReason: reasons.join(' · '), navId: `R-${id}` });
+            }
+          }
+        wia += wp.value.length; wib += wp.value.length;
+      } else if (wp.removed) {
+        if (!styleOnly)
+          for (let wi = 0; wi < wp.value.length; wi++) {
+            const w = lineA.words[wia + wi];
+            if (w) left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` });
+          }
+        wia += wp.value.length;
+      } else {
+        if (!styleOnly)
+          for (let wi = 0; wi < wp.value.length; wi++) {
+            const w = lineB.words[wib + wi];
+            if (w) right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` });
+          }
+        wib += wp.value.length;
+      }
+    }
+  };
+
+  // Line-level LCS using aggressively-stripped normIdent
+  const lineDiff = diffArrays(
+    linesA.map(l => l.normIdent),
+    linesB.map(l => l.normIdent),
+    { comparator: (a: string, b: string) => a === b }
+  );
+
+  let iA = 0, iB = 0, pi = 0;
+  while (pi < lineDiff.length) {
+    const part = lineDiff[pi];
+
     if (!part.added && !part.removed) {
-      // Unchanged text — check style
+      // Textually identical lines — style check only
       for (let k = 0; k < part.value.length; k++) {
-        const wObjA = wA[iA+k], wObjB = wB[iB+k];
-        if (!wObjA || !wObjB) continue;
-        const reasons: string[] = [];
-
-        // Color (both modes) — bucket comparison ignores anti-aliasing variation
-        // while catching genuine color changes (black→red, black→blue).
-        if (canvasA && canvasB) {
-          const colA = sampleWordColor(canvasA, wObjA);
-          const colB = sampleWordColor(canvasB, wObjB);
-          if (colorBucket(colA) !== colorBucket(colB))
-            reasons.push(`Color: ${colA} → ${colB}`);
-        }
-
-        // Font/style (Precision only)
-        if (mode === 'precise') {
-          // Strip PDF subset prefix (e.g. "ABCDE+Arial-Bold" → "arial-bold") so
-          // two files embedding the same font under different subset tags compare equal.
-          const baseFontName = (fn: string) => fn.replace(/^[A-Z]{6}\+/,'').toLowerCase();
-          if (wObjA.fontName && wObjB.fontName &&
-              baseFontName(wObjA.fontName) !== baseFontName(wObjB.fontName))
-            reasons.push(`Font: ${wObjA.fontName} → ${wObjB.fontName}`);
-          if (Math.abs(wObjA.fontSize - wObjB.fontSize) > 0.5)
-            reasons.push(`Size: ${wObjA.fontSize.toFixed(1)}pt → ${wObjB.fontSize.toFixed(1)}pt`);
-          if (wObjA.bold !== wObjB.bold) reasons.push(wObjB.bold ? 'Bold added' : 'Bold removed');
-          if (wObjA.italic !== wObjB.italic) reasons.push(wObjB.italic ? 'Italic added' : 'Italic removed');
-        }
-
-        if (reasons.length) {
-          const id = nav();
-          const reason = reasons.join(' · ');
-          left.push({ type:'style', bbox:wordBbox(wObjA), text:wObjA.text, styleReason:reason, navId:`L-${id}` });
-          right.push({ type:'style', bbox:wordBbox(wObjB), text:wObjB.text, styleReason:reason, navId:`R-${id}` });
-        }
+        const la = linesA[iA + k], lb = linesB[iB + k];
+        if (la && lb) diffWordPair(la, lb, true);
       }
-      iA += part.value.length; iB += part.value.length;
+      iA += part.value.length; iB += part.value.length; pi++;
+
     } else if (part.removed) {
-      for (let k = 0; k < part.value.length; k++) {
-        const w = wA[iA+k];
-        if (w) left.push({ type:'removed', bbox:wordBbox(w), text:w.text, navId:`L-${nav()}` });
+      const nxt = lineDiff[pi + 1];
+      const nAdded = nxt?.added ? nxt.value.length : 0;
+
+      if (nAdded > 0) {
+        // Substitution block: pair removed ↔ added lines for word-level diff
+        const pairs = Math.min(part.value.length, nAdded);
+        for (let k = 0; k < pairs; k++) {
+          const la = linesA[iA + k], lb = linesB[iB + k];
+          if (la && lb) diffWordPair(la, lb, false);
+        }
+        for (let k = pairs; k < part.value.length; k++) {
+          const la = linesA[iA + k];
+          if (la) la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
+        }
+        for (let k = pairs; k < nAdded; k++) {
+          const lb = linesB[iB + k];
+          if (lb) lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
+        }
+        iA += part.value.length; iB += nAdded; pi += 2;
+      } else {
+        for (let k = 0; k < part.value.length; k++) {
+          const la = linesA[iA + k];
+          if (la) la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
+        }
+        iA += part.value.length; pi++;
       }
-      iA += part.value.length;
+
     } else {
       for (let k = 0; k < part.value.length; k++) {
-        const w = wB[iB+k];
-        if (w) right.push({ type:'added', bbox:wordBbox(w), text:w.text, navId:`R-${nav()}` });
+        const lb = linesB[iB + k];
+        if (lb) lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
       }
-      iB += part.value.length;
+      iB += part.value.length; pi++;
     }
   }
+
   return { left, right };
 };
 
@@ -773,7 +873,7 @@ const PdfVisualCompare: React.FC = () => {
         } catch { /* continue without canvas-based checks */ }
 
         // Word-level diff
-        const { left, right } = diffWords(wA, wB, canvasA, canvasB, diffMode, exclusions, pageTag);
+        const { left, right } = diffLines(wA, wB, canvasA, canvasB, diffMode, exclusions, pageTag);
 
         // Pixel diff (Precision only)
         let pixelHighlights: DiffHighlight[] = [];

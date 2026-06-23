@@ -142,7 +142,7 @@ const findPixelDiffRegions = (
   const BLOCK_THRESH = 0.20; // 20% of non-white pixels in a block must genuinely differ
   const MIN_SIGNIFICANT = 8; // skip near-empty blocks
   const MIN_W = 30, MIN_H = 15; // discard tiny noise clusters
-  const TEXT_PAD = 6; // pixels of padding to add around each text item bounding box
+  const TEXT_PAD = 12; // pixels of padding around each text item bounding box
 
   const cols = Math.ceil(w / BLOCK);
   const rows = Math.ceil(h / BLOCK);
@@ -150,12 +150,21 @@ const findPixelDiffRegions = (
   // Build a block-level text mask from all text items on the page.
   // Text changes are already handled by the text diff; pixel diff should only
   // cover non-text regions (images, colour fills, borders, layout elements).
+  //
+  // item.w (pdfjs TextItem.width) is in PDF user-space units, while item.x/y
+  // are already in canvas pixels (after the viewport transform multiply).
+  // item.fontSize is the font height in canvas pixels (from the transform matrix).
+  // We estimate canvas-pixel width from string length × fontSize so the mask
+  // fully covers every glyph, even when pdfjs reports a smaller advance width.
   const textMask = new Uint8Array(rows * cols);
   for (const item of textItems) {
-    const r0 = Math.max(0, Math.floor((item.y - item.h - TEXT_PAD) / BLOCK));
-    const r1 = Math.min(rows - 1, Math.floor((item.y + TEXT_PAD) / BLOCK));
+    const fh = item.fontSize > 0 ? item.fontSize : item.h;
+    const estW = item.str.length * fh * 0.65;
+    const maskW = Math.max(item.w, estW, fh * 0.5);
+    const r0 = Math.max(0, Math.floor((item.y - fh - TEXT_PAD) / BLOCK));
+    const r1 = Math.min(rows - 1, Math.ceil((item.y + TEXT_PAD) / BLOCK));
     const c0 = Math.max(0, Math.floor((item.x - TEXT_PAD) / BLOCK));
-    const c1 = Math.min(cols - 1, Math.floor((item.x + item.w + TEXT_PAD) / BLOCK));
+    const c1 = Math.min(cols - 1, Math.ceil((item.x + maskW + TEXT_PAD) / BLOCK));
     for (let tr = r0; tr <= r1; tr++)
       for (let tc = c0; tc <= c1; tc++)
         textMask[tr * cols + tc] = 1;

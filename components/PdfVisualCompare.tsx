@@ -1075,6 +1075,18 @@ const PdfVisualCompare: React.FC = () => {
           </button>
         </div>
       ) : (<>
+        {/* Collapse button — visible only after a comparison has been run */}
+        {pageResults && (
+          <div className="flex justify-end mb-3">
+            <button onClick={() => setControlsCollapsed(true)}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+              <svg className="w-3 h-3 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+              Collapse
+            </button>
+          </div>
+        )}
         {/* ── File upload ── */}
         <div className="grid md:grid-cols-2 gap-6 mb-6">
           {fileA
@@ -1168,13 +1180,12 @@ const PdfVisualCompare: React.FC = () => {
         </div>
       )}
 
-      {/* ── Summary — sticky, always visible, collapsible ── */}
+      {/* ── Summary — sticky at top (breaks out of card padding), collapsible ── */}
       {summary && !isLoading && (
-        <div className="sticky top-0 z-20 mb-4">
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-md">
+        <div className="sticky top-0 z-20 -mx-6 md:-mx-10 mb-6 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-600 shadow-md">
 
             {/* Header row — always visible */}
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-600">
+            <div className="flex items-center justify-between px-6 md:px-10 py-2.5 border-b border-slate-200 dark:border-slate-600">
               <div className="min-w-0 flex-1">
                 <h3 className="font-bold text-slate-900 dark:text-white text-sm">Comparison Summary</h3>
                 {controlsCollapsed && (
@@ -1203,7 +1214,7 @@ const PdfVisualCompare: React.FC = () => {
 
             {/* Body — collapsible */}
             {!summaryCollapsed && (
-              <div className="px-4 pt-3 pb-2">
+              <div className="px-6 md:px-10 pt-3 pb-2">
                 {/* Page counts */}
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 mb-3">
                   <span>File A: <strong>{summary.aPagesTotal}</strong> pages</span>
@@ -1244,7 +1255,7 @@ const PdfVisualCompare: React.FC = () => {
 
             {/* Difference navigation — always at bottom-right of summary */}
             {navList.length > 0 && (
-              <div className={`flex justify-end px-4 pb-2 pt-1.5 ${!summaryCollapsed ? 'border-t border-slate-100 dark:border-slate-700' : ''}`}>
+              <div className={`flex justify-end px-6 md:px-10 pb-2 pt-1.5 ${!summaryCollapsed ? 'border-t border-slate-100 dark:border-slate-700' : ''}`}>
                 <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1 shadow-sm">
                   <button onClick={() => navigate(-1)} title="Previous difference"
                     className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300">
@@ -1265,7 +1276,6 @@ const PdfVisualCompare: React.FC = () => {
               </div>
             )}
 
-          </div>
         </div>
       )}
 

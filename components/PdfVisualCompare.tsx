@@ -856,6 +856,9 @@ const PdfVisualCompare: React.FC = () => {
   const [navList, setNavList] = useState<string[]>([]); // ordered navIds
   const [navIndex, setNavIndex] = useState(0);
   const [activeNavId, setActiveNavId] = useState<string | null>(null);
+  // UI collapse state
+  const [controlsCollapsed, setControlsCollapsed] = useState(false);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(false);
 
   useEffect(() => {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -882,7 +885,7 @@ const PdfVisualCompare: React.FC = () => {
 
   const handleCompare = useCallback(async () => {
     if (!fileA || !fileB) return;
-    setIsLoading(true); setError(null);
+    setIsLoading(true); setError(null); setControlsCollapsed(true);
     setPageResults(null); setSummary(null);
     setNavList([]); setNavIndex(0); setActiveNavId(null);
 
@@ -1019,6 +1022,7 @@ const PdfVisualCompare: React.FC = () => {
     setPageResults(null); setSummary(null);
     setError(null); setExclusionInput('');
     setNavList([]); setNavIndex(0); setActiveNavId(null);
+    setControlsCollapsed(false); setSummaryCollapsed(false);
   };
 
   const handleHover = (e: React.MouseEvent, h: DiffHighlight) => {
@@ -1051,81 +1055,102 @@ const PdfVisualCompare: React.FC = () => {
         </p>
       </div>
 
-      {/* ── File upload ── */}
-      <div className="grid md:grid-cols-2 gap-6 mb-6">
-        {fileA
-          ? <FilePlaceholder file={fileA} label="Original PDF" onClear={() => { setFileA(null); setPdfDocA(null); setPageResults(null); }} />
-          : <FileUploader onFileChange={setFileA} acceptedFileType="application/pdf" fileTypeName="Original PDF" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />}
-        {fileB
-          ? <FilePlaceholder file={fileB} label="Revised PDF" onClear={() => { setFileB(null); setPdfDocB(null); setPageResults(null); }} />
-          : <FileUploader onFileChange={setFileB} acceptedFileType="application/pdf" fileTypeName="Revised PDF" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />}
-      </div>
-
-      {/* ── Exclusion strings ── */}
-      <div className="mb-6 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
-        <button
-          onClick={() => setShowExclusions(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors text-sm font-medium text-slate-700 dark:text-slate-300"
-        >
-          <span className="flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-            </svg>
-            Exclusion Strings
-            {activeParsedExclusions.length > 0 && (
-              <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs px-2 py-0.5 rounded-full">
-                {activeParsedExclusions.length} active
-              </span>
-            )}
-          </span>
-          <svg className={`w-4 h-4 transition-transform ${showExclusions ? 'rotate-180':''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        {showExclusions && (
-          <div className="px-4 py-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-              Words/phrases stripped from both PDFs before comparison (comma or newline separated).
-            </p>
-            <textarea
-              value={exclusionInput}
-              onChange={e => setExclusionInput(e.target.value)}
-              placeholder="e.g. Page 1 of 10, Generated on, Document ID"
-              rows={3}
-              className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-            />
+      {/* ── Controls section — auto-collapses after compare ── */}
+      {controlsCollapsed ? (
+        <div className="mb-5 border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700 px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 text-xs overflow-hidden">
+            <span className="text-slate-500 dark:text-slate-400 flex-shrink-0">Source:</span>
+            <span className="font-medium text-slate-700 dark:text-slate-200 truncate">{fileA?.name}</span>
+            <span className="text-slate-400 flex-shrink-0 mx-1">↔</span>
+            <span className="text-slate-500 dark:text-slate-400 flex-shrink-0">Destination:</span>
+            <span className="font-medium text-slate-700 dark:text-slate-200 truncate">{fileB?.name}</span>
+            <span className={`flex-shrink-0 px-2 py-0.5 rounded-full font-medium capitalize ${diffMode==='precise' ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'}`}>{diffMode}</span>
           </div>
-        )}
-      </div>
-
-      {/* ── Mode selector ── */}
-      <div className="flex flex-col items-center gap-2 mb-6">
-        <div className="flex items-center gap-3 text-sm">
-          <span className="text-slate-500 dark:text-slate-400 font-medium">Depth:</span>
-          {(['simple','precise'] as const).map(mode => (
-            <button key={mode} onClick={() => setDiffMode(mode)}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors capitalize ${
-                diffMode===mode ? 'bg-indigo-600 text-white shadow' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
-              }`}>{mode}</button>
-          ))}
+          <button onClick={() => setControlsCollapsed(false)} title="Change files or settings"
+            className="flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+            Edit
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
         </div>
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          {diffMode==='simple' ? 'Word-level text diff + colour changes' : 'Superset of Simple + font/size/bold/italic + visual image diff'}
-        </p>
-      </div>
+      ) : (<>
+        {/* ── File upload ── */}
+        <div className="grid md:grid-cols-2 gap-6 mb-6">
+          {fileA
+            ? <FilePlaceholder file={fileA} label="Original PDF" onClear={() => { setFileA(null); setPdfDocA(null); setPageResults(null); }} />
+            : <FileUploader onFileChange={setFileA} acceptedFileType="application/pdf" fileTypeName="Original PDF" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />}
+          {fileB
+            ? <FilePlaceholder file={fileB} label="Revised PDF" onClear={() => { setFileB(null); setPdfDocB(null); setPageResults(null); }} />
+            : <FileUploader onFileChange={setFileB} acceptedFileType="application/pdf" fileTypeName="Revised PDF" icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />} />}
+        </div>
 
-      {/* ── Actions ── */}
-      <div className="flex items-center justify-center gap-4 mb-8">
-        <button onClick={handleCompare} disabled={!fileA||!fileB||isLoading}
-          className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 transition-all transform hover:scale-105 inline-flex items-center gap-2 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed disabled:scale-100">
-          <ArrowsRightLeftIcon className="w-5 h-5" />
-          {pageResults ? 'Re-Compare' : 'Compare Documents'}
-        </button>
-        <button onClick={handleReset} disabled={!fileA&&!fileB}
-          className="bg-slate-200 text-slate-700 font-bold py-3 px-8 rounded-lg hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-200 dark:hover:bg-slate-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-          Reset
-        </button>
-      </div>
+        {/* ── Exclusion strings ── */}
+        <div className="mb-6 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowExclusions(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors text-sm font-medium text-slate-700 dark:text-slate-300"
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+              </svg>
+              Exclusion Strings
+              {activeParsedExclusions.length > 0 && (
+                <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs px-2 py-0.5 rounded-full">
+                  {activeParsedExclusions.length} active
+                </span>
+              )}
+            </span>
+            <svg className={`w-4 h-4 transition-transform ${showExclusions ? 'rotate-180':''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showExclusions && (
+            <div className="px-4 py-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                Words/phrases stripped from both PDFs before comparison (comma or newline separated).
+              </p>
+              <textarea
+                value={exclusionInput}
+                onChange={e => setExclusionInput(e.target.value)}
+                placeholder="e.g. Page 1 of 10, Generated on, Document ID"
+                rows={3}
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* ── Mode selector ── */}
+        <div className="flex flex-col items-center gap-2 mb-6">
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-slate-500 dark:text-slate-400 font-medium">Depth:</span>
+            {(['simple','precise'] as const).map(mode => (
+              <button key={mode} onClick={() => setDiffMode(mode)}
+                className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors capitalize ${
+                  diffMode===mode ? 'bg-indigo-600 text-white shadow' : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+                }`}>{mode}</button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            {diffMode==='simple' ? 'Word-level text diff + colour changes' : 'Superset of Simple + font/size/bold/italic + visual image diff'}
+          </p>
+        </div>
+
+        {/* ── Actions ── */}
+        <div className="flex items-center justify-center gap-4 mb-8">
+          <button onClick={handleCompare} disabled={!fileA||!fileB||isLoading}
+            className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 transition-all transform hover:scale-105 inline-flex items-center gap-2 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed disabled:scale-100">
+            <ArrowsRightLeftIcon className="w-5 h-5" />
+            {pageResults ? 'Re-Compare' : 'Compare Documents'}
+          </button>
+          <button onClick={handleReset} disabled={!fileA&&!fileB}
+            className="bg-slate-200 text-slate-700 font-bold py-3 px-8 rounded-lg hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-200 dark:hover:bg-slate-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            Reset
+          </button>
+        </div>
+      </>)}
 
       {/* ── Loading ── */}
       {isLoading && (
@@ -1143,45 +1168,103 @@ const PdfVisualCompare: React.FC = () => {
         </div>
       )}
 
-      {/* ── Summary ── */}
+      {/* ── Summary — sticky, always visible, collapsible ── */}
       {summary && !isLoading && (
-        <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600">
-          <h3 className="font-bold text-slate-900 dark:text-white mb-3">Comparison Summary</h3>
+        <div className="sticky top-0 z-20 mb-4">
+          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl shadow-md">
 
-          {/* Page counts */}
-          <div className="flex flex-wrap gap-4 text-sm text-slate-600 dark:text-slate-400 mb-4">
-            <span>File A: <strong>{summary.aPagesTotal}</strong> pages</span>
-            <span>File B: <strong>{summary.bPagesTotal}</strong> pages</span>
-            <span>Matched: <strong>{summary.pairsMatched}</strong> pairs</span>
-            {summary.missedInB.length > 0 && (
-              <span className="text-orange-600 dark:text-orange-400 font-medium">
-                Pages missed in B: {summary.missedInB.join(', ')}
-              </span>
-            )}
-            {summary.extraInB.length > 0 && (
-              <span className="text-blue-600 dark:text-blue-400 font-medium">
-                Extra pages in B: {summary.extraInB.join(', ')}
-              </span>
-            )}
-          </div>
-
-          {/* Diff counts */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <StatCard value={summary.totalAdded}   label="Words Added"   colorClass="text-blue-600 dark:text-blue-400" />
-            <StatCard value={summary.totalRemoved} label="Words Removed" colorClass="text-red-600 dark:text-red-400" />
-            <StatCard value={summary.totalStyle}   label="Style Changes" colorClass="text-yellow-600 dark:text-yellow-400" />
-            {diffMode==='precise' && <StatCard value={summary.totalVisual} label="Visual Diffs" colorClass="text-purple-600 dark:text-purple-400" />}
-            {diffMode==='precise' && summary.totalPageShift > 0 && <StatCard value={summary.totalPageShift} label="Page Shifts" colorClass="text-purple-600 dark:text-purple-400" />}
-          </div>
-
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4">
-            {(['removed','added','style',...(diffMode==='precise'?['visual']:[])] as const).map(type => (
-              <div key={type} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: HIGHLIGHT_CONFIG[type as keyof typeof HIGHLIGHT_CONFIG].dot }} />
-                <span>{HIGHLIGHT_CONFIG[type as keyof typeof HIGHLIGHT_CONFIG].label}</span>
+            {/* Header row — always visible */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-600">
+              <div className="min-w-0 flex-1">
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">Comparison Summary</h3>
+                {controlsCollapsed && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                    <span className="font-medium">{fileA?.name}</span>
+                    <span className="mx-1.5 text-slate-400">↔</span>
+                    <span className="font-medium">{fileB?.name}</span>
+                  </p>
+                )}
               </div>
-            ))}
+              <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                {controlsCollapsed && (
+                  <button onClick={handleReset}
+                    className="text-xs bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-500 font-semibold px-3 py-1 rounded-lg transition-colors">
+                    Reset
+                  </button>
+                )}
+                <button onClick={() => setSummaryCollapsed(v => !v)} title={summaryCollapsed ? 'Expand summary' : 'Collapse summary'}
+                  className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-500 dark:text-slate-400">
+                  <svg className={`w-4 h-4 transition-transform ${summaryCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Body — collapsible */}
+            {!summaryCollapsed && (
+              <div className="px-4 pt-3 pb-2">
+                {/* Page counts */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-400 mb-3">
+                  <span>File A: <strong>{summary.aPagesTotal}</strong> pages</span>
+                  <span>File B: <strong>{summary.bPagesTotal}</strong> pages</span>
+                  <span>Matched: <strong>{summary.pairsMatched}</strong> pairs</span>
+                  {summary.missedInB.length > 0 && (
+                    <span className="text-orange-600 dark:text-orange-400 font-medium">
+                      Pages missed in B: {summary.missedInB.join(', ')}
+                    </span>
+                  )}
+                  {summary.extraInB.length > 0 && (
+                    <span className="text-blue-600 dark:text-blue-400 font-medium">
+                      Extra pages in B: {summary.extraInB.join(', ')}
+                    </span>
+                  )}
+                </div>
+
+                {/* Diff counts — single row */}
+                <div className={`grid gap-2 mb-3 ${diffMode==='precise' ? 'grid-cols-5' : 'grid-cols-3'}`}>
+                  <StatCard value={summary.totalAdded}      label="Words Added"   colorClass="text-blue-600 dark:text-blue-400" />
+                  <StatCard value={summary.totalRemoved}    label="Words Removed" colorClass="text-red-600 dark:text-red-400" />
+                  <StatCard value={summary.totalStyle}      label="Style Changes" colorClass="text-yellow-600 dark:text-yellow-400" />
+                  {diffMode==='precise' && <StatCard value={summary.totalVisual}    label="Visual Diffs" colorClass="text-purple-600 dark:text-purple-400" />}
+                  {diffMode==='precise' && <StatCard value={summary.totalPageShift} label="Page Shifts"  colorClass="text-purple-600 dark:text-purple-400" />}
+                </div>
+
+                {/* Legend */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {(['removed','added','style',...(diffMode==='precise'?['visual']:[])] as const).map(type => (
+                    <div key={type} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: HIGHLIGHT_CONFIG[type as keyof typeof HIGHLIGHT_CONFIG].dot }} />
+                      <span>{HIGHLIGHT_CONFIG[type as keyof typeof HIGHLIGHT_CONFIG].label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Difference navigation — always at bottom-right of summary */}
+            {navList.length > 0 && (
+              <div className={`flex justify-end px-4 pb-2 pt-1.5 ${!summaryCollapsed ? 'border-t border-slate-100 dark:border-slate-700' : ''}`}>
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1 shadow-sm">
+                  <button onClick={() => navigate(-1)} title="Previous difference"
+                    className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                    </svg>
+                  </button>
+                  <span className="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300 min-w-[3rem] text-center">
+                    {navIndex + 1} / {navList.length}
+                  </span>
+                  <button onClick={() => navigate(1)} title="Next difference"
+                    className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
@@ -1193,41 +1276,10 @@ const PdfVisualCompare: React.FC = () => {
         </div>
       )}
 
-      {/* ── Page comparison + navigation ── */}
+      {/* ── Page comparison ── */}
       {!isLoading && pageResults && (pdfDocA || pdfDocB) && (
-        <div className="relative">
-          {/* Navigation arrows — sticky, top-right */}
-          {navList.length > 0 && (
-            <div className="sticky top-4 z-20 flex justify-end mb-3 pointer-events-none">
-              <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1.5 shadow-lg pointer-events-auto">
-                <button
-                  onClick={() => navigate(-1)}
-                  title="Previous difference"
-                  className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
-                  </svg>
-                </button>
-                <span className="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300 min-w-[3rem] text-center">
-                  {navList.length > 0 ? `${navIndex+1} / ${navList.length}` : '—'}
-                </span>
-                <button
-                  onClick={() => navigate(1)}
-                  title="Next difference"
-                  className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Page pairs */}
-          <div className="space-y-6">
-            {pageResults.map((result, pi) => {
+        <div className="space-y-6">
+          {pageResults.map((result, pi) => {
               const { aPage, bPage } = result.pairing;
               return (
                 <div key={pi} className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
@@ -1285,7 +1337,6 @@ const PdfVisualCompare: React.FC = () => {
                 </div>
               );
             })}
-          </div>
         </div>
       )}
 

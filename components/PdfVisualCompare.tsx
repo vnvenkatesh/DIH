@@ -87,7 +87,9 @@ const groupIntoParagraphs = (items: TextItem[]): TextItem[][] => {
   const paras: TextItem[][] = [[sorted[0]]];
   for (let i = 1; i < sorted.length; i++) {
     const prev = paras[paras.length - 1].at(-1)!;
-    if (Math.abs(sorted[i].y - prev.y) > prev.h * 1.2) {
+    // fontSize is always in canvas pixels (from transform matrix); item.h may be in PDF units
+    const lineH = prev.fontSize > 0 ? prev.fontSize : prev.h;
+    if (Math.abs(sorted[i].y - prev.y) > lineH * 1.5) {
       paras.push([sorted[i]]);
     } else {
       paras[paras.length - 1].push(sorted[i]);
@@ -467,20 +469,27 @@ const PdfVisualCompare: React.FC = () => {
 
         // Build index maps so textA[i] always resolves back to the correct parasA[j]
         // even when some paragraphs are entirely consumed by exclusions and filtered out.
+        const cleanParaText = (items: TextItem[]) =>
+          applyExclusions(items.map(ii => ii.str).join(' '), exclusions)
+            .replace(/\s+/g, ' ').trim();
+
         const paraMapA: { paraIdx: number; text: string }[] = [];
         parasA.forEach((p, i) => {
-          const t = applyExclusions(p.map(ii => ii.str).join(' '), exclusions);
+          const t = cleanParaText(p);
           if (t.length > 0) paraMapA.push({ paraIdx: i, text: t });
         });
         const paraMapB: { paraIdx: number; text: string }[] = [];
         parasB.forEach((p, i) => {
-          const t = applyExclusions(p.map(ii => ii.str).join(' '), exclusions);
+          const t = cleanParaText(p);
           if (t.length > 0) paraMapB.push({ paraIdx: i, text: t });
         });
         const textA = paraMapA.map(x => x.text);
         const textB = paraMapB.map(x => x.text);
 
-        const rawDiff = diffArrays(textA, textB);
+        const normWs = (s: string) => s.replace(/\s+/g, ' ').trim();
+        const rawDiff = diffArrays(textA, textB, {
+          comparator: (a: string, b: string) => normWs(a) === normWs(b),
+        });
 
         // Merge adjacent removed+added into "modified" blocks
         type MergedPart =

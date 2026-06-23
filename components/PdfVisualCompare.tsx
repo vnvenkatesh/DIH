@@ -129,6 +129,13 @@ const normForCompare = (s: string) =>
 const normForLineIdentity = (s: string): string =>
   s.normalize('NFKC').replace(/[^a-zA-Z0-9]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
 
+// Strips ALL non-alphanumeric characters INCLUDING spaces — used for paragraph
+// identity. Two PDFs may tokenise identical text at different item boundaries:
+// "Y"+"our" (gap=spaceThreshold, space inserted) vs "Your" (one item) both
+// normalise to "your" here, so the paragraph still compares as equal.
+const normForParaIdentity = (s: string): string =>
+  s.normalize('NFKC').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
 // ── Line grouping ──────────────────────────────────────────────────────────────
 interface Line { words: Word[]; text: string; normIdent: string; bbox: BBox; }
 
@@ -170,19 +177,25 @@ const checkWordStyleReasons = (
   canvasA: HTMLCanvasElement, canvasB: HTMLCanvasElement,
   mode: 'simple' | 'precise',
 ): string[] => {
+  // Simple mode: text content only — no style/colour/font checks.
+  if (mode === 'simple') return [];
   const reasons: string[] = [];
   const colA = sampleWordColor(canvasA, wA);
   const colB = sampleWordColor(canvasB, wB);
   if (colorBucket(colA) !== colorBucket(colB)) reasons.push(`Color: ${colA} → ${colB}`);
-  if (mode === 'precise') {
-    const baseFn = (fn: string) => fn.replace(/^[A-Z]{6}\+/, '').toLowerCase();
-    if (wA.fontName && wB.fontName && baseFn(wA.fontName) !== baseFn(wB.fontName))
-      reasons.push(`Font: ${wA.fontName} → ${wB.fontName}`);
-    if (Math.abs(wA.fontSize - wB.fontSize) > 0.5)
-      reasons.push(`Size: ${wA.fontSize.toFixed(1)}pt → ${wB.fontSize.toFixed(1)}pt`);
-    if (wA.bold !== wB.bold) reasons.push(wA.bold ? 'Bold removed' : 'Bold added');
-    if (wA.italic !== wB.italic) reasons.push(wA.italic ? 'Italic removed' : 'Italic added');
-  }
+  // Strip PDF-internal font resource prefixes ("ABCDEF+" subset tag, "g_d0_" / "g_d1_"
+  // doc-internal names) so that the same logical font in two differently-generated
+  // PDFs always compares equal.
+  const baseFn = (fn: string) => fn
+    .replace(/^[A-Z]{6}\+/, '')   // subset prefix "ABCDEF+FontName" → "FontName"
+    .replace(/^g_d\d+_/i, '')     // pdfjs internal "g_d0_f1" → "f1"
+    .toLowerCase();
+  if (wA.fontName && wB.fontName && baseFn(wA.fontName) !== baseFn(wB.fontName))
+    reasons.push(`Font: ${wA.fontName} → ${wB.fontName}`);
+  if (Math.abs(wA.fontSize - wB.fontSize) > 0.5)
+    reasons.push(`Size: ${wA.fontSize.toFixed(1)}pt → ${wB.fontSize.toFixed(1)}pt`);
+  if (wA.bold !== wB.bold) reasons.push(wA.bold ? 'Bold removed' : 'Bold added');
+  if (wA.italic !== wB.italic) reasons.push(wA.italic ? 'Italic removed' : 'Italic added');
   return reasons;
 };
 
@@ -209,7 +222,7 @@ const buildParagraphs = (words: Word[], exclusions: string[]): Paragraph[] => {
   return groups.map(ls => {
     const allWords = ls.flatMap(l => l.words);
     const text = allWords.map(w => w.text).join(' ');
-    return { words: allWords, text, normIdent: normForLineIdentity(text) };
+    return { words: allWords, text, normIdent: normForParaIdentity(text) };
   });
 };
 
@@ -337,10 +350,14 @@ const extractPageWords = async (
       const bold = /bold|black|heavy|demi/i.test(fontName);
       const italic = /italic|oblique/i.test(fontName);
       const fontSize = Math.round(fontH * 0.5 * 10) / 10;
-      const charW = fontH * 0.58;
       const lineY = Math.round(itemY / 3) * 3;
       // item.width is in device space (canvas px); fall back to estimate if absent/zero
-      const itemW = (item as any).width > 0 ? (item as any).width : item.str.length * charW;
+      const itemW = (item as any).width > 0 ? (item as any).width : item.str.length * fontH * 0.58;
+      // Per-character width derived from actual advance width — critical for correct
+      // word-x estimation inside multi-char items.  The old h*0.58 constant was
+      // sometimes 2× too large, placing "non" (end-of-item) past the start of
+      // the next "-" item and causing word-sort to reverse "non ->" → "- non".
+      const charW = item.str.length > 0 ? itemW / item.str.length : fontH * 0.58;
       rawItems.push({
         str: item.str, x: itemX, y: itemY - fontH, h: fontH, charW,
         width: itemW, lineY, fontName, fontSize, bold, italic,
@@ -366,9 +383,12 @@ const extractPageWords = async (
         const cur  = rawItems[i];
         const sameLine = Math.abs(cur.lineY - prev.lineY) < prev.h * 0.5;
         const gap = sameLine ? cur.x - (prev.x + prev.width) : Infinity;
-        const spaceThreshold = prev.h * 0.20; // ~20% of em = typical min word-space
+        // A gap > 20% of the line height is a word-space; ≤ 20% is adjacent glyphs.
+        // Use strict > so a gap exactly equal to the threshold is treated as adjacent
+        // (avoids splitting "Y"+"our" → separate tokens when gap = threshold exactly).
+        const spaceThreshold = prev.h * 0.20;
 
-        if (!sameLine || gap >= spaceThreshold) {
+        if (!sameLine || gap > spaceThreshold) {
           // Cross-line or word-space gap → insert space separator
           joined += ' ';
           charToItem.push(prev);
@@ -590,6 +610,8 @@ const diffLines = (
   mode: 'simple' | 'precise',
   exclusions: string[],
   pageTag: string,
+  globalBParaIdents?: Set<string>,
+  globalAParaIdents?: Set<string>,
 ): { left: DiffHighlight[]; right: DiffHighlight[] } => {
   const left: DiffHighlight[] = [], right: DiffHighlight[] = [];
   let navSeq = 0;
@@ -671,17 +693,23 @@ const diffLines = (
         }
         for (let k = pairs; k < part.value.length; k++) {
           const la = parasA[iA + k];
-          if (la) la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
+          if (!la) continue;
+          if (globalBParaIdents && la.normIdent.length >= 20 && globalBParaIdents.has(la.normIdent)) continue;
+          la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
         }
         for (let k = pairs; k < nAdded; k++) {
           const lb = parasB[iB + k];
-          if (lb) lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
+          if (!lb) continue;
+          if (globalAParaIdents && lb.normIdent.length >= 20 && globalAParaIdents.has(lb.normIdent)) continue;
+          lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
         }
         iA += part.value.length; iB += nAdded; pi += 2;
       } else {
         for (let k = 0; k < part.value.length; k++) {
           const la = parasA[iA + k];
-          if (la) la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
+          if (!la) continue;
+          if (globalBParaIdents && la.normIdent.length >= 20 && globalBParaIdents.has(la.normIdent)) continue;
+          la.words.forEach(w => left.push({ type: 'removed', bbox: wordBbox(w), text: w.text, navId: `L-${nav()}` }));
         }
         iA += part.value.length; pi++;
       }
@@ -689,7 +717,9 @@ const diffLines = (
     } else {
       for (let k = 0; k < part.value.length; k++) {
         const lb = parasB[iB + k];
-        if (lb) lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
+        if (!lb) continue;
+        if (globalAParaIdents && lb.normIdent.length >= 20 && globalAParaIdents.has(lb.normIdent)) continue;
+        lb.words.forEach(w => right.push({ type: 'added', bbox: wordBbox(w), text: w.text, navId: `R-${nav()}` }));
       }
       iB += part.value.length; pi++;
     }
@@ -867,11 +897,23 @@ const PdfVisualCompare: React.FC = () => {
         Promise.all(Array.from({length: numB}, (_, i) => extractPageWords(docB, i+1))),
       ]);
 
-      // Step 2: Match pages
+      // Step 2: Build global paragraph identity sets (Simple mode only) for
+      // page-shift suppression: a paragraph marked as added/removed on one page
+      // is skipped if its text exists somewhere in the other document.
+      const globalArParaIdents = new Set<string>();
+      const globalAkParaIdents = new Set<string>();
+      if (diffMode === 'simple') {
+        for (const words of allWordsA)
+          buildParagraphs(words, exclusions).forEach(p => { if (p.normIdent.length >= 20) globalArParaIdents.add(p.normIdent); });
+        for (const words of allWordsB)
+          buildParagraphs(words, exclusions).forEach(p => { if (p.normIdent.length >= 20) globalAkParaIdents.add(p.normIdent); });
+      }
+
+      // Step 3: Match pages
       setLoadingMessage('Matching pages…');
       const pairings = matchPages(allWordsA, allWordsB);
 
-      // Step 3: Diff each matched pair
+      // Step 4: Diff each matched pair
       const results: PageResult[] = [];
       let totAdded=0, totRemoved=0, totStyle=0, totVisual=0, totPageShift=0;
       const allNavIds: string[] = [];
@@ -904,8 +946,12 @@ const PdfVisualCompare: React.FC = () => {
         const pageShift = diffMode === 'precise' && aPage !== bPage;
         if (pageShift) totPageShift++;
 
-        // Paragraph-level diff
-        const { left, right } = diffLines(wA, wB, canvasA, canvasB, diffMode, exclusions, pageTag);
+        // Paragraph-level diff — in Simple mode pass global sets to suppress page-shifted content
+        const { left, right } = diffLines(
+          wA, wB, canvasA, canvasB, diffMode, exclusions, pageTag,
+          diffMode === 'simple' ? globalAkParaIdents : undefined,
+          diffMode === 'simple' ? globalArParaIdents : undefined,
+        );
 
         // Pixel diff (Precision only)
         let pixelHighlights: DiffHighlight[] = [];

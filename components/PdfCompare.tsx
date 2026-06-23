@@ -772,7 +772,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
              <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
                     <ArrowsRightLeftIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-                    PDF Semantic Compare
+                    PDF AI Compare
                 </h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400">
                     Compare two PDFs side-by-side and highlight textual or semantic differences.

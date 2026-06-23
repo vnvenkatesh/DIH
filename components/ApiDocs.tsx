@@ -258,7 +258,7 @@ Content-Type: application/json
     id: 'pdf-exact-compare',
     method: 'POST',
     path: '/pdf-exact-compare',
-    title: 'PDF Exact Compare',
+    title: 'PDF Visual Compare',
     shortDescription: 'No-AI word-level diff with optional font & colour detection',
     description:
       'Compares two PDF documents page-by-page using word-level exact diffing — no AI involved. Pass diffMode=simple (default) to also detect font size and style changes, or diffMode=precise to additionally attempt fill-colour detection. Requires a valid Bearer token (login via /v1/auth/login).',
@@ -311,7 +311,7 @@ Content-Type: application/json
     id: 'api-exact-compare',
     method: 'POST',
     path: '/api/exact-compare',
-    title: 'Exact Compare (Basic Auth)',
+    title: 'PDF Visual Compare (Basic Auth)',
     shortDescription: 'Structured exact diff with severity, position, and font detection',
     description:
       'Compares two PDFs with word-level exact diffing and returns a richly structured JSON response including a sequential diff ID, page number, diff type, page position (Top/Middle/Bottom), and severity (Major/Minor). Supports the same diffMode options as /pdf-exact-compare. Protected by HTTP Basic Authentication — pass credentials as base64-encoded username:password in the Authorization header.',

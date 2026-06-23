@@ -33,7 +33,7 @@ const accelerators = [
   {
     id: 'pdfCompare',
     Icon: ArrowsRightLeftIcon,
-    name: 'PDF Semantic Compare',
+    name: 'PDF AI Compare',
     tagline: 'See what changed in meaning',
     description:
       'Compare two PDFs side-by-side with paragraph-level exact diffs or AI-powered semantic analysis that catches logic changes even when wording differs. No more missed intent shifts in 40-page policy documents.',
@@ -43,7 +43,7 @@ const accelerators = [
   {
     id: 'pdfVisualCompare',
     Icon: EyeIcon,
-    name: 'PDF Exact Compare',
+    name: 'PDF Visual Compare',
     tagline: 'Pixel-precise visual diff, no AI',
     description:
       'Upload two PDFs and get a page-by-page visual diff with colour-coded highlights — blue for added, red for removed, orange for modified. Hover any highlight to see the exact text. Strip out timestamps or page numbers before diffing using the exclusion panel.',
@@ -270,7 +270,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
               { phase: 'Build & Test', tools: ['Synthetic Data Generation'], detail: 'Generate realistic, schema-valid synthetic test data without sourcing or masking real client PII — keeping testing clean and compliant.' },
-              { phase: 'QA & Review', tools: ['PDF Semantic Compare', 'PDF Exact Compare'], detail: 'Validate every document version change between iterations. Use Exact Compare for a fast, AI-free pixel diff; switch to Semantic Compare when you need to catch intent shifts that wording alone hides.' },
+              { phase: 'QA & Review', tools: ['PDF AI Compare', 'PDF Visual Compare'], detail: 'Validate every document version change between iterations. Use Visual Compare for a fast, AI-free structural and pixel diff; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },
             ].map(({ phase, tools, detail }) => (

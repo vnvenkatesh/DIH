@@ -13,14 +13,15 @@ type PdfTextItem = Extract<
 >;
 
 // ── Interfaces ────────────────────────────────────────────────────────────
-interface TextItem { str: string; x: number; y: number; w: number; h: number; }
+interface TextItem { str: string; x: number; y: number; w: number; h: number; fontName: string; fontSize: number; }
 interface BBox { left: number; top: number; width: number; height: number; }
 
 interface DiffHighlight {
-  type: 'added' | 'removed' | 'modified';
+  type: 'added' | 'removed' | 'modified' | 'visual' | 'style';
   bbox: BBox;
   leftText: string;
   rightText: string;
+  styleReason?: string;
 }
 
 interface PageResult {
@@ -34,6 +35,8 @@ interface Summary {
   totalAdded: number;
   totalRemoved: number;
   totalModified: number;
+  totalVisual: number;
+  totalStyle: number;
   pagesWithDiffs: number;
   totalPages: number;
 }
@@ -44,9 +47,11 @@ interface TooltipState { content: React.ReactNode; x: number; y: number; }
 const SCALE = 1.5;
 const EMPTY_BBOX: BBox = { left: 0, top: 0, width: 0, height: 0 };
 const HIGHLIGHT_CONFIG = {
-  added:    { bg: 'rgba(59,130,246,0.22)',  border: '2px solid rgba(59,130,246,0.85)',  label: 'Added',    dotColor: '#3b82f6' },
-  removed:  { bg: 'rgba(239,68,68,0.22)',   border: '2px solid rgba(239,68,68,0.85)',   label: 'Removed',  dotColor: '#ef4444' },
-  modified: { bg: 'rgba(249,115,22,0.22)',  border: '2px solid rgba(249,115,22,0.85)', label: 'Modified', dotColor: '#f97316' },
+  added:    { bg: 'rgba(59,130,246,0.22)',  border: '2px solid rgba(59,130,246,0.85)',  label: 'Added',         dotColor: '#3b82f6' },
+  removed:  { bg: 'rgba(239,68,68,0.22)',   border: '2px solid rgba(239,68,68,0.85)',   label: 'Removed',       dotColor: '#ef4444' },
+  modified: { bg: 'rgba(249,115,22,0.22)',  border: '2px solid rgba(249,115,22,0.85)', label: 'Modified',      dotColor: '#f97316' },
+  visual:   { bg: 'rgba(168,85,247,0.22)',  border: '2px solid rgba(168,85,247,0.85)', label: 'Visual Diff',   dotColor: '#a855f7' },
+  style:    { bg: 'rgba(234,179,8,0.22)',   border: '2px solid rgba(234,179,8,0.85)',  label: 'Style Changed', dotColor: '#eab308' },
 } as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -90,6 +95,91 @@ const groupIntoParagraphs = (items: TextItem[]): TextItem[][] => {
   }
   return paras.map(p => p.sort((a, b) => a.x - b.x));
 };
+
+// ── Style helpers ─────────────────────────────────────────────────────────
+const inferFontStyle = (fontName: string): { bold: boolean; italic: boolean } => {
+  const l = fontName.toLowerCase();
+  return { bold: /bold|black|heavy|demi/.test(l), italic: /italic|oblique/.test(l) };
+};
+
+const dominantFontName = (items: TextItem[]): string => {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.fontName, (counts.get(item.fontName) ?? 0) + 1);
+  let best = '', bestCount = 0;
+  for (const [name, count] of counts) if (count > bestCount) { bestCount = count; best = name; }
+  return best;
+};
+
+const dominantFontSize = (items: TextItem[]): number => {
+  const sizes = items.filter(i => i.fontSize > 0).map(i => i.fontSize).sort((a, b) => a - b);
+  return sizes.length ? sizes[Math.floor(sizes.length / 2)] : 0;
+};
+
+// ── Pixel diff helpers ─────────────────────────────────────────────────────
+const renderPageToCanvas = async (doc: pdfjsLib.PDFDocumentProxy, pageNum: number): Promise<HTMLCanvasElement> => {
+  const page = await doc.getPage(pageNum);
+  const vp = page.getViewport({ scale: SCALE });
+  const canvas = document.createElement('canvas');
+  canvas.width = vp.width;
+  canvas.height = vp.height;
+  await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp } as any).promise;
+  return canvas;
+};
+
+const findPixelDiffRegions = (cA: HTMLCanvasElement, cB: HTMLCanvasElement): BBox[] => {
+  const w = Math.min(cA.width, cB.width);
+  const h = Math.min(cA.height, cB.height);
+  if (!w || !h) return [];
+  const dA = cA.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const dB = cB.getContext('2d')!.getImageData(0, 0, w, h).data;
+  const BLOCK = 10;
+  const cols = Math.ceil(w / BLOCK);
+  const rows = Math.ceil(h / BLOCK);
+  const diffBlocks = new Set<number>();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      let diffPx = 0, total = 0;
+      for (let dy = 0; dy < BLOCK && r * BLOCK + dy < h; dy++) {
+        for (let dx = 0; dx < BLOCK && c * BLOCK + dx < w; dx++) {
+          const i = ((r * BLOCK + dy) * w + (c * BLOCK + dx)) * 4;
+          total++;
+          if (Math.abs(dA[i] - dB[i]) + Math.abs(dA[i+1] - dB[i+1]) + Math.abs(dA[i+2] - dB[i+2]) > 30) diffPx++;
+        }
+      }
+      if (total > 0 && diffPx / total > 0.05) diffBlocks.add(r * cols + c);
+    }
+  }
+  const regions: BBox[] = [];
+  const visited = new Set<number>();
+  for (const blk of diffBlocks) {
+    if (visited.has(blk)) continue;
+    const queue = [blk];
+    visited.add(blk);
+    let minR = Math.floor(blk / cols), maxR = minR;
+    let minC = blk % cols, maxC = minC;
+    while (queue.length) {
+      const cur = queue.shift()!;
+      const cr = Math.floor(cur / cols), cc = cur % cols;
+      for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]] as [number,number][]) {
+        const nr = cr + dr, nc = cc + dc;
+        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+          const nb = nr * cols + nc;
+          if (diffBlocks.has(nb) && !visited.has(nb)) {
+            visited.add(nb); queue.push(nb);
+            minR = Math.min(minR, nr); maxR = Math.max(maxR, nr);
+            minC = Math.min(minC, nc); maxC = Math.max(maxC, nc);
+          }
+        }
+      }
+    }
+    regions.push({ left: minC * BLOCK, top: minR * BLOCK, width: (maxC - minC + 1) * BLOCK, height: (maxR - minR + 1) * BLOCK });
+  }
+  return regions;
+};
+
+const bboxOverlaps = (a: BBox, b: BBox): boolean =>
+  a.left < b.left + b.width && a.left + a.width > b.left &&
+  a.top  < b.top  + b.height && a.top + a.height > b.top;
 
 // ── Sub-components ────────────────────────────────────────────────────────
 const FilePlaceholder: React.FC<{ file: File; label: string; onClear: () => void }> = ({ file, label, onClear }) => (
@@ -204,6 +294,7 @@ const PdfVisualCompare: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [showDiffsOnly, setShowDiffsOnly] = useState(false);
+  const [diffMode, setDiffMode] = useState<'simple' | 'precise'>('simple');
 
   useEffect(() => {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -231,7 +322,7 @@ const PdfVisualCompare: React.FC = () => {
             ? multiplyMatrices(vp.transform, item.transform)
             : vp.transform;
           const fontH = Math.sqrt(tx[2] ** 2 + tx[3] ** 2);
-          return { str: item.str, x: tx[4], y: tx[5], w: item.width ?? 0, h: item.height || fontH || 10 };
+          return { str: item.str, x: tx[4], y: tx[5], w: item.width ?? 0, h: item.height || fontH || 10, fontName: (item as any).fontName ?? '', fontSize: fontH };
         });
     } catch (e) {
       console.error(`Error extracting text from page ${pageNum}`, e);
@@ -253,6 +344,22 @@ const PdfVisualCompare: React.FC = () => {
         <div>
           <span className="font-bold text-blue-300 block mb-1.5">Added</span>
           <span className="text-slate-200 whitespace-pre-wrap leading-relaxed">{h.rightText}</span>
+        </div>
+      );
+    }
+    if (h.type === 'visual') {
+      return (
+        <div>
+          <span className="font-bold text-purple-300 block mb-1.5">Visual Difference</span>
+          <span className="text-slate-300 text-xs">Color, image or rendering change detected at this location.</span>
+        </div>
+      );
+    }
+    if (h.type === 'style') {
+      return (
+        <div>
+          <span className="font-bold text-yellow-300 block mb-1.5">Style Changed</span>
+          <span className="text-slate-300 text-xs font-mono">{h.styleReason}</span>
         </div>
       );
     }
@@ -299,7 +406,7 @@ const PdfVisualCompare: React.FC = () => {
       const exclusions = parseExclusions(exclusionInput);
       const numPages = Math.max(docA.numPages, docB.numPages);
       const results: PageResult[] = [];
-      let totalAdded = 0, totalRemoved = 0, totalModified = 0, pagesWithDiffs = 0;
+      let totalAdded = 0, totalRemoved = 0, totalModified = 0, totalVisual = 0, totalStyle = 0, pagesWithDiffs = 0;
 
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         setLoadingMessage(`Comparing page ${pageNum} of ${numPages}…`);
@@ -364,6 +471,29 @@ const PdfVisualCompare: React.FC = () => {
 
         for (const part of merged) {
           if (part.type === 'unchanged') {
+            if (diffMode === 'precise') {
+              for (let k = 0; k < part.values.length; k++) {
+                const pA = paraMapA[idxA + k] ? parasA[paraMapA[idxA + k].paraIdx] : null;
+                const pB = paraMapB[idxB + k] ? parasB[paraMapB[idxB + k].paraIdx] : null;
+                if (pA && pB) {
+                  const fnA = dominantFontName(pA), fnB = dominantFontName(pB);
+                  const fsA = dominantFontSize(pA), fsB = dominantFontSize(pB);
+                  const stA = inferFontStyle(fnA), stB = inferFontStyle(fnB);
+                  const reasons: string[] = [];
+                  if (fnA && fnB && fnA !== fnB) reasons.push(`Font: ${fnA} → ${fnB}`);
+                  if (fsA > 0 && fsB > 0 && Math.abs(fsA - fsB) > 0.5) reasons.push(`Size: ${fsA.toFixed(1)}pt → ${fsB.toFixed(1)}pt`);
+                  if (stA.bold !== stB.bold) reasons.push(stB.bold ? 'Bold added' : 'Bold removed');
+                  if (stA.italic !== stB.italic) reasons.push(stB.italic ? 'Italic added' : 'Italic removed');
+                  if (reasons.length > 0) {
+                    const styleReason = reasons.join(' · ');
+                    leftHighlights.push({ type: 'style', bbox: getBbox(pA), leftText: part.values[k], rightText: part.values[k], styleReason });
+                    rightHighlights.push({ type: 'style', bbox: getBbox(pB), leftText: part.values[k], rightText: part.values[k], styleReason });
+                    totalStyle++;
+                    pageChanges++;
+                  }
+                }
+              }
+            }
             idxA += part.values.length;
             idxB += part.values.length;
           } else if (part.type === 'modified') {
@@ -398,12 +528,35 @@ const PdfVisualCompare: React.FC = () => {
           }
         }
 
+        // Pixel diff — Simple and Precise modes
+        if (pageNum <= docA.numPages && pageNum <= docB.numPages) {
+          try {
+            setLoadingMessage(`Rendering page ${pageNum} for visual comparison…`);
+            const [cA, cB] = await Promise.all([
+              renderPageToCanvas(docA, pageNum),
+              renderPageToCanvas(docB, pageNum),
+            ]);
+            const pixelRegions = findPixelDiffRegions(cA, cB);
+            const existingBboxes = [...leftHighlights, ...rightHighlights].map(h => h.bbox);
+            for (const region of pixelRegions) {
+              if (region.width < 5 || region.height < 5) continue;
+              if (existingBboxes.some(b => bboxOverlaps(b, region))) continue;
+              leftHighlights.push({ type: 'visual', bbox: region, leftText: '', rightText: '' });
+              rightHighlights.push({ type: 'visual', bbox: region, leftText: '', rightText: '' });
+              totalVisual++;
+              pageChanges++;
+            }
+          } catch {
+            // pixel diff failed for this page — skip silently
+          }
+        }
+
         if (pageChanges > 0) pagesWithDiffs++;
         results.push({ pageNum, leftHighlights, rightHighlights, changeCount: pageChanges });
       }
 
       setPageResults(results);
-      setSummary({ totalAdded, totalRemoved, totalModified, pagesWithDiffs, totalPages: numPages });
+      setSummary({ totalAdded, totalRemoved, totalModified, totalVisual, totalStyle, pagesWithDiffs, totalPages: numPages });
     } catch (e) {
       console.error(e);
       setError('An unexpected error occurred. Please try again.');
@@ -411,7 +564,7 @@ const PdfVisualCompare: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage('');
     }
-  }, [fileA, fileB, pdfDocA, pdfDocB, exclusionInput]);
+  }, [fileA, fileB, pdfDocA, pdfDocB, exclusionInput, diffMode]);
 
   const handleReset = () => {
     setFileA(null); setFileB(null);
@@ -442,7 +595,7 @@ const PdfVisualCompare: React.FC = () => {
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
           <ArrowsRightLeftIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-          PDF Exact Compare
+          PDF Visual Compare
         </h2>
         <p className="mt-2 text-slate-600 dark:text-slate-400">
           Side-by-side visual diff of every page — no AI required.
@@ -518,6 +671,31 @@ const PdfVisualCompare: React.FC = () => {
         )}
       </div>
 
+      {/* ── Diff mode selector ── */}
+      <div className="flex flex-col items-center gap-2 mb-6">
+        <div className="flex items-center gap-3 text-sm">
+          <span className="text-slate-500 dark:text-slate-400 font-medium">Depth:</span>
+          {(['simple', 'precise'] as const).map(mode => (
+            <button
+              key={mode}
+              onClick={() => setDiffMode(mode)}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors capitalize ${
+                diffMode === mode
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600'
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          {diffMode === 'simple'
+            ? 'Text diff + pixel-level image comparison'
+            : 'Text diff + image comparison + font, size, bold, italic analysis'}
+        </p>
+      </div>
+
       {/* ── Actions ── */}
       <div className="flex items-center justify-center gap-4 mb-8">
         <button
@@ -558,16 +736,20 @@ const PdfVisualCompare: React.FC = () => {
       {summary && !isLoading && (
         <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-700 rounded-xl border border-slate-200 dark:border-slate-600">
           <h3 className="font-bold text-slate-900 dark:text-white mb-3">Comparison Summary</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <StatCard value={summary.totalPages}     label="Total Pages"       colorClass="text-slate-700 dark:text-slate-200" />
             <StatCard value={summary.pagesWithDiffs} label="Pages with Diffs"  colorClass="text-indigo-600 dark:text-indigo-400" />
             <StatCard value={summary.totalAdded}     label="Added"             colorClass="text-blue-600 dark:text-blue-400" />
             <StatCard value={summary.totalRemoved}   label="Removed"           colorClass="text-red-600 dark:text-red-400" />
             <StatCard value={summary.totalModified}  label="Modified"          colorClass="text-orange-600 dark:text-orange-400" />
+            <StatCard value={summary.totalVisual}    label="Visual Diff"       colorClass="text-purple-600 dark:text-purple-400" />
+            {diffMode === 'precise' && (
+              <StatCard value={summary.totalStyle} label="Style Changed" colorClass="text-yellow-600 dark:text-yellow-400" />
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-5">
             {/* Legend */}
-            {(['added', 'removed', 'modified'] as const).map(type => (
+            {(['added', 'removed', 'modified', 'visual', ...(diffMode === 'precise' ? ['style'] : [])] as const).map((type: keyof typeof HIGHLIGHT_CONFIG) => (
               <div key={type} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: HIGHLIGHT_CONFIG[type].dotColor }} />
                 <span>{HIGHLIGHT_CONFIG[type].label}</span>

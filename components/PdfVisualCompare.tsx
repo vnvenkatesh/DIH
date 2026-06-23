@@ -132,23 +132,35 @@ const findPixelDiffRegions = (cA: HTMLCanvasElement, cB: HTMLCanvasElement): BBo
   if (!w || !h) return [];
   const dA = cA.getContext('2d')!.getImageData(0, 0, w, h).data;
   const dB = cB.getContext('2d')!.getImageData(0, 0, w, h).data;
-  const BLOCK = 10;
+
+  // Larger blocks + higher thresholds to avoid antialiasing / whitespace false positives
+  const BLOCK = 16;
+  const COLOR_THRESH = 60;   // ignore sub-pixel antialiasing (typically < 30 per channel)
+  const BLOCK_THRESH = 0.15; // 15% of non-white pixels must genuinely differ
+  const MIN_SIGNIFICANT = 8; // block needs at least 8 non-white pixels to be evaluated
+  const MIN_W = 20, MIN_H = 10; // discard tiny noise clusters
+
   const cols = Math.ceil(w / BLOCK);
   const rows = Math.ceil(h / BLOCK);
   const diffBlocks = new Set<number>();
+
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      let diffPx = 0, total = 0;
+      let diffPx = 0, significant = 0;
       for (let dy = 0; dy < BLOCK && r * BLOCK + dy < h; dy++) {
         for (let dx = 0; dx < BLOCK && c * BLOCK + dx < w; dx++) {
           const i = ((r * BLOCK + dy) * w + (c * BLOCK + dx)) * 4;
-          total++;
-          if (Math.abs(dA[i] - dB[i]) + Math.abs(dA[i+1] - dB[i+1]) + Math.abs(dA[i+2] - dB[i+2]) > 30) diffPx++;
+          // Skip near-white pixel pairs — the primary source of whitespace false positives
+          if (dA[i] > 240 && dA[i+1] > 240 && dA[i+2] > 240 &&
+              dB[i] > 240 && dB[i+1] > 240 && dB[i+2] > 240) continue;
+          significant++;
+          if (Math.abs(dA[i] - dB[i]) + Math.abs(dA[i+1] - dB[i+1]) + Math.abs(dA[i+2] - dB[i+2]) > COLOR_THRESH) diffPx++;
         }
       }
-      if (total > 0 && diffPx / total > 0.05) diffBlocks.add(r * cols + c);
+      if (significant >= MIN_SIGNIFICANT && diffPx / significant > BLOCK_THRESH) diffBlocks.add(r * cols + c);
     }
   }
+
   const regions: BBox[] = [];
   const visited = new Set<number>();
   for (const blk of diffBlocks) {
@@ -172,7 +184,11 @@ const findPixelDiffRegions = (cA: HTMLCanvasElement, cB: HTMLCanvasElement): BBo
         }
       }
     }
-    regions.push({ left: minC * BLOCK, top: minR * BLOCK, width: (maxC - minC + 1) * BLOCK, height: (maxR - minR + 1) * BLOCK });
+    const rw = (maxC - minC + 1) * BLOCK;
+    const rh = (maxR - minR + 1) * BLOCK;
+    if (rw >= MIN_W && rh >= MIN_H) {
+      regions.push({ left: minC * BLOCK, top: minR * BLOCK, width: rw, height: rh });
+    }
   }
   return regions;
 };
@@ -539,7 +555,6 @@ const PdfVisualCompare: React.FC = () => {
             const pixelRegions = findPixelDiffRegions(cA, cB);
             const existingBboxes = [...leftHighlights, ...rightHighlights].map(h => h.bbox);
             for (const region of pixelRegions) {
-              if (region.width < 5 || region.height < 5) continue;
               if (existingBboxes.some(b => bboxOverlaps(b, region))) continue;
               leftHighlights.push({ type: 'visual', bbox: region, leftText: '', rightText: '' });
               rightHighlights.push({ type: 'visual', bbox: region, leftText: '', rightText: '' });

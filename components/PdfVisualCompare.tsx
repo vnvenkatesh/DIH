@@ -496,8 +496,13 @@ const findPixelDiffRegions = (
   if (!w || !h) return [];
   const dA = cA.getContext('2d')!.getImageData(0,0,w,h).data;
   const dB = cB.getContext('2d')!.getImageData(0,0,w,h).data;
-  const BLOCK = 16, COLOR_THRESH = 80, BLOCK_THRESH = 0.20;
-  const MIN_SIGNIFICANT = 8, MIN_W = 30, MIN_H = 15, TEXT_PAD = 12;
+  // Tolerance calibration: ~0.05 cm ≈ 2 px at SCALE=1.5 (72 dpi base).
+  // Using diffPx/totalPx (total block area) as denominator: a 2 px positional
+  // shift of a line in a 16×16 block yields ~25 % — well below BLOCK_THRESH=0.40,
+  // so minor layout nudges are silently absorbed. Only regions larger than
+  // MIN_W×MIN_H (≈1.9 cm × 1.4 cm) and substantially different are flagged.
+  const BLOCK = 16, COLOR_THRESH = 100, BLOCK_THRESH = 0.40;
+  const MIN_SIGNIFICANT = 10, MIN_W = 80, MIN_H = 60, TEXT_PAD = 20;
   const cols = Math.ceil(w/BLOCK), rows = Math.ceil(h/BLOCK);
 
   const textMask = new Uint8Array(rows*cols);
@@ -515,16 +520,19 @@ const findPixelDiffRegions = (
   for (let r=0;r<rows;r++) {
     for (let c=0;c<cols;c++) {
       if (textMask[r*cols+c]) continue;
-      let diffPx=0, sig=0;
+      let diffPx=0, sig=0, totalPx=0;
       for (let dy=0;dy<BLOCK&&r*BLOCK+dy<h;dy++) {
         for (let dx=0;dx<BLOCK&&c*BLOCK+dx<w;dx++) {
           const i=((r*BLOCK+dy)*w+(c*BLOCK+dx))*4;
+          totalPx++;
           if (dA[i]>240&&dA[i+1]>240&&dA[i+2]>240&&dB[i]>240&&dB[i+1]>240&&dB[i+2]>240) continue;
           sig++;
           if (Math.abs(dA[i]-dB[i])+Math.abs(dA[i+1]-dB[i+1])+Math.abs(dA[i+2]-dB[i+2])>COLOR_THRESH) diffPx++;
         }
       }
-      if (sig>=MIN_SIGNIFICANT && diffPx/sig>BLOCK_THRESH) diffBlocks.add(r*cols+c);
+      // Use total block area (not just non-white pixels) as denominator so that
+      // a thin line shifted a few pixels registers a small ratio rather than 100%.
+      if (sig>=MIN_SIGNIFICANT && totalPx>0 && diffPx/totalPx>BLOCK_THRESH) diffBlocks.add(r*cols+c);
     }
   }
 

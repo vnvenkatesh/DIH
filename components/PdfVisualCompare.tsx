@@ -161,6 +161,18 @@ const matchPages = (
 };
 
 // ── Word extraction from a PDF page ──────────────────────────────────────────
+//
+// Strategy: join ALL items into one page-level string before tokenizing.
+// pdfjs groups characters into items differently between PDF files (e.g. AR
+// splits "We" | "agree to pay..." while AK has "We agree to pay..." as one
+// item; punctuation like "," can be its own item in one file but attached to
+// the adjacent word in another). Tokenizing item-by-item produces different
+// token sequences for identical text, causing 50+ false positive diffs.
+// By joining items with a space separator and tokenizing the joined string,
+// both files produce the same token sequence. Standalone punctuation tokens
+// (e.g. a bare ",") are then merged into the preceding word to handle the
+// common case where a comma sits at an item boundary in one file but is
+// attached to the word in the other.
 const extractPageWords = async (
   doc: pdfjsLib.PDFDocumentProxy, pageNum: number
 ): Promise<Word[]> => {
@@ -169,45 +181,94 @@ const extractPageWords = async (
     const page = await doc.getPage(pageNum);
     const content = await page.getTextContent();
     const vp = page.getViewport({ scale: SCALE });
-    const words: Word[] = [];
+
+    // Collect raw items with canvas-space positions
+    interface RawItem {
+      str: string; x: number; y: number; h: number; charW: number;
+      lineY: number; fontName: string; fontSize: number; bold: boolean; italic: boolean;
+    }
+    const rawItems: RawItem[] = [];
 
     for (const raw of content.items) {
       if (!('str' in raw) || !raw.str.trim()) continue;
       const item = raw as PdfTextItem;
       const tx = multiplyMatrices(vp.transform, item.transform);
-      const fontH = Math.sqrt(tx[2]**2 + tx[3]**2); // canvas px
-      const itemX = tx[4], itemY = tx[5]; // itemY = baseline in canvas px
+      const fontH = Math.sqrt(tx[2]**2 + tx[3]**2);
+      const itemX = tx[4], itemY = tx[5];
       const fontName = (item as any).fontName ?? '';
       const bold = /bold|black|heavy|demi/i.test(fontName);
       const italic = /italic|oblique/i.test(fontName);
-      // fontSize in points: fontH / SCALE / (96/72) = fontH * 0.5
       const fontSize = Math.round(fontH * 0.5 * 10) / 10;
-      // Use char-width estimate for canvas pixel width (item.width is PDF units)
       const charW = fontH * 0.58;
+      const lineY = Math.round(itemY / 3) * 3;
+      rawItems.push({
+        str: item.str, x: itemX, y: itemY - fontH, h: fontH, charW, lineY,
+        fontName, fontSize, bold, italic,
+      });
+    }
 
-      // Split item text into individual word tokens
-      const tokenRe = /\S+/g;
-      let m: RegExpExecArray | null;
-      while ((m = tokenRe.exec(item.str)) !== null) {
-        const token = m[0];
-        const charOffset = m.index;
-        const xCanvas = itemX + charOffset * charW;
-        const wCanvas = Math.max(token.length * charW, 4);
-        // lineY: snap baseline to 3px grid for grouping same-line words
-        const lineY = Math.round(itemY / 3) * 3;
-        words.push({
-          text: token,
-          x: xCanvas,
-          y: itemY - fontH, // top of glyph in canvas px
-          w: wCanvas,
-          h: fontH,
-          lineY,
-          fontName, fontSize, bold, italic,
-        });
+    // Sort into reading order: top-to-bottom, left-to-right
+    rawItems.sort((a, b) => a.lineY !== b.lineY ? a.lineY - b.lineY : a.x - b.x);
+
+    // Build page-level joined string and char→item/offset maps.
+    let joined = '';
+    const charToItem: RawItem[] = [];
+    const charLocalOffset: number[] = [];
+
+    for (let i = 0; i < rawItems.length; i++) {
+      if (i > 0) {
+        // Space separator — maps to last char of previous item for bbox fallback
+        joined += ' ';
+        charToItem.push(rawItems[i-1]);
+        charLocalOffset.push(Math.max(0, rawItems[i-1].str.length - 1));
+      }
+      const ri = rawItems[i];
+      for (let c = 0; c < ri.str.length; c++) {
+        joined += ri.str[c];
+        charToItem.push(ri);
+        charLocalOffset.push(c);
       }
     }
-    // Reading order: top-to-bottom, left-to-right
-    return words.sort((a, b) => a.lineY !== b.lineY ? a.lineY - b.lineY : a.x - b.x);
+
+    // Tokenize the full joined page text
+    const tokenRe = /\S+/g;
+    let m: RegExpExecArray | null;
+    interface TempToken { text: string; item: RawItem; localOffset: number; }
+    const rawTokens: TempToken[] = [];
+    while ((m = tokenRe.exec(joined)) !== null) {
+      rawTokens.push({
+        text: m[0],
+        item: charToItem[m.index],
+        localOffset: charLocalOffset[m.index],
+      });
+    }
+
+    // Merge standalone punctuation into the preceding token.
+    // Prevents item-boundary splits like ["Statement", ",", "approved"]
+    // from mismatching the same content tokenized as ["Statement,", "approved"].
+    const merged: TempToken[] = [];
+    for (const tok of rawTokens) {
+      if (merged.length > 0 && /^[.,;:!?'")\]]+$/.test(tok.text)) {
+        merged[merged.length-1] = { ...merged[merged.length-1], text: merged[merged.length-1].text + tok.text };
+      } else {
+        merged.push(tok);
+      }
+    }
+
+    // Build Word[] — position derived from source item + char offset within that item
+    return merged.map(tok => {
+      const ri = tok.item;
+      return {
+        text: tok.text,
+        x: ri.x + tok.localOffset * ri.charW,
+        y: ri.y,
+        w: Math.max(tok.text.length * ri.charW, 4),
+        h: ri.h,
+        lineY: ri.lineY,
+        fontName: ri.fontName, fontSize: ri.fontSize,
+        bold: ri.bold, italic: ri.italic,
+      };
+    });
   } catch {
     return [];
   }
@@ -332,12 +393,19 @@ const diffWords = (
     ws.filter(w => applyExclusion(w.text, exclusions).length > 0);
   const wA = filt(wordsA), wB = filt(wordsB);
 
-  const normSimple = (s: string) => s.replace(/\s+/g,' ').trim();
+  // Normalize before comparing: NFKC resolves ligatures (ﬁ→fi, ﬂ→fl etc.),
+  // strips invisible/soft-hyphen chars, collapses whitespace.
+  // Used in both modes — the simple/precise distinction governs only which
+  // style attributes are checked on unchanged words, not how text tokens compare.
+  const normForCompare = (s: string) =>
+    s.normalize('NFKC')
+     .replace(/[ ­​‌‍﻿]/g, '')
+     .replace(/\s+/g, ' ')
+     .trim();
+
   const rawDiff = diffArrays(
     wA.map(w => w.text), wB.map(w => w.text),
-    { comparator: mode === 'simple'
-        ? (a: string, b: string) => normSimple(a) === normSimple(b)
-        : (a: string, b: string) => a === b },
+    { comparator: (a: string, b: string) => normForCompare(a) === normForCompare(b) },
   );
 
   let iA = 0, iB = 0, navSeq = 0;

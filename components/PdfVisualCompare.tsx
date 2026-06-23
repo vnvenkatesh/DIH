@@ -126,31 +126,50 @@ const renderPageToCanvas = async (doc: pdfjsLib.PDFDocumentProxy, pageNum: numbe
   return canvas;
 };
 
-const findPixelDiffRegions = (cA: HTMLCanvasElement, cB: HTMLCanvasElement): BBox[] => {
+const findPixelDiffRegions = (
+  cA: HTMLCanvasElement,
+  cB: HTMLCanvasElement,
+  textItems: TextItem[],  // all text items from both pages — used to mask out text blocks
+): BBox[] => {
   const w = Math.min(cA.width, cB.width);
   const h = Math.min(cA.height, cB.height);
   if (!w || !h) return [];
   const dA = cA.getContext('2d')!.getImageData(0, 0, w, h).data;
   const dB = cB.getContext('2d')!.getImageData(0, 0, w, h).data;
 
-  // Larger blocks + higher thresholds to avoid antialiasing / whitespace false positives
   const BLOCK = 16;
-  const COLOR_THRESH = 60;   // ignore sub-pixel antialiasing (typically < 30 per channel)
-  const BLOCK_THRESH = 0.15; // 15% of non-white pixels must genuinely differ
-  const MIN_SIGNIFICANT = 8; // block needs at least 8 non-white pixels to be evaluated
-  const MIN_W = 20, MIN_H = 10; // discard tiny noise clusters
+  const COLOR_THRESH = 80;   // only flag clearly distinct colours, not antialiasing grey-shade shifts
+  const BLOCK_THRESH = 0.20; // 20% of non-white pixels in a block must genuinely differ
+  const MIN_SIGNIFICANT = 8; // skip near-empty blocks
+  const MIN_W = 30, MIN_H = 15; // discard tiny noise clusters
+  const TEXT_PAD = 6; // pixels of padding to add around each text item bounding box
 
   const cols = Math.ceil(w / BLOCK);
   const rows = Math.ceil(h / BLOCK);
+
+  // Build a block-level text mask from all text items on the page.
+  // Text changes are already handled by the text diff; pixel diff should only
+  // cover non-text regions (images, colour fills, borders, layout elements).
+  const textMask = new Uint8Array(rows * cols);
+  for (const item of textItems) {
+    const r0 = Math.max(0, Math.floor((item.y - item.h - TEXT_PAD) / BLOCK));
+    const r1 = Math.min(rows - 1, Math.floor((item.y + TEXT_PAD) / BLOCK));
+    const c0 = Math.max(0, Math.floor((item.x - TEXT_PAD) / BLOCK));
+    const c1 = Math.min(cols - 1, Math.floor((item.x + item.w + TEXT_PAD) / BLOCK));
+    for (let tr = r0; tr <= r1; tr++)
+      for (let tc = c0; tc <= c1; tc++)
+        textMask[tr * cols + tc] = 1;
+  }
+
   const diffBlocks = new Set<number>();
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      if (textMask[r * cols + c]) continue; // skip text areas — antialiasing causes false positives here
       let diffPx = 0, significant = 0;
       for (let dy = 0; dy < BLOCK && r * BLOCK + dy < h; dy++) {
         for (let dx = 0; dx < BLOCK && c * BLOCK + dx < w; dx++) {
           const i = ((r * BLOCK + dy) * w + (c * BLOCK + dx)) * 4;
-          // Skip near-white pixel pairs — the primary source of whitespace false positives
           if (dA[i] > 240 && dA[i+1] > 240 && dA[i+2] > 240 &&
               dB[i] > 240 && dB[i+1] > 240 && dB[i+2] > 240) continue;
           significant++;
@@ -552,7 +571,7 @@ const PdfVisualCompare: React.FC = () => {
               renderPageToCanvas(docA, pageNum),
               renderPageToCanvas(docB, pageNum),
             ]);
-            const pixelRegions = findPixelDiffRegions(cA, cB);
+            const pixelRegions = findPixelDiffRegions(cA, cB, [...rawA, ...rawB]);
             const existingBboxes = [...leftHighlights, ...rightHighlights].map(h => h.bbox);
             for (const region of pixelRegions) {
               if (existingBboxes.some(b => bboxOverlaps(b, region))) continue;

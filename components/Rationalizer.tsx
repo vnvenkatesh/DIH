@@ -14,36 +14,35 @@ interface RationalizerProps {
 
 const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
     if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
-    let dotProduct = 0.0, normA = 0.0, normB = 0.0;
+    let dot = 0, normA = 0, normB = 0;
     for (let i = 0; i < vecA.length; i++) {
-        dotProduct += vecA[i] * vecB[i];
+        dot += vecA[i] * vecB[i];
         normA += vecA[i] * vecA[i];
         normB += vecB[i] * vecB[i];
     }
     const denom = Math.sqrt(normA) * Math.sqrt(normB);
-    return denom === 0 ? 0 : dotProduct / denom;
+    return denom === 0 ? 0 : dot / denom;
 };
 
 // ─── Repeated-clause detection: Jaccard similarity on word sets ──────────────
 //
-// We use Jaccard rather than AI embeddings because:
+// Jaccard is used rather than AI embeddings because:
 //   • No API call — fast, no quota consumption.
-//   • Formal/legal language repeats phrases near-verbatim; Jaccard on word
-//     sets is well-suited for this overlap pattern.
-//   • Same-document duplicates (user requirement) are detected naturally
-//     by comparing all clause pairs, not just cross-document pairs.
+//   • Formal/legal language repeats phrases near-verbatim; Jaccard on
+//     content-word sets is well-suited to that overlap pattern.
+//   • Same-document duplicates are detected naturally (all pairs compared,
+//     not just cross-document pairs).
 //
-// Threshold of 0.65 catches paraphrases while filtering unrelated text.
-// Clause windows of 3 sentences with a 1-sentence overlap ensure clauses
-// that straddle arbitrary segmentation boundaries are still matched.
+// Threshold 0.65 catches meaningful paraphrases while filtering unrelated text.
+// 3-sentence windows with 1-sentence overlap prevent clauses that straddle
+// arbitrary segmentation boundaries from being missed.
 
 const CLAUSE_JACCARD_THRESHOLD = 0.65;
-const CLAUSE_MIN_CHARS = 80;  // discard very short fragments (headers, labels)
-const CLAUSE_WINDOW_SIZE = 3; // sentences per logical clause group
-const CLAUSE_STEP_SIZE = 2;   // sliding step (1-sentence overlap between windows)
+const CLAUSE_MIN_CHARS = 80;   // discard very short fragments (headers, labels)
+const CLAUSE_WINDOW_SIZE = 3;  // sentences per logical clause group
+const CLAUSE_STEP_SIZE = 2;    // sliding step; leaves 1-sentence overlap
 
-// Common English words excluded from Jaccard tokens so matching focuses
-// on content words rather than grammatical glue.
+// Common English words excluded so Jaccard focuses on content words.
 const STOP_WORDS = new Set([
     'the','a','an','and','or','but','in','on','at','to','for','of','with',
     'by','from','is','are','was','were','be','been','being','have','has',
@@ -57,9 +56,8 @@ const STOP_WORDS = new Set([
     'under','again','further','there','here','once','can','us','am',
 ]);
 
-// Split text into sentences on punctuation boundaries.
-// PDF extraction lowercases all text, so capital-letter heuristics cannot
-// be used; splitting on [.!?]+ followed by whitespace is the best we can do.
+// PDF extraction lowercases all text, so we cannot use capital-letter
+// detection for sentence boundaries — split on punctuation + whitespace only.
 function splitSentences(text: string): string[] {
     return text
         .split(/[.!?]+\s+/)
@@ -67,18 +65,14 @@ function splitSentences(text: string): string[] {
         .filter(s => s.length >= 15);
 }
 
-// Build clause windows from a document's text.
-// Each window is CLAUSE_WINDOW_SIZE consecutive sentences joined with '. '.
-// Windows slide by CLAUSE_STEP_SIZE so adjacent windows share one sentence,
-// preventing repeated content from being missed due to arbitrary cut points.
+// Build clause windows: CLAUSE_WINDOW_SIZE consecutive sentences joined with
+// '. ', sliding by CLAUSE_STEP_SIZE so adjacent windows share one sentence.
 function extractClauses(text: string): string[] {
     const sentences = splitSentences(text);
     const clauses: string[] = [];
     for (let i = 0; i < sentences.length; i += CLAUSE_STEP_SIZE) {
         const clause = sentences.slice(i, i + CLAUSE_WINDOW_SIZE).join('. ').trim();
-        if (clause.length >= CLAUSE_MIN_CHARS) {
-            clauses.push(clause);
-        }
+        if (clause.length >= CLAUSE_MIN_CHARS) clauses.push(clause);
     }
     return clauses;
 }
@@ -95,26 +89,16 @@ function tokenize(text: string): Set<string> {
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
     if (a.size === 0 || b.size === 0) return 0;
     let intersection = 0;
-    for (const word of a) {
-        if (b.has(word)) intersection++;
-    }
+    for (const word of a) if (b.has(word)) intersection++;
     return intersection / (a.size + b.size - intersection);
 }
 
 // Detect clauses that repeat within or across documents.
-//
-// Algorithm: greedy grouping.
-//   1. Build a flat corpus of all clauses tagged with their document index.
-//   2. For each unassigned clause i, scan forward for any unassigned clause j
-//      with Jaccard ≥ CLAUSE_JACCARD_THRESHOLD.  Assign all matches to
-//      the same group (representative = clause i).
-//   3. Groups with ≥ 2 members are reported as repeated clauses.
-//
-// Same-document repeats are included (per product requirement) because
-// the comparison runs over all pairs regardless of document origin.
+// Greedy grouping: each unassigned clause i is compared forward against all
+// unassigned j; first match wins the group. Includes same-document repeats.
+// frequency = % of total uploaded docs that contain the clause (≥ 1 instance).
 function detectRepeatedClauses(processedDocs: ProcessedDocument[]): ClauseMatch[] {
     const corpus: Array<{ docIndex: number; text: string; tokens: Set<string> }> = [];
-
     for (let d = 0; d < processedDocs.length; d++) {
         for (const clause of extractClauses(processedDocs[d].text)) {
             corpus.push({ docIndex: d, text: clause, tokens: tokenize(clause) });
@@ -127,7 +111,6 @@ function detectRepeatedClauses(processedDocs: ProcessedDocument[]): ClauseMatch[
     for (let i = 0; i < corpus.length; i++) {
         if (assigned.has(i)) continue;
         assigned.add(i);
-
         const group: number[] = [i];
         for (let j = i + 1; j < corpus.length; j++) {
             if (assigned.has(j)) continue;
@@ -136,35 +119,154 @@ function detectRepeatedClauses(processedDocs: ProcessedDocument[]): ClauseMatch[
                 assigned.add(j);
             }
         }
-
         if (group.length < 2) continue;
 
-        // Count occurrences per document name (same doc may contribute multiple)
         const occMap = new Map<string, number>();
         for (const idx of group) {
             const name = processedDocs[corpus[idx].docIndex].file.name;
             occMap.set(name, (occMap.get(name) ?? 0) + 1);
         }
-
+        const docCount = occMap.size;
         matches.push({
             text: corpus[i].text,
-            occurrences: Array.from(occMap.entries()).map(([documentName, count]) => ({
-                documentName,
-                count,
-            })),
+            occurrences: Array.from(occMap.entries()).map(([documentName, count]) => ({ documentName, count })),
             totalCount: group.length,
+            frequency: Math.round((docCount / processedDocs.length) * 100),
         });
     }
 
     return matches.sort((a, b) => b.totalCount - a.totalCount);
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// For each group, find clauses that appear in one doc of the group but not
+// in any other doc of that group (unique content per document).
+function computeUniqueClausesByGroup(
+    groups: DocumentGroup[],
+    clausesByDoc: Record<string, string[]>
+): Record<number, Record<string, string[]>> {
+    const result: Record<number, Record<string, string[]>> = {};
+    for (const group of groups) {
+        const groupUnique: Record<string, string[]> = {};
+        for (const doc of group.documents) {
+            const thisClauses = clausesByDoc[doc.file.name] ?? [];
+            const otherTokenSets = group.documents
+                .filter(d => d.file.name !== doc.file.name)
+                .flatMap(d => (clausesByDoc[d.file.name] ?? []).map(tokenize));
+            groupUnique[doc.file.name] = thisClauses.filter(clause => {
+                const ct = tokenize(clause);
+                return !otherTokenSets.some(ot => jaccardSimilarity(ct, ot) >= CLAUSE_JACCARD_THRESHOLD);
+            });
+        }
+        result[group.id] = groupUnique;
+    }
+    return result;
+}
 
-const GroupCard: React.FC<{ group: DocumentGroup; onCompareRequest: (files: [File, File]) => void }> = ({
-    group,
-    onCompareRequest,
-}) => {
+// ─── Export helpers ───────────────────────────────────────────────────────────
+
+function escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function triggerDownload(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function exportClausesCSV(clauses: ClauseMatch[]): void {
+    const header = ['"#"', '"Clause (preview)"', '"Total Occurrences"', '"% of Documents"', '"Documents"'];
+    const rows = clauses.map((c, i) => {
+        const preview = c.text.replace(/"/g, '""').slice(0, 300);
+        const docs = c.occurrences
+            .map(o => (o.count > 1 ? `${o.documentName} (×${o.count})` : o.documentName))
+            .join('; ')
+            .replace(/"/g, '""');
+        return [`${i + 1}`, `"${preview}"`, `${c.totalCount}`, `${c.frequency}`, `"${docs}"`];
+    });
+    const csv = [header, ...rows].map(r => r.join(',')).join('\r\n');
+    // BOM prepended so Excel opens the file with correct UTF-8 encoding.
+    triggerDownload(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }), 'repeated-clauses.csv');
+}
+
+function exportMasterDocument(clauses: ClauseMatch[], totalDocs: number, docNames: string[]): void {
+    // Sort by frequency descending so the most universal clauses lead the document.
+    const sorted = [...clauses].sort((a, b) => b.frequency - a.frequency);
+
+    const tocItems = sorted
+        .map((c, i) => `<li><a href="#c${i + 1}">${escapeHtml(c.text.slice(0, 90))}${c.text.length > 90 ? '…' : ''}</a> — ${c.frequency}% of docs</li>`)
+        .join('\n    ');
+
+    const clauseBlocks = sorted.map((c, i) => {
+        const barColor = c.frequency >= 67 ? '#22c55e' : c.frequency >= 34 ? '#f59e0b' : '#6366f1';
+        const badges = c.occurrences
+            .map(o => `<span class="badge">${escapeHtml(o.documentName)}${o.count > 1 ? ` ×${o.count}` : ''}</span>`)
+            .join(' ');
+        return `
+<div class="clause" id="c${i + 1}">
+  <div class="clause-header">
+    <span class="clause-num">Clause ${i + 1}</span>
+    <span class="freq-label">Present in ${c.occurrences.length} of ${totalDocs} documents (${c.frequency}%)</span>
+  </div>
+  <div class="bar-wrap"><div class="bar-fill" style="width:${c.frequency}%;background:${barColor}"></div></div>
+  <div class="clause-text">${escapeHtml(c.text)}</div>
+  <div class="annotation"><strong>Applicable to:</strong> ${badges}</div>
+</div>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Master Document — Repeated Clauses</title>
+<style>
+  body{font-family:Georgia,serif;max-width:860px;margin:40px auto;padding:0 24px;color:#1e293b;line-height:1.65}
+  h1{font-size:22px;border-bottom:3px solid #4f46e5;padding-bottom:12px}
+  .meta{color:#64748b;font-size:13px;margin-bottom:28px}
+  .toc{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:16px 20px;margin-bottom:32px}
+  .toc h2{font-size:14px;margin:0 0 10px}
+  .toc ol{margin:0;padding-left:18px;font-size:12px;color:#475569;line-height:1.8}
+  .toc a{color:#4f46e5;text-decoration:none}
+  .clause{page-break-inside:avoid;margin:28px 0;padding:18px 20px;border:1px solid #e2e8f0;border-left:4px solid #4f46e5;border-radius:6px;background:#fafbff}
+  .clause-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .clause-num{font-weight:bold;color:#4f46e5;font-size:13px}
+  .freq-label{font-size:12px;color:#64748b}
+  .bar-wrap{background:#e2e8f0;border-radius:3px;height:5px;margin-bottom:12px}
+  .bar-fill{height:5px;border-radius:3px}
+  .clause-text{font-size:14px;line-height:1.8;background:#fff;padding:14px 16px;border:1px solid #e2e8f0;border-radius:4px;white-space:pre-wrap;word-break:break-word}
+  .annotation{margin-top:12px;font-size:12px;color:#475569}
+  .annotation strong{color:#334155}
+  .badge{display:inline-block;background:#eef2ff;color:#4338ca;padding:2px 8px;border-radius:12px;font-size:11px;margin:2px 3px;border:1px solid #c7d2fe}
+</style>
+</head>
+<body>
+<h1>Master Document — Repeated Clauses</h1>
+<div class="meta">
+  Generated from <strong>${totalDocs} document${totalDocs !== 1 ? 's' : ''}</strong> &bull;
+  <strong>${sorted.length} repeated clause${sorted.length !== 1 ? 's' : ''}</strong> &bull;
+  Sorted by frequency (most common first)<br>
+  <em>Source files: ${escapeHtml(docNames.join(', '))}</em>
+</div>
+<div class="toc"><h2>Table of Contents</h2><ol>${tocItems}</ol></div>
+${clauseBlocks}
+</body>
+</html>`;
+
+    triggerDownload(new Blob([html], { type: 'text/html;charset=utf-8' }), 'master-document.html');
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const GroupCard: React.FC<{
+    group: DocumentGroup;
+    onCompareRequest: (files: [File, File]) => void;
+    uniqueByDoc?: Record<string, string[]>;
+}> = ({ group, onCompareRequest, uniqueByDoc }) => {
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
     const handleSelectionChange = (file: File) => {
@@ -173,10 +275,6 @@ const GroupCard: React.FC<{ group: DocumentGroup; onCompareRequest: (files: [Fil
             if (prev.length < 2) return [...prev, file];
             return prev;
         });
-    };
-
-    const handleCompare = () => {
-        if (selectedFiles.length === 2) onCompareRequest(selectedFiles as [File, File]);
     };
 
     return (
@@ -189,7 +287,7 @@ const GroupCard: React.FC<{ group: DocumentGroup; onCompareRequest: (files: [Fil
                     </span>
                 </p>
                 <button
-                    onClick={handleCompare}
+                    onClick={() => onCompareRequest(selectedFiles as [File, File])}
                     disabled={selectedFiles.length !== 2}
                     className="bg-indigo-500 text-white text-xs font-bold py-1 px-3 rounded-md hover:bg-indigo-600 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
                 >
@@ -201,20 +299,28 @@ const GroupCard: React.FC<{ group: DocumentGroup; onCompareRequest: (files: [Fil
                     <img src={group.documents[0].thumbnail} alt="Document thumbnail" className="max-w-full h-auto shadow-md" />
                 </div>
                 <ul className="text-sm text-slate-600 dark:text-slate-300 space-y-2 overflow-y-auto max-h-48">
-                    {group.documents.map(doc => (
-                        <li key={doc.file.name}>
-                            <label className="flex items-center space-x-2 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedFiles.includes(doc.file)}
-                                    onChange={() => handleSelectionChange(doc.file)}
-                                    disabled={!selectedFiles.includes(doc.file) && selectedFiles.length >= 2}
-                                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
-                                />
-                                <span>{doc.file.name}</span>
-                            </label>
-                        </li>
-                    ))}
+                    {group.documents.map(doc => {
+                        const uniqueCount = uniqueByDoc?.[doc.file.name]?.length ?? 0;
+                        return (
+                            <li key={doc.file.name}>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedFiles.includes(doc.file)}
+                                        onChange={() => handleSelectionChange(doc.file)}
+                                        disabled={!selectedFiles.includes(doc.file) && selectedFiles.length >= 2}
+                                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50 shrink-0"
+                                    />
+                                    <span className="truncate">{doc.file.name}</span>
+                                    {uniqueCount > 0 && (
+                                        <span className="ml-auto shrink-0 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded-full" title="Clauses unique to this document within the group">
+                                            {uniqueCount} unique
+                                        </span>
+                                    )}
+                                </label>
+                            </li>
+                        );
+                    })}
                 </ul>
             </div>
         </div>
@@ -227,32 +333,51 @@ const ClauseCard: React.FC<{ match: ClauseMatch }> = ({ match }) => {
     const isLong = match.text.length > PREVIEW_LEN;
     const displayText = expanded || !isLong ? match.text : match.text.slice(0, PREVIEW_LEN) + '…';
 
-    const docCount = match.occurrences.length;
-    const crossDoc = docCount > 1;
+    // Color heatmap: green = universal (≥67%), amber = common (≥34%), indigo = selective (<34%)
+    const barColor =
+        match.frequency >= 67 ? 'bg-green-500' :
+        match.frequency >= 34 ? 'bg-amber-500' :
+        'bg-indigo-500';
+    const freqLabel =
+        match.frequency >= 67 ? 'Universal' :
+        match.frequency >= 34 ? 'Common' :
+        'Selective';
 
     return (
         <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-                <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                    {match.totalCount} occurrence{match.totalCount !== 1 ? 's' : ''}
-                </span>
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                    {crossDoc
-                        ? `across ${docCount} documents`
-                        : `within the same document`}
+            {/* Header row */}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                        {match.totalCount} occurrence{match.totalCount !== 1 ? 's' : ''}
+                    </span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">
+                        {match.occurrences.length > 1
+                            ? `across ${match.occurrences.length} documents`
+                            : `within 1 document`}
+                    </span>
+                </div>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {freqLabel} — {match.frequency}% of docs
                 </span>
             </div>
 
-            <div className="flex flex-wrap gap-2 mb-3">
+            {/* Frequency heatmap bar */}
+            <div className="w-full h-2 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden mb-3">
+                <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${match.frequency}%` }} />
+            </div>
+
+            {/* Document badges */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
                 {match.occurrences.map(occ => (
                     <span
                         key={occ.documentName}
-                        className="inline-flex items-center gap-1 text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full max-w-xs truncate"
                         title={occ.documentName}
+                        className="inline-flex items-center gap-1 text-xs bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full max-w-[200px] truncate"
                     >
                         {occ.documentName}
                         {occ.count > 1 && (
-                            <span className="font-bold bg-indigo-200 dark:bg-indigo-800 px-1 rounded-full">
+                            <span className="font-bold bg-indigo-200 dark:bg-indigo-800 px-1 rounded-full shrink-0">
                                 ×{occ.count}
                             </span>
                         )}
@@ -260,6 +385,7 @@ const ClauseCard: React.FC<{ match: ClauseMatch }> = ({ match }) => {
                 ))}
             </div>
 
+            {/* Clause text */}
             <div className="text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 p-3 rounded border border-slate-200 dark:border-slate-600 leading-relaxed font-mono">
                 {displayText}
                 {isLong && (
@@ -275,52 +401,51 @@ const ClauseCard: React.FC<{ match: ClauseMatch }> = ({ match }) => {
     );
 };
 
-// ─── Main component ──────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
+
+const LARGE_BATCH_THRESHOLD = 20;
 
 const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
     const [files, setFiles] = useState<File[]>([]);
     const [groupingMode, setGroupingMode] = useState<'exact' | 'semantic'>('semantic');
     const [similarityThreshold, setSimilarityThreshold] = useState<number>(80);
+
     const [results, setResults] = useState<DocumentGroup[] | null>(null);
     const [repeatedClauses, setRepeatedClauses] = useState<ClauseMatch[] | null>(null);
+    const [uniqueClausesByGroup, setUniqueClausesByGroup] = useState<Record<number, Record<string, string[]>> | null>(null);
+    const [totalDocCount, setTotalDocCount] = useState<number>(0);
+
     const [activeTab, setActiveTab] = useState<'groups' | 'clauses'>('groups');
+    const [clauseSort, setClauseSort] = useState<'frequency' | 'count'>('frequency');
+
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
+    const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.worker.min.mjs`;
     }, []);
 
-    const handleMultiFileChange = (selectedFiles: FileList | null) => {
-        if (selectedFiles) setFiles(Array.from(selectedFiles));
-    };
-
     const processPdf = async (file: File): Promise<ProcessedDocument> => {
         const arrayBuffer = await file.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
-
-        const textContent: string[] = [];
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         const numPages = pdf.numPages || 0;
-        console.log(`Processing ${file.name}: reported ${numPages} pages`);
+        const textContent: string[] = [];
 
         for (let i = 1; i <= numPages; i++) {
             try {
-                if (i > pdf.numPages) {
-                    console.warn(`Skipping page ${i} of ${file.name} as it exceeds current numPages (${pdf.numPages})`);
-                    break;
-                }
+                if (i > pdf.numPages) break;
                 const page = await pdf.getPage(i);
                 const tc = await page.getTextContent();
                 textContent.push(tc.items.map(item => ('str' in item ? item.str : '')).join(' '));
-            } catch (pageErr) {
-                console.error(`Error processing page ${i} of ${file.name}`, pageErr);
+            } catch (err) {
+                console.error(`Error processing page ${i} of ${file.name}`, err);
             }
         }
 
-        // Keep newlines between pages so sentence segmentation has page-level
-        // structure, but collapse intra-page whitespace.
+        // Preserve newlines between pages for sentence segmentation while
+        // collapsing intra-page whitespace.
         const fullText = textContent
             .map(p => p.trim().toLowerCase().replace(/\s+/g, ' '))
             .filter(p => p.length > 0)
@@ -332,15 +457,15 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                 const firstPage = await pdf.getPage(1);
                 const viewport = firstPage.getViewport({ scale: 0.3 });
                 const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
+                const ctx = canvas.getContext('2d');
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
-                if (context) {
-                    await firstPage.render({ canvasContext: context, viewport } as any).promise;
+                if (ctx) {
+                    await firstPage.render({ canvasContext: ctx, viewport } as any).promise;
                     thumbnail = canvas.toDataURL();
                 }
-            } catch (thumbErr) {
-                console.error(`Error generating thumbnail for ${file.name}`, thumbErr);
+            } catch (err) {
+                console.error(`Thumbnail error for ${file.name}`, err);
             }
         }
 
@@ -358,59 +483,67 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
         setError(null);
         setResults(null);
         setRepeatedClauses(null);
+        setUniqueClausesByGroup(null);
+
+        // Total steps: one per PDF + embedding/hashing + clustering + clause detection
+        const totalSteps = files.length + 3;
+        let currentStep = 0;
+        const tick = (msg: string) => {
+            currentStep++;
+            setProgress({ current: currentStep, total: totalSteps });
+            setLoadingMessage(msg);
+        };
+        setProgress({ current: 0, total: totalSteps });
 
         try {
             const processedDocs: ProcessedDocument[] = [];
             for (let i = 0; i < files.length; i++) {
                 setLoadingMessage(`Processing document ${i + 1} of ${files.length}: ${files[i].name}`);
                 processedDocs.push(await processPdf(files[i]));
+                currentStep++;
+                setProgress({ current: currentStep, total: totalSteps });
+            }
+
+            // Build clause corpus per document for unique-content computation later.
+            const clausesByDoc: Record<string, string[]> = {};
+            for (const doc of processedDocs) {
+                clausesByDoc[doc.file.name] = extractClauses(doc.text);
             }
 
             let groups: DocumentGroup[] = [];
 
             if (groupingMode === 'exact') {
-                setLoadingMessage('Calculating hashes…');
-                const hashGroups: { [key: string]: ProcessedDocument[] } = {};
+                tick('Calculating hashes…');
+                const hashGroups: { [k: string]: ProcessedDocument[] } = {};
                 for (const doc of processedDocs) {
-                    const buffer = new TextEncoder().encode(doc.text);
-                    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-                    const hashHex = Array.from(new Uint8Array(hashBuffer))
-                        .map(b => b.toString(16).padStart(2, '0'))
-                        .join('');
-                    if (!hashGroups[hashHex]) hashGroups[hashHex] = [];
-                    hashGroups[hashHex].push(doc);
+                    const buf = new TextEncoder().encode(doc.text);
+                    const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+                    const hex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+                    if (!hashGroups[hex]) hashGroups[hex] = [];
+                    hashGroups[hex].push(doc);
                 }
                 groups = Object.values(hashGroups)
                     .filter(g => g.length > 1)
                     .map((docs, i) => ({ id: i, documents: docs, similarity: 100 }));
+                tick('Grouping documents…'); // consume the clustering slot
             } else {
-                setLoadingMessage('Generating AI embeddings…');
-                const docsToEmbed = processedDocs.map(d => d.text.trim() || 'empty document');
-                const embeddings = await embedContentBatch(docsToEmbed);
-                for (let i = 0; i < processedDocs.length; i++) {
-                    processedDocs[i].embedding = embeddings[i];
-                }
+                tick('Generating AI embeddings…');
+                const embeddings = await embedContentBatch(processedDocs.map(d => d.text.trim() || 'empty document'));
+                for (let i = 0; i < processedDocs.length; i++) processedDocs[i].embedding = embeddings[i];
 
-                setLoadingMessage('Clustering documents…');
-                const clusters: ProcessedDocument[][] = processedDocs.map(doc => [doc]);
-                const similarities: { i: number; j: number; sim: number }[] = [];
-
-                for (let i = 0; i < clusters.length; i++) {
-                    for (let j = i + 1; j < clusters.length; j++) {
-                        similarities.push({
-                            i,
-                            j,
-                            sim: cosineSimilarity(clusters[i][0].embedding!, clusters[j][0].embedding!),
-                        });
-                    }
-                }
-                similarities.sort((a, b) => b.sim - a.sim);
+                tick('Clustering documents…');
+                const clusters = processedDocs.map(doc => [doc]);
+                const pairs: { i: number; j: number; sim: number }[] = [];
+                for (let i = 0; i < clusters.length; i++)
+                    for (let j = i + 1; j < clusters.length; j++)
+                        pairs.push({ i, j, sim: cosineSimilarity(clusters[i][0].embedding!, clusters[j][0].embedding!) });
+                pairs.sort((a, b) => b.sim - a.sim);
 
                 const merged = new Array(clusters.length).fill(false);
                 const finalClusters: ProcessedDocument[][] = [];
                 const threshold = similarityThreshold / 100;
 
-                for (const { i, j, sim } of similarities) {
+                for (const { i, j, sim } of pairs) {
                     if (sim < threshold) break;
                     if (!merged[i] && !merged[j]) {
                         merged[i] = merged[j] = true;
@@ -423,39 +556,36 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                         if (idx !== -1) { finalClusters[idx].push(...clusters[i]); merged[i] = true; }
                     }
                 }
-                for (let i = 0; i < clusters.length; i++) {
-                    if (!merged[i]) finalClusters.push(clusters[i]);
-                }
+                for (let i = 0; i < clusters.length; i++) if (!merged[i]) finalClusters.push(clusters[i]);
 
                 groups = finalClusters
                     .filter(g => g.length > 1)
                     .map((docs, i) => {
                         const firstEmb = docs[0].embedding!;
-                        const avgSim =
-                            docs.length > 1
-                                ? docs.slice(1).reduce((s, d) => s + cosineSimilarity(firstEmb, d.embedding!), 0) /
-                                  (docs.length - 1)
-                                : 0;
+                        const avgSim = docs.length > 1
+                            ? docs.slice(1).reduce((s, d) => s + cosineSimilarity(firstEmb, d.embedding!), 0) / (docs.length - 1)
+                            : 0;
                         return { id: i, documents: docs, similarity: Math.round(avgSim * 100) };
                     })
                     .filter(g => g.similarity >= similarityThreshold);
             }
 
-            // Detect repeated clauses (within and across documents)
-            setLoadingMessage('Detecting repeated clauses…');
+            tick('Detecting repeated clauses…');
             const clauseMatches = detectRepeatedClauses(processedDocs);
+            const uniqueData = computeUniqueClausesByGroup(groups, clausesByDoc);
 
+            setTotalDocCount(processedDocs.length);
             setResults(groups);
             setRepeatedClauses(clauseMatches);
+            setUniqueClausesByGroup(uniqueData);
             setActiveTab('groups');
         } catch (err: any) {
-            console.error('Rationalization Error:', err);
-            setError(
-                `Rationalization failed: ${err.message || 'An unexpected error occurred'}. Please check your files and try again.`
-            );
+            console.error('Rationalization error:', err);
+            setError(`Rationalization failed: ${err.message || 'An unexpected error occurred'}. Please check your files and try again.`);
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
+            setProgress(null);
         }
     }, [files, groupingMode, similarityThreshold]);
 
@@ -463,10 +593,19 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
         setFiles([]);
         setResults(null);
         setRepeatedClauses(null);
+        setUniqueClausesByGroup(null);
+        setTotalDocCount(0);
         setActiveTab('groups');
+        setProgress(null);
         setError(null);
         setIsLoading(false);
     };
+
+    const sortedClauses = repeatedClauses
+        ? [...repeatedClauses].sort((a, b) =>
+            clauseSort === 'frequency' ? b.frequency - a.frequency : b.totalCount - a.totalCount
+          )
+        : null;
 
     const hasResults = results !== null;
 
@@ -478,7 +617,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                     Rationalizer
                 </h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400">
-                    Group a collection of PDFs by exact content or semantic similarity, and surface repeated clauses.
+                    Group a collection of PDFs by similarity and surface repeated clauses across documents.
                 </p>
             </div>
 
@@ -494,7 +633,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                             type="file"
                             multiple
                             accept="application/pdf"
-                            onChange={e => handleMultiFileChange(e.target.files)}
+                            onChange={e => e.target.files && setFiles(Array.from(e.target.files))}
                             className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                         />
                         {files.length > 0 && (
@@ -503,6 +642,17 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                             </ul>
                         )}
                     </div>
+
+                    {/* Large-batch warning — shown when ≥ LARGE_BATCH_THRESHOLD files selected */}
+                    {files.length >= LARGE_BATCH_THRESHOLD && (
+                        <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-amber-700 dark:text-amber-300">
+                            <span className="text-base leading-none mt-0.5">⚠</span>
+                            <span>
+                                <strong>Large batch ({files.length} files)</strong> — processing may take a minute or two,
+                                especially in Semantic mode which calls the AI embeddings API once per document.
+                            </span>
+                        </div>
+                    )}
 
                     <ToggleSwitch
                         leftLabel="Exact Content"
@@ -519,9 +669,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                             </label>
                             <input
                                 id="similarity-threshold"
-                                type="range"
-                                min="70"
-                                max="99"
+                                type="range" min="70" max="99"
                                 value={similarityThreshold}
                                 onChange={e => setSimilarityThreshold(Number(e.target.value))}
                                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700"
@@ -542,11 +690,26 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                 </div>
             )}
 
-            {/* ── Loading ── */}
+            {/* ── Loading with progress bar ── */}
             {isLoading && (
-                <div className="flex flex-col items-center justify-center p-10">
-                    <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-indigo-500"></div>
-                    <p className="mt-4 text-lg text-slate-600 dark:text-slate-400">{loadingMessage || 'Processing…'}</p>
+                <div className="flex flex-col items-center justify-center p-8 space-y-5">
+                    <p className="text-base text-slate-600 dark:text-slate-400 text-center">{loadingMessage || 'Processing…'}</p>
+                    {progress && (
+                        <div className="w-full max-w-md space-y-2">
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden">
+                                <div
+                                    className="bg-indigo-500 h-3 rounded-full transition-all duration-300"
+                                    style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
+                                />
+                            </div>
+                            <p className="text-center text-xs text-slate-500 dark:text-slate-400">
+                                Step {progress.current} of {progress.total} ({Math.round((progress.current / progress.total) * 100)}%)
+                            </p>
+                        </div>
+                    )}
+                    {!progress && (
+                        <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-indigo-500" />
+                    )}
                 </div>
             )}
 
@@ -598,7 +761,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                         </button>
                     </div>
 
-                    {/* Document Groups tab */}
+                    {/* ── Document Groups tab ── */}
                     {activeTab === 'groups' && (
                         <div>
                             <div className="text-center mb-6">
@@ -606,39 +769,89 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                                 {results && results.length > 0 ? (
                                     <p className="text-slate-600 dark:text-slate-400">
                                         Found {results.length} group{results.length !== 1 ? 's' : ''} of similar documents.
+                                        Unique-clause counts per document are shown where detected.
                                     </p>
                                 ) : (
-                                    <p className="mt-4 text-center text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                                    <p className="mt-4 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
                                         No groups of similar documents found with the current settings.
                                     </p>
                                 )}
                             </div>
                             <div className="space-y-6">
                                 {results && results.map(group => (
-                                    <GroupCard key={group.id} group={group} onCompareRequest={onCompareRequest} />
+                                    <GroupCard
+                                        key={group.id}
+                                        group={group}
+                                        onCompareRequest={onCompareRequest}
+                                        uniqueByDoc={uniqueClausesByGroup?.[group.id]}
+                                    />
                                 ))}
                             </div>
                         </div>
                     )}
 
-                    {/* Repeated Clauses tab */}
+                    {/* ── Repeated Clauses tab ── */}
                     {activeTab === 'clauses' && (
                         <div>
-                            <div className="text-center mb-6">
-                                <h3 className="text-xl font-bold">Repeated Clauses</h3>
-                                {repeatedClauses && repeatedClauses.length > 0 ? (
-                                    <p className="text-slate-600 dark:text-slate-400">
-                                        Found {repeatedClauses.length} clause{repeatedClauses.length !== 1 ? 's' : ''} that appear more than once.
-                                        Sorted by number of occurrences.
-                                    </p>
-                                ) : (
-                                    <p className="mt-4 text-center text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                            <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                                <div>
+                                    <h3 className="text-xl font-bold">Repeated Clauses</h3>
+                                    {sortedClauses && sortedClauses.length > 0 ? (
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                                            {sortedClauses.length} clause{sortedClauses.length !== 1 ? 's' : ''} found.
+                                            Bar colour: <span className="text-green-600 dark:text-green-400 font-medium">green</span> = universal ≥67%,{' '}
+                                            <span className="text-amber-600 dark:text-amber-400 font-medium">amber</span> = common ≥34%,{' '}
+                                            <span className="text-indigo-600 dark:text-indigo-400 font-medium">indigo</span> = selective.
+                                        </p>
+                                    ) : (
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                                            No repeated clauses detected.
+                                        </p>
+                                    )}
+                                </div>
+
+                                {sortedClauses && sortedClauses.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {/* Sort control */}
+                                        <select
+                                            value={clauseSort}
+                                            onChange={e => setClauseSort(e.target.value as 'frequency' | 'count')}
+                                            className="text-xs border border-slate-300 dark:border-slate-600 rounded-md px-2 py-1.5 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                                        >
+                                            <option value="frequency">Sort: Frequency</option>
+                                            <option value="count">Sort: Occurrences</option>
+                                        </select>
+
+                                        {/* Export CSV */}
+                                        <button
+                                            onClick={() => exportClausesCSV(sortedClauses)}
+                                            className="text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 px-3 py-1.5 rounded-md border border-slate-300 dark:border-slate-600 transition-colors"
+                                        >
+                                            Export CSV
+                                        </button>
+
+                                        {/* Export master document */}
+                                        <button
+                                            onClick={() => exportMasterDocument(
+                                                sortedClauses,
+                                                totalDocCount,
+                                                files.map(f => f.name)
+                                            )}
+                                            className="text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 px-3 py-1.5 rounded-md transition-colors"
+                                        >
+                                            Export Master Doc
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-4">
+                                {sortedClauses && sortedClauses.length === 0 && (
+                                    <p className="text-center text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
                                         No repeated clauses detected across the uploaded documents.
                                     </p>
                                 )}
-                            </div>
-                            <div className="space-y-4">
-                                {repeatedClauses && repeatedClauses.map((match, idx) => (
+                                {sortedClauses && sortedClauses.map((match, idx) => (
                                     <ClauseCard key={idx} match={match} />
                                 ))}
                             </div>

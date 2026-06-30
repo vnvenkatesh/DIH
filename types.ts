@@ -79,6 +79,7 @@ export interface ClauseMatch {
     text: string;            // representative (first) clause text
     occurrences: ClauseOccurrence[];
     totalCount: number;      // total clause instances across all documents
+    frequency: number;       // % of total input docs that contain this clause (0–100)
 }
 
 export interface LayoutRecommendationResult {

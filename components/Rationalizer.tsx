@@ -162,6 +162,104 @@ function computeUniqueClausesByGroup(
     return result;
 }
 
+// ─── Group summary generation ─────────────────────────────────────────────────
+//
+// Produces a short human-readable description of the differences within a
+// document group by combining:
+//   • Unique-clause count (already computed by computeUniqueClausesByGroup)
+//   • Word-set diff to detect state names, dates, codes, amounts
+// Because the keyword embedding collapses documents with the same vocabulary
+// distribution (e.g. state-specific legal forms) to near-100% similarity,
+// word-level analysis is more reliable for describing what actually differs.
+
+const US_STATES = new Set([
+    'alabama','alaska','arizona','arkansas','california','colorado','connecticut',
+    'delaware','florida','georgia','hawaii','idaho','illinois','indiana','iowa',
+    'kansas','kentucky','louisiana','maine','maryland','massachusetts','michigan',
+    'minnesota','mississippi','missouri','montana','nebraska','nevada',
+    'hampshire','jersey','mexico','carolina','dakota','ohio','oklahoma','oregon',
+    'pennsylvania','rhode','tennessee','texas','utah','vermont','virginia',
+    'washington','wisconsin','wyoming',
+]);
+
+function generateGroupSummary(
+    group: DocumentGroup,
+    uniqueByDoc: Record<string, string[]>
+): string {
+    const docs = group.documents;
+    if (docs.length < 2) return '';
+
+    const allUniqueClauses = Object.values(uniqueByDoc).flat();
+
+    // Word-set analysis: find words that appear in some docs but not all
+    const wordSets = docs.map(d => new Set(d.text.split(/\s+/).filter(w => w.length > 3)));
+    const diffWords: string[] = [];
+    for (let i = 0; i < docs.length; i++) {
+        for (const w of wordSets[i]) {
+            if (!docs.some((_, j) => j !== i && wordSets[j].has(w))) {
+                diffWords.push(w);
+            }
+        }
+    }
+
+    const maxUnique = Math.max(...Object.values(uniqueByDoc).map(c => c.length), 0);
+
+    // No clause-level differences but docs are not identical text
+    if (maxUnique === 0 && diffWords.length === 0) {
+        const first = docs[0].text;
+        return docs.every(d => d.text === first)
+            ? 'Texts appear identical — differences may be visual or metadata only.'
+            : 'Very high similarity — differences are below clause detection threshold.';
+    }
+
+    const insights: string[] = [];
+
+    // Clause count
+    if (maxUnique === 0 && diffWords.length > 0) {
+        insights.push('subtle word-level differences only');
+    } else if (maxUnique === 1) {
+        insights.push('1 clause differs per document');
+    } else if (maxUnique <= 3) {
+        insights.push(`up to ${maxUnique} clauses differ`);
+    } else if (maxUnique <= 7) {
+        insights.push('several clauses differ');
+    } else {
+        insights.push('significant content variation');
+    }
+
+    // State/jurisdiction variants
+    const stateHits = diffWords.filter(w => US_STATES.has(w.toLowerCase()));
+    if (stateHits.length > 0) {
+        insights.push(`state-specific variants (${stateHits.slice(0, 2).join(', ')})`);
+    }
+
+    // Date differences (in unique clauses or diff words)
+    const dateRe = /\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/;
+    if (allUniqueClauses.some(c => dateRe.test(c)) || diffWords.some(w => dateRe.test(w))) {
+        insights.push('dates differ');
+    }
+
+    // Reference codes / form IDs (e.g. "cwf220b", "orf220b")
+    const codeRe = /^[a-z]{1,6}\d{3,}$|^\d{3,}[a-z]{1,6}$/i;
+    if (diffWords.some(w => codeRe.test(w))) {
+        insights.push('form or reference codes differ');
+    }
+
+    // Monetary amounts
+    const amountRe = /\$[\d,]+|\b\d{1,3}(,\d{3})+\b/;
+    if (allUniqueClauses.some(c => amountRe.test(c))) {
+        insights.push('monetary amounts differ');
+    }
+
+    // Short-section differences — likely headers, footers, or labels
+    if (insights.length === 1 && allUniqueClauses.length > 0) {
+        const shortRatio = allUniqueClauses.filter(c => c.length < 130).length / allUniqueClauses.length;
+        if (shortRatio > 0.6) insights.push('differences in short sections (headers/footers/labels)');
+    }
+
+    return insights.join(' · ');
+}
+
 // ─── Export helpers ───────────────────────────────────────────────────────────
 
 function escapeHtml(s: string): string {
@@ -266,7 +364,8 @@ const GroupCard: React.FC<{
     group: DocumentGroup;
     onCompareRequest: (files: [File, File]) => void;
     uniqueByDoc?: Record<string, string[]>;
-}> = ({ group, onCompareRequest, uniqueByDoc }) => {
+    summary?: string;
+}> = ({ group, onCompareRequest, uniqueByDoc, summary }) => {
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
     const handleSelectionChange = (file: File) => {
@@ -279,17 +378,24 @@ const GroupCard: React.FC<{
 
     return (
         <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between items-center mb-3">
-                <p className="font-bold text-indigo-600 dark:text-indigo-400">
-                    Group {group.id + 1} — {group.documents.length} Documents
-                    <span className="ml-2 text-sm font-medium text-white bg-indigo-500 dark:bg-indigo-600 px-2 py-0.5 rounded-full">
-                        {group.similarity}% similar
-                    </span>
-                </p>
+            <div className="flex justify-between items-start mb-3">
+                <div>
+                    <p className="font-bold text-indigo-600 dark:text-indigo-400">
+                        Group {group.id + 1} — {group.documents.length} Documents
+                        <span className="ml-2 text-sm font-medium text-white bg-indigo-500 dark:bg-indigo-600 px-2 py-0.5 rounded-full">
+                            {group.similarity}% similar
+                        </span>
+                    </p>
+                    {summary && (
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 italic">
+                            {summary}
+                        </p>
+                    )}
+                </div>
                 <button
                     onClick={() => onCompareRequest(selectedFiles as [File, File])}
                     disabled={selectedFiles.length !== 2}
-                    className="bg-indigo-500 text-white text-xs font-bold py-1 px-3 rounded-md hover:bg-indigo-600 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                    className="ml-4 shrink-0 bg-indigo-500 text-white text-xs font-bold py-1 px-3 rounded-md hover:bg-indigo-600 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
                 >
                     Compare Selected ({selectedFiles.length})
                 </button>
@@ -413,6 +519,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
     const [results, setResults] = useState<DocumentGroup[] | null>(null);
     const [repeatedClauses, setRepeatedClauses] = useState<ClauseMatch[] | null>(null);
     const [uniqueClausesByGroup, setUniqueClausesByGroup] = useState<Record<number, Record<string, string[]>> | null>(null);
+    const [groupSummaries, setGroupSummaries] = useState<Record<number, string> | null>(null);
     const [totalDocCount, setTotalDocCount] = useState<number>(0);
 
     const [activeTab, setActiveTab] = useState<'groups' | 'clauses'>('groups');
@@ -484,6 +591,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
         setResults(null);
         setRepeatedClauses(null);
         setUniqueClausesByGroup(null);
+        setGroupSummaries(null);
 
         // Total steps: one per PDF + embedding/hashing + clustering + clause detection
         const totalSteps = files.length + 3;
@@ -565,19 +673,36 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                         const avgSim = docs.length > 1
                             ? docs.slice(1).reduce((s, d) => s + cosineSimilarity(firstEmb, d.embedding!), 0) / (docs.length - 1)
                             : 0;
-                        return { id: i, documents: docs, similarity: Math.round(avgSim * 100) };
+                        // Cap at 99% in semantic mode: the keyword embedding can round
+                        // non-identical documents (e.g. state-specific form variants) to
+                        // 100% due to identical vocabulary distributions. True 100% is
+                        // reserved for exact-mode hash matches only.
+                        const simPct = Math.min(Math.round(avgSim * 100), 99);
+                        return { id: i, documents: docs, similarity: simPct };
                     })
                     .filter(g => g.similarity >= similarityThreshold);
             }
 
             tick('Detecting repeated clauses…');
             const clauseMatches = detectRepeatedClauses(processedDocs);
-            const uniqueData = computeUniqueClausesByGroup(groups, clausesByDoc);
+
+            // Sort groups by similarity descending so the most similar pairs surface first.
+            const sortedGroups = [...groups].sort((a, b) => b.similarity - a.similarity)
+                .map((g, i) => ({ ...g, id: i })); // reindex after sort
+
+            const uniqueData = computeUniqueClausesByGroup(sortedGroups, clausesByDoc);
+
+            // Generate a short difference summary for each group.
+            const summaries: Record<number, string> = {};
+            for (const group of sortedGroups) {
+                summaries[group.id] = generateGroupSummary(group, uniqueData[group.id] ?? {});
+            }
 
             setTotalDocCount(processedDocs.length);
-            setResults(groups);
+            setResults(sortedGroups);
             setRepeatedClauses(clauseMatches);
             setUniqueClausesByGroup(uniqueData);
+            setGroupSummaries(summaries);
             setActiveTab('groups');
         } catch (err: any) {
             console.error('Rationalization error:', err);
@@ -594,6 +719,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
         setResults(null);
         setRepeatedClauses(null);
         setUniqueClausesByGroup(null);
+        setGroupSummaries(null);
         setTotalDocCount(0);
         setActiveTab('groups');
         setProgress(null);
@@ -784,6 +910,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                                         group={group}
                                         onCompareRequest={onCompareRequest}
                                         uniqueByDoc={uniqueClausesByGroup?.[group.id]}
+                                        summary={groupSummaries?.[group.id]}
                                     />
                                 ))}
                             </div>

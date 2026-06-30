@@ -483,20 +483,14 @@ const GroupCard: React.FC<{
 
     return (
         <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between items-start mb-3">
-                <div>
-                    <p className="font-bold text-indigo-600 dark:text-indigo-400">
-                        Group {group.id + 1} — {group.documents.length} Documents
-                        <span className="ml-2 text-sm font-medium text-white bg-indigo-500 dark:bg-indigo-600 px-2 py-0.5 rounded-full">
-                            {group.similarity}% similar
-                        </span>
-                    </p>
-                    {summary && (
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 italic">
-                            {summary}
-                        </p>
-                    )}
-                </div>
+            {/* Header row */}
+            <div className="flex justify-between items-center mb-3">
+                <p className="font-bold text-indigo-600 dark:text-indigo-400">
+                    Group {group.id + 1} — {group.documents.length} Documents
+                    <span className="ml-2 text-sm font-medium text-white bg-indigo-500 dark:bg-indigo-600 px-2 py-0.5 rounded-full">
+                        {group.similarity}% similar
+                    </span>
+                </p>
                 <button
                     onClick={() => onCompareRequest(selectedFiles as [File, File])}
                     disabled={selectedFiles.length !== 2}
@@ -505,10 +499,16 @@ const GroupCard: React.FC<{
                     Compare Selected ({selectedFiles.length})
                 </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex justify-center items-center bg-slate-200 dark:bg-slate-900 p-2 rounded-md">
+
+            {/* Three-column body: thumbnail | document list | summary */}
+            <div className="grid grid-cols-1 md:grid-cols-[120px_1fr_1fr] gap-4 items-start">
+
+                {/* Narrow thumbnail */}
+                <div className="flex justify-center items-start bg-slate-200 dark:bg-slate-900 p-1.5 rounded-md">
                     <img src={group.documents[0].thumbnail} alt="Document thumbnail" className="max-w-full h-auto shadow-md" />
                 </div>
+
+                {/* Document checklist */}
                 <ul className="text-sm text-slate-600 dark:text-slate-300 space-y-2 overflow-y-auto max-h-48">
                     {group.documents.map(doc => {
                         const uniqueCount = uniqueByDoc?.[doc.file.name]?.length ?? 0;
@@ -533,6 +533,18 @@ const GroupCard: React.FC<{
                         );
                     })}
                 </ul>
+
+                {/* Difference summary */}
+                {summary ? (
+                    <div className="flex items-start gap-2 p-3 bg-white dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-600 h-full">
+                        <span className="text-slate-400 dark:text-slate-500 mt-0.5 shrink-0">💡</span>
+                        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed italic">
+                            {summary}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="hidden md:block" />
+                )}
             </div>
         </div>
     );

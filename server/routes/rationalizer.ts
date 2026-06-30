@@ -207,6 +207,58 @@ async function handler(req: Request, res: Response): Promise<void> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// POST /v1/rationalizer/embed
+//
+// Accepts a JSON body { texts: string[], apiKey: string } and returns
+// { embeddings: number[][] } using Gemini text-embedding-004.
+// Registered BEFORE the multer middleware so multipart parsing is not applied.
+// ---------------------------------------------------------------------------
+
+router.post('/embed', async (req: Request, res: Response): Promise<void> => {
+    const { texts, apiKey: clientKey } = req.body as { texts: string[]; apiKey?: string };
+
+    if (!Array.isArray(texts) || texts.length === 0) {
+        res.status(400).json({ error: 'texts array required' });
+        return;
+    }
+
+    const key = clientKey || process.env.GEMINI_API_KEY || '';
+    if (!key) {
+        res.status(503).json({ error: 'No Gemini API key available' });
+        return;
+    }
+
+    try {
+        const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key=${key}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requests: texts.map(text => ({
+                        model: 'models/text-embedding-004',
+                        // Truncate to ~9 000 chars to stay within the 2 048-token API limit
+                        content: { parts: [{ text: text.slice(0, 9000) }] },
+                    })),
+                }),
+            }
+        );
+
+        if (!geminiRes.ok) {
+            const errText = await geminiRes.text();
+            res.status(geminiRes.status).json({ error: errText });
+            return;
+        }
+
+        const data = await geminiRes.json() as { embeddings: { values: number[] }[] };
+        res.json({ embeddings: data.embeddings.map(e => e.values) });
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ error: message });
+    }
+});
+
 router.use(upload.array('files'));
 router.post('/', handler);
 

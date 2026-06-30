@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { DocumentGroup, ProcessedDocument, ClauseMatch } from '../types';
-import { embedContentBatch } from '../services/llmService';
+import { embedContentBatch } from '../services/rationalizerEmbedService';
 import ToggleSwitch from './ToggleSwitch';
 import { Squares2X2Icon } from './icons/Squares2X2Icon';
 
@@ -647,7 +647,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                     .map((docs, i) => ({ id: i, documents: docs, similarity: 100 }));
                 tick('Grouping documents…'); // consume the clustering slot
             } else {
-                tick('Generating AI embeddings…');
+                tick('Generating semantic embeddings…');
                 const embeddings = await embedContentBatch(processedDocs.map(d => d.text.trim() || 'empty document'));
                 for (let i = 0; i < processedDocs.length; i++) processedDocs[i].embedding = embeddings[i];
 

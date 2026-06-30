@@ -70,6 +70,17 @@ export interface DocumentGroup {
     similarity: number;
 }
 
+export interface ClauseOccurrence {
+    documentName: string;
+    count: number; // how many times this clause appears in that document
+}
+
+export interface ClauseMatch {
+    text: string;            // representative (first) clause text
+    occurrences: ClauseOccurrence[];
+    totalCount: number;      // total clause instances across all documents
+}
+
 export interface LayoutRecommendationResult {
     emailVersion: string;
     whatsappVersion: string;

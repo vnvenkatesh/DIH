@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { DocumentGroup, ProcessedDocument, ClauseMatch } from '../types';
+import { embedContentBatch } from '../services/llmService';
 import ToggleSwitch from './ToggleSwitch';
 import { Squares2X2Icon } from './icons/Squares2X2Icon';
 
@@ -22,112 +23,6 @@ const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
     const denom = Math.sqrt(normA) * Math.sqrt(normB);
     return denom === 0 ? 0 : dot / denom;
 };
-
-// ─── TF-IDF weighted document embeddings ─────────────────────────────────────
-//
-// Plain keyword-frequency (bag-of-words) embeddings fail for legal/insurance
-// corpora: every document uses the same boilerplate vocabulary ("deloitte",
-// "policy", "insured", "endorsement"), so cosine similarity is dominated by
-// shared common words and two very different form types can score 87%+.
-//
-// TF-IDF fixes this by computing IDF across the whole corpus first so words
-// that appear in every document get weight ≈ 0, while document-specific terms
-// ("oklahoma", "cwf406a", "regulatory-penalties", …) get high weight.
-// The projection into a 768-dim hash space and L2 normalisation are unchanged.
-
-function computeCorpusIdf(texts: string[]): Map<string, number> {
-    const N = texts.length;
-    const df = new Map<string, number>();
-    for (const text of texts) {
-        const uniqueWords = new Set((text.match(/\w+/g) ?? []).map(w => w.toLowerCase()));
-        for (const w of uniqueWords) df.set(w, (df.get(w) ?? 0) + 1);
-    }
-    const idf = new Map<string, number>();
-    for (const [word, freq] of df) {
-        // Smooth IDF: log((N+1)/(df+1))+1 keeps rare-but-present words positive
-        idf.set(word, Math.log((N + 1) / (freq + 1)) + 1);
-    }
-    return idf;
-}
-
-function generateTfIdfEmbedding(text: string, idf: Map<string, number>): number[] {
-    const vector = new Array<number>(768).fill(0);
-    const words = (text.match(/\w+/g) ?? []).map(w => w.toLowerCase());
-    if (words.length === 0) return vector;
-
-    const tf = new Map<string, number>();
-    for (const w of words) tf.set(w, (tf.get(w) ?? 0) + 1);
-
-    for (const [word, count] of tf) {
-        // TF-IDF weight; words absent from the IDF map get weight 1 (new terms)
-        const weight = (count / words.length) * (idf.get(word) ?? 1);
-        let hash = 0;
-        for (let i = 0; i < word.length; i++) {
-            hash = ((hash << 5) - hash) + word.charCodeAt(i);
-            hash |= 0;
-        }
-        vector[Math.abs(hash) % 768] += weight;
-    }
-
-    const mag = Math.sqrt(vector.reduce((s, v) => s + v * v, 0));
-    return mag > 0 ? vector.map(v => v / mag) : vector;
-}
-
-// ─── Complete-linkage clustering ──────────────────────────────────────────────
-//
-// The previous greedy single-linkage algorithm had a "chaining" problem: doc A
-// could join the same cluster as doc B through an intermediary doc C (A→C→B),
-// even when A and B were below the threshold with each other. This inflated
-// group similarity scores and caused unrelated documents to be grouped together.
-//
-// Complete-linkage fixes this: two clusters only merge if every cross-pair
-// between them meets the threshold. Group similarity is reported as the
-// minimum pairwise similarity in the group (the "weakest link"), which is the
-// honest answer to "how similar are all documents in this group?"
-
-function clusterComplete(docs: ProcessedDocument[], threshold: number): ProcessedDocument[][] {
-    const clusters: ProcessedDocument[][] = docs.map(d => [d]);
-
-    while (true) {
-        let bestMinSim = -Infinity;
-        let mergeI = -1, mergeJ = -1;
-
-        for (let i = 0; i < clusters.length; i++) {
-            for (let j = i + 1; j < clusters.length; j++) {
-                // Complete-linkage distance = minimum cross-pair similarity
-                let minSim = Infinity;
-                for (const a of clusters[i]) {
-                    for (const b of clusters[j]) {
-                        const s = cosineSimilarity(a.embedding!, b.embedding!);
-                        if (s < minSim) minSim = s;
-                    }
-                }
-                if (minSim >= threshold && minSim > bestMinSim) {
-                    bestMinSim = minSim;
-                    mergeI = i;
-                    mergeJ = j;
-                }
-            }
-        }
-
-        if (mergeI < 0) break;
-        clusters[mergeI] = [...clusters[mergeI], ...clusters[mergeJ]];
-        clusters.splice(mergeJ, 1);
-    }
-
-    return clusters.filter(c => c.length > 1);
-}
-
-function minPairwiseSimilarity(docs: ProcessedDocument[]): number {
-    let min = 1;
-    for (let i = 0; i < docs.length; i++) {
-        for (let j = i + 1; j < docs.length; j++) {
-            const s = cosineSimilarity(docs[i].embedding!, docs[j].embedding!);
-            if (s < min) min = s;
-        }
-    }
-    return min;
-}
 
 // ─── Repeated-clause detection: Jaccard similarity on word sets ──────────────
 //
@@ -752,32 +647,49 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
                     .map((docs, i) => ({ id: i, documents: docs, similarity: 100 }));
                 tick('Grouping documents…'); // consume the clustering slot
             } else {
-                // Build corpus-wide IDF so common boilerplate words (present in
-                // every doc) get weight ≈ 0 while document-specific terms get high
-                // weight. This prevents the "all forms share the same vocabulary"
-                // problem that caused unrelated endorsements to score 87%+ with the
-                // plain keyword-frequency embedding.
-                tick('Building TF-IDF embeddings…');
-                const idf = computeCorpusIdf(processedDocs.map(d => d.text || 'empty document'));
-                for (const doc of processedDocs) {
-                    doc.embedding = generateTfIdfEmbedding(doc.text || 'empty document', idf);
-                }
+                tick('Generating AI embeddings…');
+                const embeddings = await embedContentBatch(processedDocs.map(d => d.text.trim() || 'empty document'));
+                for (let i = 0; i < processedDocs.length; i++) processedDocs[i].embedding = embeddings[i];
 
-                // Complete-linkage clustering: only merge two clusters when every
-                // cross-pair between them meets the threshold. Prevents the chaining
-                // artifact (A→C→B) of the previous greedy single-linkage approach.
                 tick('Clustering documents…');
-                const threshold = similarityThreshold / 100;
-                const finalClusters = clusterComplete(processedDocs, threshold);
+                const clusters = processedDocs.map(doc => [doc]);
+                const pairs: { i: number; j: number; sim: number }[] = [];
+                for (let i = 0; i < clusters.length; i++)
+                    for (let j = i + 1; j < clusters.length; j++)
+                        pairs.push({ i, j, sim: cosineSimilarity(clusters[i][0].embedding!, clusters[j][0].embedding!) });
+                pairs.sort((a, b) => b.sim - a.sim);
 
-                // Group similarity = minimum pairwise similarity in the group (the
-                // "weakest link"). This is the honest number: every pair in the group
-                // is at least this similar. Capped at 99% — true 100% is only shown
-                // for exact-mode hash matches where texts are provably identical.
-                groups = finalClusters.map((docs, i) => {
-                    const minSim = docs.length > 1 ? minPairwiseSimilarity(docs) : 1;
-                    return { id: i, documents: docs, similarity: Math.min(Math.round(minSim * 100), 99) };
-                }).filter(g => g.similarity >= similarityThreshold);
+                const merged = new Array(clusters.length).fill(false);
+                const finalClusters: ProcessedDocument[][] = [];
+                const threshold = similarityThreshold / 100;
+
+                for (const { i, j, sim } of pairs) {
+                    if (sim < threshold) break;
+                    if (!merged[i] && !merged[j]) {
+                        merged[i] = merged[j] = true;
+                        finalClusters.push([...clusters[i], ...clusters[j]]);
+                    } else if (merged[i] && !merged[j]) {
+                        const idx = finalClusters.findIndex(c => c.includes(clusters[i][0]));
+                        if (idx !== -1) { finalClusters[idx].push(...clusters[j]); merged[j] = true; }
+                    } else if (!merged[i] && merged[j]) {
+                        const idx = finalClusters.findIndex(c => c.includes(clusters[j][0]));
+                        if (idx !== -1) { finalClusters[idx].push(...clusters[i]); merged[i] = true; }
+                    }
+                }
+                for (let i = 0; i < clusters.length; i++) if (!merged[i]) finalClusters.push(clusters[i]);
+
+                groups = finalClusters
+                    .filter(g => g.length > 1)
+                    .map((docs, i) => {
+                        const firstEmb = docs[0].embedding!;
+                        const avgSim = docs.length > 1
+                            ? docs.slice(1).reduce((s, d) => s + cosineSimilarity(firstEmb, d.embedding!), 0) / (docs.length - 1)
+                            : 0;
+                        // Cap at 99%: keyword embeddings can round non-identical docs
+                        // to 100% due to identical vocabulary distributions.
+                        return { id: i, documents: docs, similarity: Math.min(Math.round(avgSim * 100), 99) };
+                    })
+                    .filter(g => g.similarity >= similarityThreshold);
             }
 
             tick('Detecting repeated clauses…');

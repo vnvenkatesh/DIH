@@ -21,13 +21,15 @@ import SettingsPage from './components/SettingsPage';
 import Login from './components/Login';
 import AccessibilityScorer from './components/AccessibilityScorer';
 import { AccessibilityIcon } from './components/icons/AccessibilityIcon';
+import BusinessRulesExtractor from './components/BusinessRulesExtractor';
+import { ClipboardRulesIcon } from './components/icons/ClipboardRulesIcon';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
 import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'settings';
+type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'settings';
 
 interface NavItem {
   tool: Tool;
@@ -52,6 +54,7 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
 const ACCELERATOR_TOOLS: Tool[] = [
   'rationalizer', 'pdfCompare', 'dataMappingGenerator',
   'xpathExtractor', 'syntheticDataGenerator', 'layoutRecommendation', 'accessibilityScorer',
+  'businessRulesExtractor',
 ];
 
 const App: React.FC = () => {
@@ -71,6 +74,7 @@ const App: React.FC = () => {
         llmProvider: user.llmProvider as LLMProvider,
         geminiApiKey: user.geminiApiKey,
         claudeApiKey: user.claudeApiKey,
+        openaiApiKey: user.openaiApiKey,
       });
     }
     if (!user) hydratedUserId.current = null;
@@ -104,6 +108,7 @@ const App: React.FC = () => {
     { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
     { tool: 'accessibilityScorer', label: 'Accessibility Check', description: 'Score PDF accessibility compliance', icon: <AccessibilityIcon className="w-5 h-5" /> },
+    { tool: 'businessRulesExtractor', label: 'Business Rules', description: 'Extract rules from form specs', icon: <ClipboardRulesIcon className="w-5 h-5" /> },
     { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
   ];
 
@@ -245,6 +250,9 @@ const App: React.FC = () => {
           </div>
           <div className={activeTool === 'accessibilityScorer' ? '' : 'hidden'}>
             <AccessibilityScorer />
+          </div>
+          <div className={activeTool === 'businessRulesExtractor' ? '' : 'hidden'}>
+            <BusinessRulesExtractor />
           </div>
           <div className={activeTool === 'apiDocs' ? '' : 'hidden'}>
             <ApiDocs />

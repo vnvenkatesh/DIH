@@ -1,4 +1,4 @@
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult } from '../types';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -160,6 +160,36 @@ Return a JSON object with exactly two keys:
 - "whatsappVersion": the ultra-condensed WhatsApp-ready text as a plain string (lines separated by \\n)
 The entire response must be ONLY the JSON object.
 `;
+
+const businessRulesPrompt = `You are an expert business analyst specialising in COTS implementation and form design. Extract ALL business rules from the provided form requirements document.
+
+Extract these rule types:
+1. VALIDATION — mandatory checks, format (email/date/phone/regex), min/max length, allowed values
+2. CONDITIONAL — show/hide, enable/disable, mandatory-when, populate-when based on another field
+3. CALCULATION — derived/auto-calculated fields, formulas, running totals, lookups
+4. WORKFLOW — approval conditions, routing logic, status transitions, escalations, SLA rules
+
+For each rule return a JSON object with exactly these keys:
+- fieldName: name/label of the form field
+- ruleType: exactly one of "Validation", "Conditional", "Calculation", "Workflow"
+- condition: the trigger condition or constraint
+- actionFormula: what happens when the condition is met
+- errorMessage: error shown to user on validation failure (empty string if not applicable)
+- dependentFields: comma-separated field names this rule depends on (empty string if none)
+- priority: "High" (blocking/mandatory), "Medium" (important), "Low" (nice-to-have)
+
+Priority guidance: High = mandatory fields, format validations with errors, approval gates. Medium = conditional visibility, non-critical calculations. Low = UI hints, cosmetic conditions.
+
+Extract EVERY rule in the document. One entry per rule per field. Do NOT invent rules. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
+
+export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
+    const result = await callOpenAI(
+        'gpt-4.1-mini',
+        [{ role: 'user', content: `${businessRulesPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }],
+        true
+    );
+    return JSON.parse(cleanJson(extractText(result))) as BusinessRulesResult;
+};
 
 const accessibilityPrompt = `Analyse the extracted PDF text below for WCAG 2.1 Level A and AA compliance. This is text-only analysis, so visual/programmatic checks (alt text, contrast, tagged structure) must be "warning". Return ONLY valid JSON — no markdown, nothing else:
 {"overallScore":70,"grade":"C","summary":"The document has clear headings but missing language declaration and unverifiable alt text.","standards":[{"name":"WCAG 2.1","score":70,"criteria":[{"id":"1.1.1","standard":"WCAG 2.1","level":"A","name":"Non-text Content","status":"warning","severity":"major","issue":"Alt text cannot be verified from extracted text.","recommendation":"Open in Acrobat, run Accessibility Checker, add alt text to all images."},{"id":"1.3.1","standard":"WCAG 2.1","level":"A","name":"Info and Relationships","status":"pass"},{"id":"2.4.2","standard":"WCAG 2.1","level":"A","name":"Page Titled","status":"pass"},{"id":"2.4.4","standard":"WCAG 2.1","level":"A","name":"Link Purpose","status":"fail","severity":"major","issue":"Links use generic text like click here.","recommendation":"Use descriptive link text."},{"id":"3.1.1","standard":"WCAG 2.1","level":"A","name":"Language of Page","status":"warning","severity":"minor","issue":"Language not detectable.","recommendation":"Set document language in PDF Properties."}]}],"criticalIssues":0,"majorIssues":2,"minorIssues":1,"passed":4,"totalChecked":7}

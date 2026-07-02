@@ -1,4 +1,4 @@
-﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult } from '../types';
+﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult } from '../types';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -214,6 +214,36 @@ export const performSemanticComparison = async (
         console.error('Error calling Claude API for semantic comparison:', error);
         return [];
     }
+};
+
+const businessRulesPrompt = `You are an expert business analyst specialising in COTS implementation and form design. Extract ALL business rules from the provided form requirements document.
+
+Extract these rule types:
+1. VALIDATION — mandatory checks, format (email/date/phone/regex), min/max length, allowed values
+2. CONDITIONAL — show/hide, enable/disable, mandatory-when, populate-when based on another field
+3. CALCULATION — derived/auto-calculated fields, formulas, running totals, lookups
+4. WORKFLOW — approval conditions, routing logic, status transitions, escalations, SLA rules
+
+For each rule return a JSON object with exactly these keys:
+- fieldName: name/label of the form field
+- ruleType: exactly one of "Validation", "Conditional", "Calculation", "Workflow"
+- condition: the trigger condition or constraint
+- actionFormula: what happens when the condition is met
+- errorMessage: error shown to user on validation failure (empty string if not applicable)
+- dependentFields: comma-separated field names this rule depends on (empty string if none)
+- priority: "High" (blocking/mandatory), "Medium" (important), "Low" (nice-to-have)
+
+Priority guidance: High = mandatory fields, format validations with errors, approval gates. Medium = conditional visibility, non-critical calculations. Low = UI hints, cosmetic conditions.
+
+Extract EVERY rule in the document. One entry per rule per field. Do NOT invent rules. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
+
+export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
+    const result = await callClaude({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 8192,
+        messages: [{ role: 'user', content: `${businessRulesPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }],
+    });
+    return JSON.parse(cleanJson(extractText(result))) as BusinessRulesResult;
 };
 
 const accessibilityPrompt = `Analyse the extracted PDF text below for WCAG 2.1 Level A and AA compliance. This is text-only analysis, so visual/programmatic checks (alt text, contrast, tagged structure) must be "warning". Return ONLY valid JSON — no markdown, nothing else:

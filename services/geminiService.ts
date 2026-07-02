@@ -1,5 +1,5 @@
 ﻿
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult } from '../types';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -384,6 +384,65 @@ export const scoreAccessibility = async (
         return JSON.parse(cleanJson(extractJsonText(result))) as AccessibilityResult;
     } catch (error) {
         console.error('Gemini scoreAccessibility error:', error);
+        throw error;
+    }
+};
+
+const businessRulesPrompt = `You are an expert business analyst specialising in COTS implementation and form design. Extract ALL business rules from the provided form requirements document.
+
+Extract these rule types:
+1. VALIDATION — mandatory checks, format (email/date/phone/regex), min/max length, allowed values
+2. CONDITIONAL — show/hide, enable/disable, mandatory-when, populate-when based on another field
+3. CALCULATION — derived/auto-calculated fields, formulas, running totals, lookups
+4. WORKFLOW — approval conditions, routing logic, status transitions, escalations, SLA rules
+
+For each rule return:
+- fieldName: name/label of the form field
+- ruleType: exactly one of "Validation", "Conditional", "Calculation", "Workflow"
+- condition: the trigger condition or constraint
+- actionFormula: what happens when the condition is met
+- errorMessage: error shown to user on validation failure (empty string if not applicable)
+- dependentFields: comma-separated field names this rule depends on (empty string if none)
+- priority: "High" (blocking/mandatory), "Medium" (important), "Low" (nice-to-have)
+
+Priority guidance: High = mandatory fields, format validations with errors, approval gates. Medium = conditional visibility, non-critical calculations. Low = UI hints, cosmetic conditions.
+
+Rules: Extract EVERY rule in the document. One entry per rule per field. Do NOT invent rules. Return ONLY valid JSON — no markdown.`;
+
+export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
+    try {
+        const result = await callGemini(
+            'gemini-2.5-flash',
+            [{ parts: [{ text: businessRulesPrompt }, { text: `\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }] }],
+            {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: 'OBJECT',
+                    properties: {
+                        rules: {
+                            type: 'ARRAY',
+                            items: {
+                                type: 'OBJECT',
+                                properties: {
+                                    fieldName: { type: 'STRING' },
+                                    ruleType: { type: 'STRING' },
+                                    condition: { type: 'STRING' },
+                                    actionFormula: { type: 'STRING' },
+                                    errorMessage: { type: 'STRING' },
+                                    dependentFields: { type: 'STRING' },
+                                    priority: { type: 'STRING' },
+                                },
+                                required: ['fieldName', 'ruleType', 'condition', 'actionFormula', 'errorMessage', 'dependentFields', 'priority'],
+                            },
+                        },
+                    },
+                    required: ['rules'],
+                },
+            }
+        );
+        return JSON.parse(extractJsonText(result)) as BusinessRulesResult;
+    } catch (error) {
+        console.error('Gemini extractBusinessRules error:', error);
         throw error;
     }
 };

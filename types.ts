@@ -87,6 +87,20 @@ export interface LayoutRecommendationResult {
     whatsappVersion: string;
 }
 
+export interface BusinessRule {
+    fieldName: string;
+    ruleType: 'Validation' | 'Conditional' | 'Calculation' | 'Workflow';
+    condition: string;
+    actionFormula: string;
+    errorMessage: string;
+    dependentFields: string;
+    priority: 'High' | 'Medium' | 'Low';
+}
+
+export interface BusinessRulesResult {
+    rules: BusinessRule[];
+}
+
 export interface AccessibilityCriterion {
   id: string;
   standard: string;

@@ -12,12 +12,14 @@ const LLMWarning: React.FC<LLMWarningProps> = ({ onGoToSettings }) => {
   const hasKey =
     provider === 'gemini'
       ? Boolean(settings.geminiApiKey || process.env.API_KEY)
+      : provider === 'openai'
+      ? Boolean(settings.openaiApiKey)
       : Boolean(settings.claudeApiKey);
 
   if (hasKey) return null;
 
-  const providerLabel = provider === 'gemini' ? 'Google Gemini' : 'Anthropic Claude';
-  const keyLabel = provider === 'gemini' ? 'Gemini API key' : 'Claude API key';
+  const providerLabel = provider === 'gemini' ? 'Google Gemini' : provider === 'openai' ? 'OpenAI GPT' : 'Anthropic Claude';
+  const keyLabel = provider === 'gemini' ? 'Gemini API key' : provider === 'openai' ? 'OpenAI API key' : 'Claude API key';
 
   return (
     <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 px-4 py-3.5">

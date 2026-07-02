@@ -1,13 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type Theme = 'light' | 'dark';
-export type LLMProvider = 'gemini' | 'claude';
+export type LLMProvider = 'gemini' | 'claude' | 'openai';
 
 export interface AppSettings {
   theme: Theme;
   llmProvider: LLMProvider;
   geminiApiKey: string;
   claudeApiKey: string;
+  openaiApiKey: string;
 }
 
 interface SettingsContextValue {
@@ -22,6 +23,7 @@ const defaultSettings: AppSettings = {
   llmProvider: 'gemini',
   geminiApiKey: '',
   claudeApiKey: '',
+  openaiApiKey: '',
 };
 
 const SettingsContext = createContext<SettingsContextValue>({

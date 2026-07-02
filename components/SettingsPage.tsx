@@ -72,8 +72,10 @@ const LLMProviderTab: React.FC<{
   const [draftProvider, setDraftProvider] = useState<LLMProvider>(settings.llmProvider);
   const [draftGeminiKey, setDraftGeminiKey] = useState(settings.geminiApiKey || '');
   const [draftClaudeKey, setDraftClaudeKey] = useState(settings.claudeApiKey);
+  const [draftOpenAIKey, setDraftOpenAIKey] = useState(settings.openaiApiKey || '');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showClaudeKey, setShowClaudeKey] = useState(false);
+  const [showOpenAIKey, setShowOpenAIKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -82,7 +84,8 @@ const LLMProviderTab: React.FC<{
     setDraftProvider(settings.llmProvider);
     setDraftGeminiKey(settings.geminiApiKey || '');
     setDraftClaudeKey(settings.claudeApiKey);
-  }, [settings.llmProvider, settings.geminiApiKey, settings.claudeApiKey]);
+    setDraftOpenAIKey(settings.openaiApiKey || '');
+  }, [settings.llmProvider, settings.geminiApiKey, settings.claudeApiKey, settings.openaiApiKey]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -90,8 +93,9 @@ const LLMProviderTab: React.FC<{
       llmProvider: draftProvider,
       geminiApiKey: draftGeminiKey,
       claudeApiKey: draftClaudeKey,
+      openaiApiKey: draftOpenAIKey,
     };
-    saveSettings({ llmProvider: draftProvider, geminiApiKey: draftGeminiKey, claudeApiKey: draftClaudeKey });
+    saveSettings({ llmProvider: draftProvider, geminiApiKey: draftGeminiKey, claudeApiKey: draftClaudeKey, openaiApiKey: draftOpenAIKey });
     await updatePreferences(prefs);
     setSaving(false);
     setSaved(true);
@@ -145,6 +149,28 @@ const LLMProviderTab: React.FC<{
                 />
                 <button type="button" onClick={() => setShowClaudeKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                   {showClaudeKey ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* OpenAI */}
+          <div className={`p-3 rounded-lg border-2 transition-all ${draftProvider === 'openai' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-600'}`}>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="radio" name="llm" value="openai" checked={draftProvider === 'openai'} onChange={() => setDraftProvider('openai')} className="w-4 h-4 accent-indigo-600" />
+              <span className="font-medium text-slate-700 dark:text-slate-200">OpenAI GPT</span>
+            </label>
+            {draftProvider === 'openai' && (
+              <div className="relative mt-2">
+                <input
+                  type={showOpenAIKey ? 'text' : 'password'}
+                  value={draftOpenAIKey}
+                  onChange={(e) => setDraftOpenAIKey(e.target.value)}
+                  placeholder="OpenAI API key (sk-...)"
+                  className="w-full pr-10 px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button type="button" onClick={() => setShowOpenAIKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                  {showOpenAIKey ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
                 </button>
               </div>
             )}

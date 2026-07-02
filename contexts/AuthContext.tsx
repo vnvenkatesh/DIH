@@ -4,9 +4,10 @@ export type UserRole = 'Admin' | 'AppUser';
 
 export interface UserPreferences {
   theme: 'light' | 'dark';
-  llmProvider: 'gemini' | 'claude';
+  llmProvider: 'gemini' | 'claude' | 'openai';
   geminiApiKey: string;
   claudeApiKey: string;
+  openaiApiKey: string;
 }
 
 export interface AuthUser extends UserPreferences {
@@ -54,6 +55,7 @@ function deserializeUser(raw: any): AuthUser {
     llmProvider: raw.llm_provider ?? 'gemini',
     geminiApiKey: raw.gemini_api_key ?? '',
     claudeApiKey: raw.claude_api_key ?? '',
+    openaiApiKey: raw.openai_api_key ?? '',
   };
 }
 
@@ -119,6 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (prefs.llmProvider !== undefined) body.llm_provider = prefs.llmProvider;
     if (prefs.geminiApiKey !== undefined) body.gemini_api_key = prefs.geminiApiKey;
     if (prefs.claudeApiKey !== undefined) body.claude_api_key = prefs.claudeApiKey;
+    if (prefs.openaiApiKey !== undefined) body.openai_api_key = prefs.openaiApiKey;
 
     const res = await fetch('/v1/auth/preferences', {
       method: 'PUT',

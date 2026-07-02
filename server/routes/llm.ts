@@ -4,8 +4,9 @@ import { requireAuth, AuthRequest } from '../middleware/auth.js';
 
 const router = express.Router();
 
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const CLAUDE_API  = 'https://api.anthropic.com/v1/messages';
+const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
+const CLAUDE_API   = 'https://api.anthropic.com/v1/messages';
+const OPENAI_API   = 'https://api.openai.com/v1/chat/completions';
 
 // ── Gemini proxy ─────────────────────────────────────────────────────────────
 router.post('/gemini', requireAuth as any, async (req: AuthRequest, res) => {
@@ -68,6 +69,42 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
     res.status(upstream.status).json(data);
   } catch (err: any) {
     res.status(500).json({ error: { message: err?.message ?? 'Claude proxy error' } });
+  }
+});
+
+// ── OpenAI proxy ──────────────────────────────────────────────────────────────
+router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const { model, messages, response_format } = req.body;
+
+    const { rows } = await pool.query('SELECT openai_api_key FROM users WHERE id=$1', [req.user!.id]);
+    const apiKey = rows[0]?.openai_api_key || process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      res.status(400).json({ error: { message: 'OpenAI API key not configured. Go to Settings → LLM Provider.' } });
+      return;
+    }
+
+    const body: Record<string, any> = { model, messages };
+    if (response_format) body.response_format = response_format;
+
+    const upstream = await fetch(OPENAI_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await upstream.json() as any;
+    if (upstream.status === 401) {
+      res.status(400).json({ error: { message: 'OpenAI API key is invalid. Please update it in Settings → LLM Provider.' } });
+      return;
+    }
+    res.status(upstream.status).json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: { message: err?.message ?? 'OpenAI proxy error' } });
   }
 });
 

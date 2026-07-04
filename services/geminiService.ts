@@ -433,7 +433,7 @@ export const extractBusinessRules = async (docText: string): Promise<BusinessRul
                                     priority: { type: 'STRING' },
                                     pageReference: { type: 'STRING' },
                                 },
-                                required: ['fieldName', 'ruleType', 'condition', 'actionFormula', 'errorMessage', 'dependentFields', 'priority', 'pageReference'],
+                                required: ['fieldName', 'ruleType', 'condition', 'actionFormula', 'errorMessage', 'dependentFields', 'priority'],
                             },
                         },
                     },

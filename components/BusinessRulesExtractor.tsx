@@ -131,10 +131,10 @@ function htmlToText(html: string): string {
 }
 
 async function extractDocxText(file: File): Promise<string> {
-    const arrayBuffer = await file.arrayBuffer();
+    // Use two separate reads so mammoth and the ZIP reader never share the same ArrayBuffer.
     const [htmlResult, commentsText] = await Promise.all([
-        mammoth.convertToHtml({ arrayBuffer }),
-        extractDocxComments(arrayBuffer),
+        file.arrayBuffer().then(ab => mammoth.convertToHtml({ arrayBuffer: ab })),
+        file.arrayBuffer().then(ab => extractDocxComments(ab)),
     ]);
     const bodyText = htmlToText(htmlResult.value);
     return commentsText ? `${bodyText}\n\n${commentsText}` : bodyText;

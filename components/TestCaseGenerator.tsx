@@ -112,12 +112,20 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
+    a.href = url;
+    a.download = filename;
+    a.style.visibility = 'hidden';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
 function toCsv(cases: IndexedTestCase[]): string {
-    const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""').replace(/\n/g, ' → ')}"`;
+    // safe() coerces any runtime value (including arrays returned by some LLMs) to a string
+    const safe = (v: unknown): string =>
+        v == null ? '' : Array.isArray(v) ? (v as unknown[]).map(String).join(' → ') : String(v);
+    const esc = (v: unknown) => `"${safe(v).replace(/"/g, '""').replace(/\n/g, ' → ')}"`;
     const header = ['Test Case ID', 'Field / Section', 'Category', 'Test Description', 'Input Data', 'Expected Result', 'Priority', 'Preconditions', 'Test Steps'];
     const rows = cases.map(tc => [
         tc.id, tc.fieldSection, tc.category, tc.testDescription,

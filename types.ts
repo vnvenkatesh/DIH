@@ -95,7 +95,7 @@ export interface BusinessRule {
     errorMessage: string;
     dependentFields: string;
     priority: 'High' | 'Medium' | 'Low';
-    pageReference: string;
+    pageReference?: string;
 }
 
 export interface BusinessRulesResult {

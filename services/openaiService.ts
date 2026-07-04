@@ -161,26 +161,26 @@ Return a JSON object with exactly two keys:
 The entire response must be ONLY the JSON object.
 `;
 
-const businessRulesPrompt = `You are an expert business analyst specialising in COTS implementation and form design. Extract ALL business rules from the provided form requirements document.
+const businessRulesPrompt = `You are an expert business analyst specialising in COTS implementation and form design. Extract ALL business rules from the provided requirements document. The document includes both main body text and reviewer comments (marked "DOCUMENT REVIEWER COMMENTS") — treat both as equally valid sources of requirements.
 
 Extract these rule types:
 1. VALIDATION — mandatory checks, format (email/date/phone/regex), min/max length, allowed values
 2. CONDITIONAL — show/hide, enable/disable, mandatory-when, populate-when based on another field
 3. CALCULATION — derived/auto-calculated fields, formulas, running totals, lookups
-4. WORKFLOW — approval conditions, routing logic, status transitions, escalations, SLA rules
 
 For each rule return a JSON object with exactly these keys:
 - fieldName: name/label of the form field
-- ruleType: exactly one of "Validation", "Conditional", "Calculation", "Workflow"
+- ruleType: exactly one of "Validation", "Conditional", "Calculation"
 - condition: the trigger condition or constraint
 - actionFormula: what happens when the condition is met
 - errorMessage: error shown to user on validation failure (empty string if not applicable)
 - dependentFields: comma-separated field names this rule depends on (empty string if none)
 - priority: "High" (blocking/mandatory), "Medium" (important), "Low" (nice-to-have)
+- pageReference: approximate page number or section where this rule was found (e.g. "Page 2", "Section 3.1", "Page 4 – Comments"); use "Page 1" if unknown
 
 Priority guidance: High = mandatory fields, format validations with errors, approval gates. Medium = conditional visibility, non-critical calculations. Low = UI hints, cosmetic conditions.
 
-Extract EVERY rule in the document. One entry per rule per field. Do NOT invent rules. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
+Extract EVERY rule in the document including those found only in comments. One entry per rule per field. Do NOT invent rules. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
 
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
     const result = await callOpenAI(

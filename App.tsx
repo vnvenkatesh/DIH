@@ -104,11 +104,11 @@ const App: React.FC = () => {
       ),
     },
     { tool: 'dataMappingGenerator', label: 'Data Mapping Generator', description: 'Map fields to XSD schema', icon: <LinkIcon className="w-5 h-5" /> },
+    { tool: 'businessRulesExtractor', label: 'Business Rules', description: 'Extract rules from form specs', icon: <ClipboardRulesIcon className="w-5 h-5" /> },
     { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
     { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
     { tool: 'accessibilityScorer', label: 'Accessibility Check', description: 'Score PDF accessibility compliance', icon: <AccessibilityIcon className="w-5 h-5" /> },
-    { tool: 'businessRulesExtractor', label: 'Business Rules', description: 'Extract rules from form specs', icon: <ClipboardRulesIcon className="w-5 h-5" /> },
     { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
   ];
 

@@ -1,17 +1,16 @@
 import React, { useState, useCallback } from 'react';
-import * as mammoth from 'mammoth';
+import mammoth from 'mammoth';
 import { BusinessRule, BusinessRulesResult } from '../types';
 import { extractBusinessRules } from '../services/llmService';
 import FileUploader from './FileUploader';
 import Loader from './Loader';
 
-type RuleTypeFilter = 'All' | 'Validation' | 'Conditional' | 'Calculation' | 'Workflow';
+type RuleTypeFilter = 'All' | 'Validation' | 'Conditional' | 'Calculation';
 
 const RULE_TYPE_COLORS: Record<string, string> = {
     Validation:  'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
     Conditional: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
     Calculation: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
-    Workflow:    'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -19,6 +18,89 @@ const PRIORITY_COLORS: Record<string, string> = {
     Medium: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800',
     Low:    'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600',
 };
+
+// --- DOCX ZIP reader (browser-native, no extra deps) ---
+
+async function readZipEntry(buf: ArrayBuffer, targetPath: string): Promise<string | null> {
+    const bytes = new Uint8Array(buf);
+    const view = new DataView(buf);
+
+    // Find End of Central Directory record (signature 0x06054b50)
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65558); i--) {
+        if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) return null;
+
+    const cdEntries = view.getUint16(eocd + 10, true);
+    const cdOffset  = view.getUint32(eocd + 16, true);
+
+    let pos = cdOffset;
+    for (let i = 0; i < cdEntries; i++) {
+        if (view.getUint32(pos, true) !== 0x02014b50) break;
+        const compression   = view.getUint16(pos + 10, true);
+        const compressedSz  = view.getUint32(pos + 20, true);
+        const fileNameLen   = view.getUint16(pos + 28, true);
+        const extraLen      = view.getUint16(pos + 30, true);
+        const entryComment  = view.getUint16(pos + 32, true);
+        const localOff      = view.getUint32(pos + 42, true);
+        const fileName      = new TextDecoder().decode(bytes.subarray(pos + 46, pos + 46 + fileNameLen));
+
+        if (fileName === targetPath) {
+            const lhNameLen  = new DataView(buf, localOff).getUint16(26, true);
+            const lhExtraLen = new DataView(buf, localOff).getUint16(28, true);
+            const dataStart  = localOff + 30 + lhNameLen + lhExtraLen;
+            const compressed = bytes.subarray(dataStart, dataStart + compressedSz);
+
+            if (compression === 0) {
+                return new TextDecoder().decode(compressed);
+            } else if (compression === 8) {
+                const ds = new DecompressionStream('deflate-raw');
+                const writer = ds.writable.getWriter();
+                writer.write(compressed);
+                writer.close();
+                const chunks: Uint8Array[] = [];
+                const reader = ds.readable.getReader();
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                }
+                const total = chunks.reduce((n, c) => n + c.length, 0);
+                const merged = new Uint8Array(total);
+                let off = 0;
+                for (const c of chunks) { merged.set(c, off); off += c.length; }
+                return new TextDecoder().decode(merged);
+            }
+            return null;
+        }
+        pos += 46 + fileNameLen + extraLen + entryComment;
+    }
+    return null;
+}
+
+async function extractDocxComments(buf: ArrayBuffer): Promise<string> {
+    try {
+        const xml = await readZipEntry(buf, 'word/comments.xml');
+        if (!xml) return '';
+        const doc = new DOMParser().parseFromString(xml, 'text/xml');
+        const wNS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+        const comments = Array.from(doc.getElementsByTagNameNS(wNS, 'comment'));
+        const texts = comments.map(c => {
+            const author = c.getAttributeNS(wNS, 'author') || '';
+            const text = Array.from(c.getElementsByTagNameNS(wNS, 't'))
+                .map(t => t.textContent?.trim())
+                .filter(Boolean)
+                .join(' ');
+            return author ? `[${author}]: ${text}` : text;
+        }).filter(Boolean);
+        return texts.length ? `DOCUMENT REVIEWER COMMENTS:\n${texts.join('\n')}` : '';
+    } catch {
+        return '';
+    }
+}
+
+// --- Text extraction ---
 
 function htmlToText(html: string): string {
     const parser = new DOMParser();
@@ -50,9 +132,15 @@ function htmlToText(html: string): string {
 
 async function extractDocxText(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.convertToHtml({ arrayBuffer });
-    return htmlToText(result.value);
+    const [htmlResult, commentsText] = await Promise.all([
+        mammoth.convertToHtml({ arrayBuffer }),
+        extractDocxComments(arrayBuffer),
+    ]);
+    const bodyText = htmlToText(htmlResult.value);
+    return commentsText ? `${bodyText}\n\n${commentsText}` : bodyText;
 }
+
+// --- Export helpers ---
 
 function downloadBlob(content: string, filename: string, mimeType: string) {
     const blob = new Blob([content], { type: mimeType });
@@ -65,16 +153,16 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
 }
 
 function rulesToCsv(rules: BusinessRule[]): string {
-    const header = ['Field Name', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority'];
-    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = ['Field Name', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'];
+    const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
     const rows = rules.map(r => [
         r.fieldName, r.ruleType, r.condition, r.actionFormula,
-        r.errorMessage, r.dependentFields, r.priority,
+        r.errorMessage, r.dependentFields, r.priority, r.pageReference ?? '',
     ].map(escape).join(','));
     return [header.map(escape).join(','), ...rows].join('\n');
 }
 
-const FILTERS: RuleTypeFilter[] = ['All', 'Validation', 'Conditional', 'Calculation', 'Workflow'];
+const FILTERS: RuleTypeFilter[] = ['All', 'Validation', 'Conditional', 'Calculation'];
 
 const BusinessRulesExtractor: React.FC = () => {
     const [file, setFile] = useState<File | null>(null);
@@ -123,7 +211,7 @@ const BusinessRulesExtractor: React.FC = () => {
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Upload Requirements Document</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                    Upload a DOCX file containing form specifications, BRDs, or requirements documents. All four rule types will be extracted automatically.
+                    Upload a DOCX file containing form specifications or BRDs. Body text and reviewer comments are both analysed.
                 </p>
                 {!file ? (
                     <FileUploader
@@ -159,7 +247,7 @@ const BusinessRulesExtractor: React.FC = () => {
             {loading && (
                 <div className="flex flex-col items-center justify-center py-16 gap-4">
                     <Loader />
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Analysing document and extracting business rules…</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Analysing document and reviewer comments…</p>
                 </div>
             )}
 
@@ -172,13 +260,12 @@ const BusinessRulesExtractor: React.FC = () => {
             {result && !loading && (
                 <div className="space-y-5">
                     {/* Summary stats */}
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {[
-                            { label: 'Total Rules', value: result.rules.length, color: 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' },
-                            { label: 'Validation', value: countByType('Validation'), color: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' },
-                            { label: 'Conditional', value: countByType('Conditional'), color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' },
-                            { label: 'Calculation', value: countByType('Calculation'), color: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' },
-                            { label: 'Workflow', value: countByType('Workflow'), color: 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300' },
+                            { label: 'Total Rules',  value: result.rules.length,        color: 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' },
+                            { label: 'Validation',   value: countByType('Validation'),   color: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' },
+                            { label: 'Conditional',  value: countByType('Conditional'),  color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' },
+                            { label: 'Calculation',  value: countByType('Calculation'),  color: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' },
                         ].map(({ label, value, color }) => (
                             <div key={label} className={`rounded-xl p-4 text-center ${color}`}>
                                 <div className="text-2xl font-bold">{value}</div>
@@ -229,10 +316,10 @@ const BusinessRulesExtractor: React.FC = () => {
                         </div>
                     ) : (
                         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                            <table className="w-full text-sm min-w-[900px]">
+                            <table className="w-full text-sm min-w-[1000px]">
                                 <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        {['Field Name', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority'].map(h => (
+                                        {['Field Name', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'].map(h => (
                                             <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                                 {h}
                                             </th>
@@ -266,6 +353,9 @@ const BusinessRulesExtractor: React.FC = () => {
                                                 <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${PRIORITY_COLORS[rule.priority] ?? ''}`}>
                                                     {rule.priority}
                                                 </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">
+                                                {rule.pageReference || <span className="text-slate-300 dark:text-slate-600">—</span>}
                                             </td>
                                         </tr>
                                     ))}

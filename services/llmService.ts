@@ -1,7 +1,7 @@
 import * as gemini from './geminiService';
 import * as claude from './claudeService';
 import * as openai from './openaiService';
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 function getProvider(): 'claude' | 'gemini' | 'openai' {
@@ -77,6 +77,13 @@ export const extractBusinessRules = (docText: string): Promise<BusinessRulesResu
     if (p === 'claude') return claude.extractBusinessRules(docText);
     if (p === 'openai') return openai.extractBusinessRules(docText);
     return gemini.extractBusinessRules(docText);
+};
+
+export const generateTestCases = (rulesAndHints: string): Promise<TestCaseResult> => {
+    const p = getProvider();
+    if (p === 'claude') return claude.generateTestCases(rulesAndHints);
+    if (p === 'openai') return openai.generateTestCases(rulesAndHints);
+    return gemini.generateTestCases(rulesAndHints);
 };
 
 // Embeddings are always computed client-side

@@ -103,6 +103,21 @@ export interface BusinessRulesResult {
     rules: BusinessRule[];
 }
 
+export interface TestCase {
+    fieldSection: string;
+    category: 'Happy Path' | 'Mandatory' | 'Boundary' | 'Conditional' | 'Format' | 'Calculation';
+    testDescription: string;
+    inputData: string;
+    expectedResult: string;
+    priority: 'High' | 'Medium' | 'Low';
+    preconditions: string;
+    testSteps: string;
+}
+
+export interface TestCaseResult {
+    testCases: TestCase[];
+}
+
 export interface AccessibilityCriterion {
   id: string;
   standard: string;

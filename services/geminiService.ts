@@ -1,5 +1,5 @@
 ﻿
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -453,6 +453,80 @@ export const extractBusinessRules = async (docText: string): Promise<BusinessRul
         return JSON.parse(extractJsonText(result)) as BusinessRulesResult;
     } catch (error) {
         console.error('Gemini extractBusinessRules error:', error);
+        throw error;
+    }
+};
+
+const testCasePrompt = `You are a senior QA engineer specialising in enterprise COTS implementation testing.
+
+Given a set of extracted business rules, generate comprehensive test cases. Apply the following strategy per rule type:
+
+VALIDATION rules → generate:
+  • One happy-path test (valid, non-empty input that passes)
+  • One mandatory-failure test (blank or null input)
+  • One format or value violation test if a format or range is implied
+
+CONDITIONAL rules → ALWAYS generate BOTH:
+  • TRUE-branch test — condition is met; verify the expected outcome occurs
+  • FALSE-branch test — condition is NOT met; verify the expected outcome does NOT occur
+
+CALCULATION rules → generate:
+  • One test with valid inputs producing the expected calculated result
+  • One boundary test (zero, min, or max) where applicable
+
+PRESENTATION rules → generate:
+  • One test with a correctly formatted value
+  • One test with an incorrectly formatted value
+
+If ADDITIONAL HINTS are provided, generate extra test cases for every edge case, constraint, or scenario described there.
+
+For each test case return:
+- fieldSection: the field name or section from the business rule
+- category: exactly one of "Happy Path", "Mandatory", "Boundary", "Conditional", "Format", "Calculation"
+- testDescription: a clear one-line description of what is being tested
+- inputData: the exact input value(s) — be specific (e.g. "(empty)", "State: NY", "$0.00", "31/02/2025", "invalid@email")
+- expectedResult: what should happen (e.g. "Error: field is required", "NY Privacy Statement is displayed", "Receive-by Date = Dispatch Date + 12 days")
+- priority: "High" (blocking/critical), "Medium" (important business logic), "Low" (advisory/cosmetic)
+- preconditions: setup required before the test; use "None" if no setup needed
+- testSteps: numbered step-by-step execution instructions, one step per line
+
+Return ONLY valid JSON — no markdown, no explanation.`;
+
+export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
+    try {
+        const result = await callGemini(
+            'gemini-2.5-flash',
+            [{ parts: [{ text: testCasePrompt }, { text: `\n\n${rulesAndHints}` }] }],
+            {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: 'OBJECT',
+                    properties: {
+                        testCases: {
+                            type: 'ARRAY',
+                            items: {
+                                type: 'OBJECT',
+                                properties: {
+                                    fieldSection:     { type: 'STRING' },
+                                    category:         { type: 'STRING' },
+                                    testDescription:  { type: 'STRING' },
+                                    inputData:        { type: 'STRING' },
+                                    expectedResult:   { type: 'STRING' },
+                                    priority:         { type: 'STRING' },
+                                    preconditions:    { type: 'STRING' },
+                                    testSteps:        { type: 'STRING' },
+                                },
+                                required: ['fieldSection', 'category', 'testDescription', 'inputData', 'expectedResult', 'priority', 'preconditions', 'testSteps'],
+                            },
+                        },
+                    },
+                    required: ['testCases'],
+                },
+            }
+        );
+        return JSON.parse(extractJsonText(result)) as TestCaseResult;
+    } catch (error) {
+        console.error('Gemini generateTestCases error:', error);
         throw error;
     }
 };

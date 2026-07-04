@@ -1,4 +1,4 @@
-﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult } from '../types';
+﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -252,6 +252,50 @@ export const extractBusinessRules = async (docText: string): Promise<BusinessRul
         messages: [{ role: 'user', content: `${businessRulesPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }],
     });
     return JSON.parse(cleanJson(extractText(result))) as BusinessRulesResult;
+};
+
+const testCasePrompt = `You are a senior QA engineer specialising in enterprise COTS implementation testing.
+
+Given a set of extracted business rules, generate comprehensive test cases. Apply the following strategy per rule type:
+
+VALIDATION rules → generate:
+  • One happy-path test (valid, non-empty input that passes)
+  • One mandatory-failure test (blank or null input)
+  • One format or value violation test if a format or range is implied
+
+CONDITIONAL rules → ALWAYS generate BOTH:
+  • TRUE-branch test — condition is met; verify the expected outcome occurs
+  • FALSE-branch test — condition is NOT met; verify the expected outcome does NOT occur
+
+CALCULATION rules → generate:
+  • One test with valid inputs producing the expected calculated result
+  • One boundary test (zero, min, or max) where applicable
+
+PRESENTATION rules → generate:
+  • One test with a correctly formatted value
+  • One test with an incorrectly formatted value
+
+If ADDITIONAL HINTS are provided, generate extra test cases for every edge case, constraint, or scenario described there.
+
+For each test case return:
+- fieldSection: the field name or section from the business rule
+- category: exactly one of "Happy Path", "Mandatory", "Boundary", "Conditional", "Format", "Calculation"
+- testDescription: a clear one-line description of what is being tested
+- inputData: the exact input value(s) — be specific (e.g. "(empty)", "State: NY", "$0.00", "31/02/2025", "invalid@email")
+- expectedResult: what should happen (e.g. "Error: field is required", "NY Privacy Statement is displayed", "Receive-by Date = Dispatch Date + 12 days")
+- priority: "High" (blocking/critical), "Medium" (important business logic), "Low" (advisory/cosmetic)
+- preconditions: setup required before the test; use "None" if no setup needed
+- testSteps: numbered step-by-step execution instructions, one step per line
+
+Return ONLY a JSON object with a single key "testCases" containing the array. No markdown.`;
+
+export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
+    const result = await callClaude({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 8192,
+        messages: [{ role: 'user', content: `${testCasePrompt}\n\n${rulesAndHints}` }],
+    });
+    return JSON.parse(cleanJson(extractText(result))) as TestCaseResult;
 };
 
 const accessibilityPrompt = `Analyse the extracted PDF text below for WCAG 2.1 Level A and AA compliance. This is text-only analysis, so visual/programmatic checks (alt text, contrast, tagged structure) must be "warning". Return ONLY valid JSON — no markdown, nothing else:

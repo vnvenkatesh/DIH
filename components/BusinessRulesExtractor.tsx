@@ -5,12 +5,13 @@ import { extractBusinessRules } from '../services/llmService';
 import FileUploader from './FileUploader';
 import Loader from './Loader';
 
-type RuleTypeFilter = 'All' | 'Validation' | 'Conditional' | 'Calculation';
+type RuleTypeFilter = 'All' | 'Validation' | 'Conditional' | 'Calculation' | 'Presentation';
 
 const RULE_TYPE_COLORS: Record<string, string> = {
-    Validation:  'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
-    Conditional: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-    Calculation: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+    Validation:   'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+    Conditional:  'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+    Calculation:  'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+    Presentation: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -162,7 +163,7 @@ function rulesToCsv(rules: BusinessRule[]): string {
     return [header.map(escape).join(','), ...rows].join('\n');
 }
 
-const FILTERS: RuleTypeFilter[] = ['All', 'Validation', 'Conditional', 'Calculation'];
+const FILTERS: RuleTypeFilter[] = ['All', 'Validation', 'Conditional', 'Calculation', 'Presentation'];
 
 const BusinessRulesExtractor: React.FC = () => {
     const [file, setFile] = useState<File | null>(null);
@@ -260,12 +261,13 @@ const BusinessRulesExtractor: React.FC = () => {
             {result && !loading && (
                 <div className="space-y-5">
                     {/* Summary stats */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                         {[
-                            { label: 'Total Rules',  value: result.rules.length,        color: 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' },
-                            { label: 'Validation',   value: countByType('Validation'),   color: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' },
-                            { label: 'Conditional',  value: countByType('Conditional'),  color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' },
-                            { label: 'Calculation',  value: countByType('Calculation'),  color: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' },
+                            { label: 'Total Rules',   value: result.rules.length,          color: 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300' },
+                            { label: 'Validation',    value: countByType('Validation'),     color: 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' },
+                            { label: 'Conditional',   value: countByType('Conditional'),    color: 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' },
+                            { label: 'Calculation',   value: countByType('Calculation'),    color: 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' },
+                            { label: 'Presentation',  value: countByType('Presentation'),   color: 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300' },
                         ].map(({ label, value, color }) => (
                             <div key={label} className={`rounded-xl p-4 text-center ${color}`}>
                                 <div className="text-2xl font-bold">{value}</div>

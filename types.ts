@@ -89,7 +89,7 @@ export interface LayoutRecommendationResult {
 
 export interface BusinessRule {
     fieldName: string;
-    ruleType: 'Validation' | 'Conditional' | 'Calculation';
+    ruleType: 'Validation' | 'Conditional' | 'Calculation' | 'Presentation';
     condition: string;
     actionFormula: string;
     errorMessage: string;

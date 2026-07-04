@@ -216,26 +216,33 @@ export const performSemanticComparison = async (
     }
 };
 
-const businessRulesPrompt = `You are an expert business analyst specialising in COTS implementation and form design. Extract ALL business rules from the provided requirements document. The document includes both main body text and reviewer comments (marked "DOCUMENT REVIEWER COMMENTS") — treat both as equally valid sources of requirements.
+const businessRulesPrompt = `You are an expert business analyst specialising in document automation and COTS implementation. Analyse the provided document and extract ALL business rules. The document may be any type — a customer communication, letter, template, form specification, or BRD. Reviewer comments (marked "DOCUMENT REVIEWER COMMENTS") are equally valid sources of rules.
 
-Extract these rule types:
-1. VALIDATION — mandatory checks, format (email/date/phone/regex), min/max length, allowed values
-2. CONDITIONAL — show/hide, enable/disable, mandatory-when, populate-when based on another field
-3. CALCULATION — derived/auto-calculated fields, formulas, running totals, lookups
+RECOGNISE IMPLICIT RULES — business rules appear in many forms beyond explicit specifications:
+- Template placeholders such as <Field Name>, [Field], $x,xxx, MM/DD/YYYY indicate fields that have Validation or Presentation rules
+- Comments labelled for a specific state, region, or segment indicate Conditional rules (e.g. a comment "Privacy Statement for NY" means: print this section only when customer state = NY)
+- Date arithmetic visible in the text (e.g. dispatch date 10/18, receive-by 10/30 implies a 12-day SLA gap) indicates a Calculation rule
+- Currency amounts, formatted dates, email addresses, phone numbers indicate Presentation rules
+
+Extract exactly four rule types:
+1. VALIDATION — a field is required/mandatory, must match a pattern, or must pass a business check. Example: "<Claim Adjustor Name> placeholder = mandatory field", "Claim amount must be positive".
+2. CONDITIONAL — an element is shown, printed, suppressed, or populated only when a condition is met. Example: "Print NY Privacy Statement only when customer state = NY", "Show section only if claim type = Medical".
+3. CALCULATION — a value is derived, computed, or results from arithmetic or a lookup. Example: "Receive-by Date = Dispatch Date + 12 calendar days", "Total = sum of line items".
+4. PRESENTATION — how a field must be displayed or formatted (no validation error, purely display). Example: "Check Amount displayed as currency $X,XXX.XX", "Date formatted MM/DD/YYYY", "Email rendered as a hyperlink".
 
 For each rule return a JSON object with exactly these keys:
-- fieldName: name/label of the form field
-- ruleType: exactly one of "Validation", "Conditional", "Calculation"
-- condition: the trigger condition or constraint
-- actionFormula: what happens when the condition is met
-- errorMessage: error shown to user on validation failure (empty string if not applicable)
-- dependentFields: comma-separated field names this rule depends on (empty string if none)
-- priority: "High" (blocking/mandatory), "Medium" (important), "Low" (nice-to-have)
-- pageReference: approximate page number or section where this rule was found (e.g. "Page 2", "Section 3.1", "Page 4 – Comments"); use "Page 1" if unknown
+- fieldName: descriptive name of the field, element, or document section (e.g. "Check Amount", "Dispatch Date", "Privacy Statement – NY", "Claim Adjustor Name")
+- ruleType: exactly one of "Validation", "Conditional", "Calculation", "Presentation"
+- condition: the trigger condition or constraint; empty string if the rule always applies
+- actionFormula: what happens / how the value is computed or displayed
+- errorMessage: error message on validation failure; empty string if not applicable
+- dependentFields: comma-separated names of other fields this rule depends on; empty string if none
+- priority: "High" (mandatory/blocking), "Medium" (important business rule), "Low" (cosmetic/advisory)
+- pageReference: page or section reference (e.g. "Page 1", "Comments"); use "Page 1" if unknown
 
-Priority guidance: High = mandatory fields, format validations with errors, approval gates. Medium = conditional visibility, non-critical calculations. Low = UI hints, cosmetic conditions.
+Priority guidance: High = mandatory fields, blocking validations. Medium = conditional sections, date calculations, format rules. Low = cosmetic hints.
 
-Extract EVERY rule in the document including those found only in comments. One entry per rule per field. Do NOT invent rules. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
+Extract EVERY rule you can identify or reasonably infer from body text, placeholders, template variables, date arithmetic, and comments. Do NOT omit rules just because they are implicit. One entry per rule per field. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
 
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
     const result = await callClaude({

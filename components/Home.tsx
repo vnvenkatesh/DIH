@@ -7,6 +7,8 @@ import { CodeBracketIcon } from './icons/CodeBracketIcon';
 import { DocumentTextIcon } from './icons/DocumentTextIcon';
 import { DevicePhoneMobileIcon } from './icons/DevicePhoneMobileIcon';
 import { AccessibilityIcon } from './icons/AccessibilityIcon';
+import { ClipboardRulesIcon } from './icons/ClipboardRulesIcon';
+import TestCaseIcon from './icons/TestCaseIcon';
 
 const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -100,6 +102,26 @@ const accelerators = [
     benefit: 'Meet legal accessibility obligations and serve every customer',
     accent: { bg: 'bg-rose-50 dark:bg-rose-900/20', icon: 'bg-rose-100 dark:bg-rose-800/60 text-rose-600 dark:text-rose-300', border: 'border-rose-100 dark:border-rose-800/50', tag: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300' },
   },
+  {
+    id: 'businessRulesExtractor',
+    Icon: ClipboardRulesIcon,
+    name: 'Business Rules',
+    tagline: 'Every rule, automatically surfaced',
+    description:
+      'Upload any requirements document or BRD and AI extracts every validation, conditional, calculation, and presentation rule — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Exports to CSV and JSON.',
+    benefit: 'Capture rules that would otherwise be missed in manual review',
+    accent: { bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20', icon: 'bg-fuchsia-100 dark:bg-fuchsia-800/60 text-fuchsia-600 dark:text-fuchsia-300', border: 'border-fuchsia-100 dark:border-fuchsia-800/50', tag: 'bg-fuchsia-100 dark:bg-fuchsia-900/40 text-fuchsia-700 dark:text-fuchsia-300' },
+  },
+  {
+    id: 'testCaseGenerator',
+    Icon: TestCaseIcon,
+    name: 'Test Case Generator',
+    tagline: 'Rules in, full test suite out',
+    description:
+      'Upload a Business Rules CSV and receive a complete test suite covering all six categories — happy path, mandatory violations, boundary values, conditional branches, format violations, and calculation checks. Add domain hints to generate additional edge-case tests.',
+    benefit: 'Cut QA authoring effort by 60–70% on typical implementations',
+    accent: { bg: 'bg-lime-50 dark:bg-lime-900/20', icon: 'bg-lime-100 dark:bg-lime-800/60 text-lime-600 dark:text-lime-300', border: 'border-lime-100 dark:border-lime-800/50', tag: 'bg-lime-100 dark:bg-lime-900/40 text-lime-700 dark:text-lime-300' },
+  },
 ];
 
 const securityPoints = [
@@ -181,7 +203,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '8', label: 'Accelerators', sub: '7 AI-powered, 1 AI-free' },
+          { value: '10', label: 'Accelerators', sub: '9 AI-powered, 1 AI-free' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
           { value: '0', label: 'Data retained', sub: 'after each session' },
           { value: '100%', label: 'Browser-side', sub: 'document processing' },
@@ -268,8 +290,9 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           <div className="space-y-4">
             {[
               { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
+              { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Synthetic Data Generation'], detail: 'Generate realistic, schema-valid synthetic test data without sourcing or masking real client PII — keeping testing clean and compliant.' },
+              { phase: 'Build & Test', tools: ['Synthetic Data Generation', 'Test Case Generator'], detail: 'Generate schema-valid synthetic test data without touching real client PII, then derive a complete test suite directly from the extracted business rules — covering happy path, mandatory, boundary, conditional, format, and calculation scenarios.' },
               { phase: 'QA & Review', tools: ['PDF AI Compare', 'PDF Visual Compare'], detail: 'Validate every document version change between iterations. Use Visual Compare for a fast, AI-free structural and pixel diff; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },

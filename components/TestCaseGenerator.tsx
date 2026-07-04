@@ -365,7 +365,7 @@ const TestCaseGenerator: React.FC = () => {
                             <table className="w-full text-sm min-w-[1300px]">
                                 <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        {['ID', 'Field / Section', 'Category', 'Test Description', 'Input Data', 'Expected Result', 'Priority', 'Preconditions', 'Test Steps'].map(h => (
+                                        {['ID', 'Field / Section', 'Category', 'Test Description', 'Input Data', 'Expected Result', 'Priority', 'Preconditions'].map(h => (
                                             <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                                 {h}
                                             </th>
@@ -400,9 +400,6 @@ const TestCaseGenerator: React.FC = () => {
                                             </td>
                                             <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 max-w-[150px]">
                                                 <span className="line-clamp-2" title={tc.preconditions}>{tc.preconditions}</span>
-                                            </td>
-                                            <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 max-w-[200px] whitespace-pre-line">
-                                                <span className="line-clamp-3" title={tc.testSteps}>{tc.testSteps}</span>
                                             </td>
                                         </tr>
                                     ))}

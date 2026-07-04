@@ -404,6 +404,7 @@ Extract exactly four rule types:
 
 For each rule return:
 - fieldName: descriptive name of the field, element, or document section (e.g. "Check Amount", "Dispatch Date", "Privacy Statement – NY", "Claim Adjustor Name")
+- sourceReference: a short verbatim excerpt (up to 12 words) from the document that triggered this rule — the opening of the relevant line or sentence (e.g. "A final check for $x,xxx will be delivered", "If you do not receive the check by", "Privacy Statement for Newyork"); use "—" if no direct text source
 - ruleType: exactly one of "Validation", "Conditional", "Calculation", "Presentation"
 - condition: the trigger condition or constraint; empty string if the rule always applies
 - actionFormula: what happens / how the value is computed or displayed
@@ -432,6 +433,7 @@ export const extractBusinessRules = async (docText: string): Promise<BusinessRul
                                 type: 'OBJECT',
                                 properties: {
                                     fieldName: { type: 'STRING' },
+                                    sourceReference: { type: 'STRING' },
                                     ruleType: { type: 'STRING' },
                                     condition: { type: 'STRING' },
                                     actionFormula: { type: 'STRING' },

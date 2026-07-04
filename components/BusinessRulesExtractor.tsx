@@ -154,10 +154,10 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
 }
 
 function rulesToCsv(rules: BusinessRule[]): string {
-    const header = ['Field Name', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'];
+    const header = ['Field Name', 'Source Reference', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'];
     const escape = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
     const rows = rules.map(r => [
-        r.fieldName, r.ruleType, r.condition, r.actionFormula,
+        r.fieldName, r.sourceReference ?? '', r.ruleType, r.condition, r.actionFormula,
         r.errorMessage, r.dependentFields, r.priority, r.pageReference ?? '',
     ].map(escape).join(','));
     return [header.map(escape).join(','), ...rows].join('\n');
@@ -318,10 +318,10 @@ const BusinessRulesExtractor: React.FC = () => {
                         </div>
                     ) : (
                         <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                            <table className="w-full text-sm min-w-[1000px]">
+                            <table className="w-full text-sm min-w-[1100px]">
                                 <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        {['Field Name', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'].map(h => (
+                                        {['Field Name', 'Source Reference', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'].map(h => (
                                             <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
                                                 {h}
                                             </th>
@@ -333,6 +333,11 @@ const BusinessRulesExtractor: React.FC = () => {
                                         <tr key={i} className="bg-white dark:bg-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors align-top">
                                             <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200 whitespace-nowrap">
                                                 {rule.fieldName}
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs italic max-w-[200px]">
+                                                {rule.sourceReference && rule.sourceReference !== '—'
+                                                    ? <span title={rule.sourceReference} className="block truncate">{rule.sourceReference}</span>
+                                                    : <span className="text-slate-300 dark:text-slate-600 not-italic">—</span>}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${RULE_TYPE_COLORS[rule.ruleType] ?? ''}`}>

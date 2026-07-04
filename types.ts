@@ -95,6 +95,7 @@ export interface BusinessRule {
     errorMessage: string;
     dependentFields: string;
     priority: 'High' | 'Medium' | 'Low';
+    sourceReference?: string;
     pageReference?: string;
 }
 

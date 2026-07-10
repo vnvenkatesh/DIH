@@ -85,13 +85,30 @@ function extractClaudeText(response: any): string {
     return block.text.trim();
 }
 
-function cleanJson(text: string): string {
+// Repair invalid JSON escape sequences produced when LLM embeds XML in strings.
+// Valid JSON escape chars after \: " \ / b f n r t u
+// Anything else (e.g. \k, \s) becomes \\k — a literal backslash + character.
+function repairEscapes(raw: string): string {
+    return raw.replace(/\\([^"\\/bfnrtu0-9])/g, '\\\\$1');
+}
+
+function safeParseJson(text: string): any {
+    // 1. Direct parse
+    try { return JSON.parse(text); } catch {}
+    // 2. Strip markdown fences
     const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenced) return fenced[1].trim();
+    if (fenced) {
+        try { return JSON.parse(fenced[1].trim()); } catch {}
+        try { return JSON.parse(repairEscapes(fenced[1].trim())); } catch {}
+    }
+    // 3. Extract outermost JSON object
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    if (start !== -1 && end > start) return text.slice(start, end + 1);
-    return text.trim();
+    if (start === -1 || end <= start) throw new Error('No JSON object found in LLM response.');
+    const slice = text.slice(start, end + 1);
+    try { return JSON.parse(slice); } catch {}
+    // 4. Repair escape sequences then parse
+    return JSON.parse(repairEscapes(slice));
 }
 
 // ── Provider implementations ─────────────────────────────────────────────────
@@ -127,7 +144,7 @@ async function viaGemini(xsdContent: string, testCasesText: string): Promise<Moc
         }],
         { responseMimeType: 'application/json', responseSchema: BUNDLE_SCHEMA }
     );
-    return JSON.parse(extractGeminiJsonText(result)) as MockedXmlsResult;
+    return safeParseJson(extractGeminiJsonText(result)) as MockedXmlsResult;
 }
 
 async function viaClaude(xsdContent: string, testCasesText: string): Promise<MockedXmlsResult> {
@@ -139,7 +156,7 @@ async function viaClaude(xsdContent: string, testCasesText: string): Promise<Moc
             content: `${MOCKED_XMLS_PROMPT}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}\n\n--- TEST CASES ---\n\n${testCasesText}`,
         }],
     });
-    return JSON.parse(cleanJson(extractClaudeText(result))) as MockedXmlsResult;
+    return safeParseJson(extractClaudeText(result)) as MockedXmlsResult;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

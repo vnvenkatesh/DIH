@@ -78,8 +78,8 @@ const accelerators = [
     name: 'Synthetic Data Generation',
     tagline: 'Realistic test data from any XSD',
     description:
-      'Provide an XSD schema and AI generates contextually accurate synthetic data for every field — no manual test data fabrication, no risk of using real client PII in testing environments.',
-    benefit: 'Safe, realistic test data without touching real client data',
+      'Provide an XSD schema and AI generates contextually accurate synthetic data. Optionally upload a Test Cases CSV — AI then groups the test cases and produces a set of valid XML bundles, each tagged with the test case IDs it covers.',
+    benefit: 'Safe, schema-valid test data aligned to your test suite',
     accent: { bg: 'bg-emerald-50 dark:bg-emerald-900/20', icon: 'bg-emerald-100 dark:bg-emerald-800/60 text-emerald-600 dark:text-emerald-300', border: 'border-emerald-100 dark:border-emerald-800/50', tag: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' },
   },
   {
@@ -251,6 +251,42 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* ── Connected workflow callout ── */}
+      <div className="rounded-2xl border border-indigo-100 dark:border-indigo-800/50 bg-indigo-50 dark:bg-indigo-900/20 px-7 py-6">
+        <div className="flex items-center gap-2 mb-3">
+          <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+          </svg>
+          <h3 className="text-base font-bold text-indigo-900 dark:text-indigo-200">Connected Workflows</h3>
+        </div>
+        <p className="text-sm text-indigo-700 dark:text-indigo-300 mb-4 max-w-2xl">
+          Multiple accelerators are designed to chain — the output of one becomes the input of the next.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          {[
+            {
+              steps: ['Business Rules', '→', 'Test Case Generator', '→', 'Synthetic Data'],
+              label: 'Requirements → Test Coverage',
+            },
+            {
+              steps: ['Data Mapping Generator', '→', 'XPath Extractor'],
+              label: 'Schema Mapping Pipeline',
+            },
+          ].map(({ steps, label }) => (
+            <div key={label} className="flex-1 bg-white dark:bg-slate-800 rounded-xl border border-indigo-100 dark:border-indigo-800/60 px-4 py-3 shadow-sm">
+              <p className="text-xs text-indigo-500 dark:text-indigo-400 font-semibold uppercase tracking-wide mb-2">{label}</p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {steps.map((s, i) => (
+                  s === '→'
+                    ? <span key={i} className="text-slate-400 font-bold text-sm">→</span>
+                    : <span key={i} className="text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full">{s}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ── Security & trust ── */}
       <div className="rounded-2xl bg-slate-900 dark:bg-slate-950 text-white px-8 py-10">
         <div className="flex items-center gap-3 mb-2">
@@ -292,7 +328,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Synthetic Data Generation', 'Test Case Generator'], detail: 'Generate schema-valid synthetic test data without touching real client PII, then derive a complete test suite directly from the extracted business rules — covering happy path, mandatory, boundary, conditional, format, and calculation scenarios.' },
+              { phase: 'Build & Test', tools: ['Synthetic Data Generation', 'Test Case Generator'], detail: 'Derive a complete test suite from extracted business rules (happy path, mandatory, boundary, conditional, format, calculation). Then feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles, each tagged with the test case IDs it covers, without touching real client PII.' },
               { phase: 'QA & Review', tools: ['PDF AI Compare', 'PDF Visual Compare'], detail: 'Validate every document version change between iterations. Use Visual Compare for a fast, AI-free structural and pixel diff; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },

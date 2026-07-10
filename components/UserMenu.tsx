@@ -4,10 +4,11 @@ import { AuthUser } from '../contexts/AuthContext';
 interface UserMenuProps {
   user: AuthUser;
   onSettings: () => void;
+  onHelp: () => void;
   onLogout: () => void;
 }
 
-const UserMenu: React.FC<UserMenuProps> = ({ user, onSettings, onLogout }) => {
+const UserMenu: React.FC<UserMenuProps> = ({ user, onSettings, onHelp, onLogout }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -65,6 +66,16 @@ const UserMenu: React.FC<UserMenuProps> = ({ user, onSettings, onLogout }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
               </svg>
               Settings
+            </button>
+
+            <button
+              onClick={() => { setOpen(false); onHelp(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left"
+            >
+              <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+              </svg>
+              Help &amp; Support
             </button>
 
             <div className="mx-3 my-1 border-t border-slate-100 dark:border-slate-700" />

@@ -27,11 +27,12 @@ import TestCaseGenerator from './components/TestCaseGenerator';
 import TestCaseIcon from './components/icons/TestCaseIcon';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
+import HelpPage from './components/HelpPage';
 import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'settings';
+type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -196,6 +197,7 @@ const App: React.FC = () => {
         <UserMenu
           user={user}
           onSettings={() => setActiveTool('settings')}
+          onHelp={() => setActiveTool('help')}
           onLogout={logout}
         />
       </div>
@@ -264,6 +266,7 @@ const App: React.FC = () => {
             <ApiDocs />
           </div>
           {activeTool === 'settings' && <SettingsPage />}
+          {activeTool === 'help' && <HelpPage />}
         </main>
       </div>
     </div>

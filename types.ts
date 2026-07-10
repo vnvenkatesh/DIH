@@ -118,6 +118,16 @@ export interface TestCaseResult {
     testCases: TestCase[];
 }
 
+export interface MockedXmlBundle {
+    testCaseIds: string[];
+    description: string;
+    xmlContent: string;
+}
+
+export interface MockedXmlsResult {
+    xmlBundles: MockedXmlBundle[];
+}
+
 export interface AccessibilityCriterion {
   id: string;
   standard: string;

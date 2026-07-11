@@ -433,40 +433,133 @@ function xmlEscape(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function buildSampleXml(rows: MappingRow[]): string {
-  const tree: Record<string, unknown> = {};
+// ── XSD tree parser ──
+// Walks xs:element declarations in document order so the generated XML
+// respects xs:sequence ordering and includes required elements missing from the CSV.
 
+interface XsdNode {
+  name: string;
+  path: string;       // full slash path, e.g. /root/claim/claimNumber
+  type: string | null; // xs:string | xs:date | xs:decimal | etc.
+  minOccurs: number;
+  children: XsdNode[];
+}
+
+function parseXsdTree(xsdText: string): XsdNode | null {
+  const cleaned = xsdText
+    .replace(/<!--[\s\S]*?-->/g, '')  // strip comments
+    .replace(/<\?[^?]*\?>/g, '');     // strip processing instructions
+
+  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9_:.-]*)([^>]*?)(\/?)>/g;
+  const stack: Array<{ node: XsdNode; isComplex: boolean }> = [];
+  let root: XsdNode | null = null;
+
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(cleaned)) !== null) {
+    const [, closingSlash, tag, attrsStr, selfClosingSlash] = m;
+    const isClosing = closingSlash === '/';
+    const isSelfClosing = selfClosingSlash === '/';
+    const isXsEl = /^(xs:|xsd:)?element$/i.test(tag);
+
+    if (isClosing) {
+      // Pop the matching non-self-closing xs:element from the stack
+      if (isXsEl && stack.length > 0 && stack[stack.length - 1].isComplex) {
+        stack.pop();
+      }
+    } else if (isXsEl) {
+      const nameM = attrsStr.match(/\bname=["']([^"']+)["']/);
+      if (nameM) {
+        const attrs: Record<string, string> = {};
+        const attrRe = /(\w+(?::\w+)?)=["']([^"']*)["']/g;
+        let am: RegExpExecArray | null;
+        while ((am = attrRe.exec(attrsStr)) !== null) attrs[am[1]] = am[2];
+
+        const parentPath = stack.length > 0 ? stack[stack.length - 1].node.path : '';
+        const node: XsdNode = {
+          name: nameM[1],
+          path: `${parentPath}/${nameM[1]}`,
+          type: attrs['type'] ?? null,
+          minOccurs: parseInt(attrs['minOccurs'] ?? '1'),
+          children: [],
+        };
+
+        if (stack.length === 0) root = node;
+        else stack[stack.length - 1].node.children.push(node);
+
+        stack.push({ node, isComplex: !isSelfClosing });
+        if (isSelfClosing) stack.pop(); // immediately pop self-closing
+      }
+    }
+  }
+
+  return root;
+}
+
+// Type-appropriate placeholder for required fields not covered by the CSV
+function xsdLeafDefault(type: string | null): string {
+  const t = (type ?? '').replace(/^(xs:|xsd:)/, '').toLowerCase();
+  if (t === 'date') return '2025-01-01';
+  if (t === 'datetime') return '2025-01-01T00:00:00';
+  if (t === 'decimal' || t === 'float' || t === 'double') return '0.00';
+  if (t === 'integer' || t === 'int' || t === 'long' || t === 'nonnegativeinteger') return '0';
+  if (t === 'boolean') return 'false';
+  return '';
+}
+
+// XSD-driven sample generator: correct element order + required defaults
+function buildSampleXml(rows: MappingRow[], xsdText: string): string {
+  const sampleMap = new Map(rows.map(r => [r.xsdPath, r.sampleValue]));
+  const xsdRoot = parseXsdTree(xsdText);
+
+  if (!xsdRoot) {
+    // Fallback: build from CSV paths alone (original behaviour)
+    return buildSampleXmlFallback(rows);
+  }
+
+  function render(node: XsdNode, indent: string): string {
+    const { name, path, type, minOccurs, children } = node;
+
+    if (children.length === 0) {
+      // Leaf element
+      const value = sampleMap.get(path);
+      if (value !== undefined) return `${indent}<${name}>${xmlEscape(value)}</${name}>`;
+      if (minOccurs === 0) return '';  // optional with no sample → omit
+      return `${indent}<${name}>${xmlEscape(xsdLeafDefault(type))}</${name}>`;
+    }
+
+    // Complex element: render children in XSD document order
+    const childContent = children.map(c => render(c, `${indent}  `)).filter(Boolean).join('\n');
+    if (!childContent && minOccurs === 0) return ''; // optional empty container → omit
+    return `${indent}<${name}>\n${childContent}\n${indent}</${name}>`;
+  }
+
+  return `<?xml version="1.0" encoding="utf-8"?>\n${render(xsdRoot, '')}`;
+}
+
+// Fallback: original CSV-path-only approach (used when XSD parse produces no root)
+function buildSampleXmlFallback(rows: MappingRow[]): string {
+  const tree: Record<string, unknown> = {};
   for (const row of rows) {
     const parts = row.xsdPath.split('/').filter(Boolean);
     let node = tree;
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];
-      if (typeof node[part] !== 'object' || node[part] === null) {
-        node[part] = {};
-      }
+      if (typeof node[part] !== 'object' || node[part] === null) node[part] = {};
       node = node[part] as Record<string, unknown>;
     }
     const leaf = parts[parts.length - 1];
-    if (node[leaf] === undefined) {
-      node[leaf] = row.sampleValue;
-    }
+    if (node[leaf] === undefined) node[leaf] = row.sampleValue;
   }
-
   function serialize(obj: Record<string, unknown>, indent = ''): string {
     return Object.entries(obj)
       .map(([key, val]) => {
-        if (typeof val === 'string') {
-          return `${indent}<${key}>${xmlEscape(val)}</${key}>`;
-        }
-        if (typeof val === 'object' && val !== null) {
-          return `${indent}<${key}>\n${serialize(val as Record<string, unknown>, indent + '  ')}\n${indent}</${key}>`;
-        }
+        if (typeof val === 'string') return `${indent}<${key}>${xmlEscape(val)}</${key}>`;
+        if (typeof val === 'object' && val !== null) return `${indent}<${key}>\n${serialize(val as Record<string, unknown>, indent + '  ')}\n${indent}</${key}>`;
         return '';
       })
       .filter(Boolean)
       .join('\n');
   }
-
   return `<?xml version="1.0" encoding="utf-8"?>\n${serialize(tree)}`;
 }
 
@@ -1038,7 +1131,7 @@ router.post(
 
       const docName = docxFile.originalname.replace(/\.docx$/i, '');
       const gdContent = buildGdXml(docName, rtfContent, allDetected);
-      const sampleXml = buildSampleXml(rows);
+      const sampleXml = buildSampleXml(rows, xsdText);
 
       const variableMap = allDetected.map(v => ({
         fillPointId: v.fillPointId,

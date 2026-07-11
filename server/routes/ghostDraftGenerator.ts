@@ -1,7 +1,6 @@
 import express, { Response } from 'express';
 import multer from 'multer';
 import mammoth from 'mammoth';
-import sharp from 'sharp';
 import { randomUUID } from 'crypto';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
 import pool from '../db.js';
@@ -186,28 +185,63 @@ function applySubstitutionsToHtml(html: string, variables: DetectedVariable[]): 
 
 // ─────────── HTML → RTF ───────────
 
-// Use sharp to convert every captured DOCX image to clean PNG and build RTF \pict blocks.
-async function buildImageRtfMap(
+// Read PNG dimensions from IHDR chunk (bytes 16-23 after the 8-byte signature).
+function pngDimensions(buf: Buffer): { w: number; h: number } | null {
+  const PNG_SIG = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  if (buf.length < 24) return null;
+  for (let i = 0; i < 8; i++) if (buf[i] !== PNG_SIG[i]) return null;
+  if (buf.slice(12, 16).toString('ascii') !== 'IHDR') return null;
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+}
+
+// Read JPEG dimensions by scanning SOF markers.
+function jpegDimensions(buf: Buffer): { w: number; h: number } | null {
+  if (buf.length < 4 || buf[0] !== 0xFF || buf[1] !== 0xD8) return null;
+  let i = 2;
+  while (i + 3 < buf.length && i < 65536) {
+    if (buf[i] !== 0xFF) break;
+    const marker = buf[i + 1];
+    if (marker === 0xD9) break;
+    const segLen = buf.readUInt16BE(i + 2);
+    if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7)) {
+      return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+    }
+    i += 2 + segLen;
+  }
+  return null;
+}
+
+// Build RTF \pict blocks for every captured image. No native dependencies —
+// dimensions are read directly from PNG IHDR / JPEG SOF bytes. WMF/EMF and
+// anything that fails the magic-byte check are silently skipped.
+function buildImageRtfMap(
   imageCache: Map<string, { data: Buffer; contentType: string }>
-): Promise<Map<string, string>> {
+): Map<string, string> {
   const result = new Map<string, string>();
 
   for (const [key, { data }] of imageCache) {
     try {
-      const meta = await sharp(data).metadata();
-      const pngBuf = await sharp(data).png().toBuffer();
-      const hex = pngBuf.toString('hex');
-      // Chunk hex into 128-char lines for RTF readability
-      const chunkedHex = hex.replace(/.{1,128}/g, line => line + '\n');
+      let dims: { w: number; h: number } | null = null;
+      let picType: string;
 
-      const w = meta.width ?? 200;
-      const h = meta.height ?? 60;
-      const wTwips = Math.round(w * 15);
-      const hTwips = Math.round(h * 15);
+      // Verify by magic bytes, not just content-type (mammoth can misreport WMF as PNG)
+      if (data[0] === 0x89 && data[1] === 0x50) {
+        dims = pngDimensions(data);
+        picType = '\\pngblip';
+      } else if (data[0] === 0xFF && data[1] === 0xD8) {
+        dims = jpegDimensions(data);
+        picType = '\\jpegblip';
+      } else {
+        continue; // WMF/EMF/other — skip rather than embed garbled data
+      }
 
-      result.set(key, `{\\pict\\pngblip\\picw${w}\\pich${h}\\picwgoal${wTwips}\\pichgoal${hTwips}\n${chunkedHex}}`);
+      if (!dims) continue;
+
+      const hex = data.toString('hex').replace(/.{1,128}/g, l => l + '\n');
+      const { w, h } = dims;
+      result.set(key, `{\\pict${picType}\\picw${w}\\pich${h}\\picwgoal${Math.round(w * 15)}\\pichgoal${Math.round(h * 15)}\n${hex}}`);
     } catch (err) {
-      console.warn(`[ghostDraftGenerator] Image processing failed for ${key}:`, err);
+      console.warn(`[ghostDraftGenerator] Image skipped (${key}):`, err);
     }
   }
 
@@ -998,7 +1032,7 @@ router.post(
         }
       }
 
-      const imageRtfMap = await buildImageRtfMap(imageCache);
+      const imageRtfMap = buildImageRtfMap(imageCache);
       const substitutedHtml = applySubstitutionsToHtml(htmlResult.value, allDetected);
       const rtfContent = htmlToRtf(substitutedHtml, imageRtfMap);
 

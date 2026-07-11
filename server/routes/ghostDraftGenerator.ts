@@ -947,15 +947,17 @@ router.post(
       let imgIdx = 0;
 
       const [htmlResult, rawResult] = await Promise.all([
-        mammoth.convertToHtml({
-          buffer: docxFile.buffer,
-          convertImage: mammoth.images.imgElement(async (image: any) => {
-            const data = Buffer.from(await image.read());
-            const key = `__IMG${imgIdx++}__`;
-            imageCache.set(key, { data, contentType: image.contentType ?? 'image/png' });
-            return { src: key };
-          }),
-        } as any),
+        (mammoth.convertToHtml as any)(
+          { buffer: docxFile.buffer },
+          {
+            convertImage: mammoth.images.imgElement(async (image: any) => {
+              const data = Buffer.from(await image.read());
+              const key = `__IMG${imgIdx++}__`;
+              imageCache.set(key, { data, contentType: image.contentType ?? 'image/png' });
+              return { src: key };
+            }),
+          }
+        ),
         mammoth.extractRawText({ buffer: docxFile.buffer }),
       ]);
 

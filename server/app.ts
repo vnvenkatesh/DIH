@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 
 import authRouter from './routes/auth.js';
@@ -34,6 +34,13 @@ app.use('/v1/ghostdraft-generator', ghostDraftGeneratorRouter);
 
 app.get('/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Catch-all JSON error handler — ensures middleware errors (multer, etc.) never return HTML
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[server error]', err);
+  const status = (err as any).status ?? (err as any).statusCode ?? 500;
+  res.status(status).json({ error: err.message ?? 'Internal server error' });
 });
 
 export default app;

@@ -11,6 +11,7 @@ interface VariableMapEntry {
   sampleValue: string;
   detectionMethod: 'placeholder' | 'sampleValue';
   isDate: boolean;
+  gdMatched?: boolean;
 }
 
 interface GenerationResult {
@@ -22,6 +23,9 @@ interface GenerationResult {
 
 const DOMAIN_COLORS: Record<string, string> = {
   Claim:   'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  Company: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
+  Person:  'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  // fallbacks for derived names (no .gd reference)
   Contact: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
   Policy:  'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
   Support: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
@@ -123,6 +127,7 @@ const GhostDraftGenerator: React.FC = () => {
   const [docxFile, setDocxFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [xsdFile, setXsdFile] = useState<File | null>(null);
+  const [gdRefFile, setGdRefFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerationResult | null>(null);
@@ -140,6 +145,7 @@ const GhostDraftGenerator: React.FC = () => {
     form.append('docx', docxFile);
     form.append('csv', csvFile);
     form.append('xsd', xsdFile);
+    if (gdRefFile) form.append('gd', gdRefFile);
     form.append('provider', settings.llmProvider ?? 'gemini');
 
     try {
@@ -163,6 +169,7 @@ const GhostDraftGenerator: React.FC = () => {
     setDocxFile(null);
     setCsvFile(null);
     setXsdFile(null);
+    setGdRefFile(null);
     setResult(null);
     setError(null);
   };
@@ -190,7 +197,7 @@ const GhostDraftGenerator: React.FC = () => {
           </div>
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-white">Upload Files</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">All three files are required to generate the GhostDraft document</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">First three files are required · GhostDraft reference is optional but improves variable mapping accuracy</p>
           </div>
         </div>
 
@@ -232,7 +239,26 @@ const GhostDraftGenerator: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Optional GhostDraft reference */}
+        <div className="mt-3">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1">
+            <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.35A3.75 3.75 0 0113.5 19.5H10.5a3.75 3.75 0 01-2.652-1.099l-.348-.35z" />
+            </svg>
+            Optional — GhostDraft reference file (.gd) enables exact domain/node name and GUID matching
+          </p>
+          <UploadZone
+            label="GhostDraft Reference (.gd)"
+            description="Existing .gd file — used to derive correct Model Library mappings"
+            accept=".gd,.xml"
+            file={gdRefFile}
+            onFile={setGdRefFile}
+            color="amber"
+            icon={<GhostIcon className="w-5 h-5" />}
+          />
+        </div>
+
+        <div className="mt-5 flex items-center gap-3">
           <button
             onClick={handleGenerate}
             disabled={!allFilesReady || isLoading}
@@ -346,6 +372,7 @@ const GhostDraftGenerator: React.FC = () => {
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">XSD Path</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Sample Value</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Detection</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Source</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
@@ -382,6 +409,18 @@ const GhostDraftGenerator: React.FC = () => {
                         }`}>
                           {v.detectionMethod === 'placeholder' ? 'Placeholder' : 'Sample value'}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {v.gdMatched ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            .gd reference
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400 dark:text-slate-500">Derived</span>
+                        )}
                       </td>
                     </tr>
                   ))}

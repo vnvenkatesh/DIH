@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Response } from 'express';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { randomUUID } from 'crypto';
@@ -21,11 +21,28 @@ interface MappingRow {
   isDate: boolean;
 }
 
+interface GdInstruction {
+  id: number;
+  description: string;
+  rootNode: string;
+  rootguid: string;
+  nodeName: string;
+  nodeGuid: string;
+}
+
+interface ResolvedNode {
+  domain: string;
+  domainGuid: string;
+  nodeName: string;
+  nodeGuid: string;
+}
+
 interface DetectedVariable {
   fillPointId: number;
   row: MappingRow;
   searchText: string;
   detectionMethod: 'placeholder' | 'sampleValue';
+  resolved?: ResolvedNode;
 }
 
 // ─────────── CSV Parser ───────────
@@ -186,6 +203,8 @@ function escapeRtfText(text: string): string {
     if (ch === '\\') out += '\\\\';
     else if (ch === '{') out += '\\{';
     else if (ch === '}') out += '\\}';
+    else if (ch === '\n') out += '\\line\n';  // retain line breaks
+    else if (ch === '\r') out += '';           // skip lone CR
     else if (code > 127) out += `\\u${code}?`;
     else out += ch;
   }
@@ -303,6 +322,8 @@ function htmlToRtf(html: string): string {
         parts.push('{\\cf2\\ul ');
         break;
     }
+    // suppress unused warning
+    void inTable;
   }
 
   parts.push('}');
@@ -377,25 +398,34 @@ const ANNOTATION_STYLE_MAP = `      <annotationStyleMap libraryid="64d5b3c3-056a
 const EXPLANATION_RTF = `{\\rtf1 \\adeflang1025\\uc1\\deflang1033 {\\fonttbl{\\f0 Times New Roman;}{\\f1 Symbol;}{\\f2 Arial;}{\\f3 Calibri;}}\\f3\\fs22 }`;
 
 function buildGdXml(docName: string, rtfContent: string, variables: DetectedVariable[]): string {
-  // Assign GUIDs per unique domain and per unique (domain, fieldName) pair
+  // Collect unique domain GUIDs — prefer resolved (from .gd), else generate fresh
   const domainGuids = new Map<string, string>();
   const fieldGuids = new Map<string, string>();
 
   for (const v of variables) {
-    const { domain, fieldName } = v.row;
-    if (!domainGuids.has(domain)) domainGuids.set(domain, randomUUID());
-    const fk = `${domain}.${fieldName}`;
-    if (!fieldGuids.has(fk)) fieldGuids.set(fk, randomUUID());
+    const domain = v.resolved?.domain ?? v.row.domain;
+    const nodeName = v.resolved?.nodeName ?? v.row.fieldName;
+
+    if (!domainGuids.has(domain)) {
+      domainGuids.set(domain, v.resolved?.domainGuid ?? randomUUID());
+    }
+    const fk = `${domain}.${nodeName}`;
+    if (!fieldGuids.has(fk)) {
+      fieldGuids.set(fk, v.resolved?.nodeGuid ?? randomUUID());
+    }
   }
 
   const instructions = variables.map(v => {
-    const { domain, fieldName, isDate, xsdPath } = v.row;
+    const domain = v.resolved?.domain ?? v.row.domain;
+    const nodeName = v.resolved?.nodeName ?? v.row.fieldName;
     const domainGuid = domainGuids.get(domain)!;
-    const fieldGuid = fieldGuids.get(`${domain}.${fieldName}`)!;
+    const fieldGuid = fieldGuids.get(`${domain}.${nodeName}`)!;
+    const { isDate, xsdPath } = v.row;
     const leafElement = xsdPath.split('/').pop() ?? '';
+
     const description = isDate
       ? `DateToString([Policy.${domain.toLowerCase()}.${leafElement}],"mm/dd/yyyy")`
-      : `${fieldName} of ${domain}`;
+      : `${nodeName} of ${domain}`;
 
     return `          <instruction xsi:type="fillPointType" ID="${v.fillPointId}" descriptionSource="ParsedUserText">
             <description>${xmlEscape(description)}</description>
@@ -403,7 +433,7 @@ function buildGdXml(docName: string, rtfContent: string, variables: DetectedVari
               <rootNode>${xmlEscape(domain)}</rootNode>
               <rootguid>${domainGuid}</rootguid>
               <pathNodes>
-                <node name="${xmlEscape(fieldName)}" guid="${fieldGuid}" />
+                <node name="${xmlEscape(nodeName)}" guid="${fieldGuid}" />
               </pathNodes>
             </path>
             <adornmentPath conceptLibrary="" />
@@ -457,11 +487,169 @@ ${domainModels}
 </Content>`;
 }
 
-// ─────────── LLM Variable Detection ───────────
+// ─────────── GD Reference Parser ───────────
+
+function parseGdFile(gdText: string): GdInstruction[] {
+  const instructions: GdInstruction[] = [];
+
+  // Match each <instruction xsi:type="fillPointType" ID="N" ...>...</instruction> block
+  const instructionRegex = /<instruction\b[^>]*\bID="(\d+)"[^>]*>([\s\S]*?)<\/instruction>/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = instructionRegex.exec(gdText)) !== null) {
+    const id = parseInt(m[1], 10);
+    const block = m[2];
+
+    const descMatch = block.match(/<description>([\s\S]*?)<\/description>/);
+    const rootNodeMatch = block.match(/<rootNode>([\s\S]*?)<\/rootNode>/);
+    const rootguidMatch = block.match(/<rootguid>([\s\S]*?)<\/rootguid>/);
+    // Attribute order may vary — match name and guid independently
+    const nameAttrMatch = block.match(/<node\b[^>]*\bname="([^"]+)"/);
+    const guidAttrMatch = block.match(/<node\b[^>]*\bguid="([^"]+)"/);
+
+    if (!rootNodeMatch || !rootguidMatch || !nameAttrMatch || !guidAttrMatch) continue;
+
+    instructions.push({
+      id,
+      description: descMatch?.[1]?.trim() ?? '',
+      rootNode: rootNodeMatch[1].trim(),
+      rootguid: rootguidMatch[1].trim(),
+      nodeName: nameAttrMatch[1],
+      nodeGuid: guidAttrMatch[1],
+    });
+  }
+
+  return instructions;
+}
+
+// ─────────── GD Instruction Matching ───────────
+
+// Derive which GD domain a given XSD path segment likely belongs to
+function gdDomainHint(xsdPath: string): string | null {
+  const seg = (xsdPath.split('/').filter(Boolean)[1] ?? '').toLowerCase();
+  if (seg === 'contact') return 'Person';
+  if (seg === 'claim') return 'Claim';
+  if (seg === 'policy' || seg === 'support') return 'Company';
+  return null;
+}
+
+function heuristicMatch(row: MappingRow, instructions: GdInstruction[]): GdInstruction | null {
+  const parts = row.xsdPath.split('/').filter(Boolean);
+  const domainHint = gdDomainHint(row.xsdPath);
+
+  // Path segments after 'root' and the XSD-domain segment
+  const segments = parts.slice(2);
+
+  // Candidate node names: all suffixes of path segments, shortest (leaf) first
+  const candidates: string[] = [];
+  for (let i = segments.length - 1; i >= 0; i--) {
+    candidates.push(segments.slice(i).map(toPascalCase).join(''));
+  }
+
+  // Also try the cleaned-up field label as a candidate
+  const cleanedLabel = row.fieldLabel
+    .replace(/[<>\[\]{}()]/g, '')
+    .trim()
+    .split(/\s+/)
+    .map(toPascalCase)
+    .join('');
+  if (cleanedLabel && !candidates.includes(cleanedLabel)) candidates.push(cleanedLabel);
+
+  const domainFiltered = domainHint ? instructions.filter(i => i.rootNode === domainHint) : [];
+
+  for (const candidate of candidates) {
+    const lc = candidate.toLowerCase();
+    // Domain-filtered first (more specific)
+    const inDomain = domainFiltered.find(i => i.nodeName.toLowerCase() === lc);
+    if (inDomain) return inDomain;
+    // Global fallback
+    const global = instructions.find(i => i.nodeName.toLowerCase() === lc);
+    if (global) return global;
+  }
+
+  return null;
+}
+
+// ─────────── LLM Core ───────────
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CLAUDE_API  = 'https://api.anthropic.com/v1/messages';
 const OPENAI_API  = 'https://api.openai.com/v1/chat/completions';
+
+async function callLLMRaw(
+  provider: string,
+  userId: number,
+  prompt: string
+): Promise<string> {
+  if (provider === 'gemini') {
+    const { rows } = await pool.query('SELECT gemini_api_key FROM users WHERE id=$1', [userId]);
+    const apiKey = rows[0]?.gemini_api_key || process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) throw new Error('Gemini API key not configured');
+
+    const url = `${GEMINI_BASE}/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+      }),
+    });
+    const data = await res.json() as any;
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  }
+
+  if (provider === 'claude') {
+    const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [userId]);
+    const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('Claude API key not configured');
+
+    const res = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await res.json() as any;
+    return data?.content?.[0]?.text ?? '';
+  }
+
+  if (provider === 'openai') {
+    const { rows } = await pool.query('SELECT openai_api_key FROM users WHERE id=$1', [userId]);
+    const apiKey = rows[0]?.openai_api_key || process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OpenAI API key not configured');
+
+    const res = await fetch(OPENAI_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        temperature: 0,
+        messages: [
+          { role: 'system', content: 'Return only valid JSON when asked to analyze document fields.' },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+    const data = await res.json() as any;
+    return data?.choices?.[0]?.message?.content ?? '';
+  }
+
+  throw new Error(`Unknown provider: ${provider}`);
+}
+
+// ─────────── LLM Variable Detection ───────────
 
 function buildDetectionPrompt(docText: string, rows: MappingRow[]): string {
   const truncated = docText.length > 5000 ? docText.slice(0, 5000) + '\n...[truncated]' : docText;
@@ -498,7 +686,6 @@ function parseLLMResponse(raw: string): LLMVariableResult[] {
     if (!Array.isArray(arr)) return [];
     return arr.filter((v: any) => typeof v.fieldLabel === 'string');
   } catch {
-    // Try extracting JSON object from raw text
     const match = raw.match(/\{[\s\S]*\}/);
     if (match) {
       try {
@@ -515,76 +702,8 @@ async function callLLMForDetection(
   userId: number,
   prompt: string
 ): Promise<LLMVariableResult[]> {
-  if (provider === 'gemini') {
-    const { rows } = await pool.query('SELECT gemini_api_key FROM users WHERE id=$1', [userId]);
-    const apiKey = rows[0]?.gemini_api_key || process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!apiKey) throw new Error('Gemini API key not configured');
-
-    const model = 'gemini-2.5-flash';
-    const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
-      }),
-    });
-    const data = await res.json() as any;
-    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    return parseLLMResponse(text);
-  }
-
-  if (provider === 'claude') {
-    const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [userId]);
-    const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('Claude API key not configured');
-
-    const res = await fetch(CLAUDE_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const data = await res.json() as any;
-    const text: string = data?.content?.[0]?.text ?? '';
-    return parseLLMResponse(text);
-  }
-
-  if (provider === 'openai') {
-    const { rows } = await pool.query('SELECT openai_api_key FROM users WHERE id=$1', [userId]);
-    const apiKey = rows[0]?.openai_api_key || process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OpenAI API key not configured');
-
-    const res = await fetch(OPENAI_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        temperature: 0,
-        messages: [
-          { role: 'system', content: 'You return only valid JSON when asked to analyze document templates.' },
-          { role: 'user', content: prompt },
-        ],
-      }),
-    });
-    const data = await res.json() as any;
-    const text: string = data?.choices?.[0]?.message?.content ?? '';
-    return parseLLMResponse(text);
-  }
-
-  throw new Error(`Unknown provider: ${provider}`);
+  const raw = await callLLMRaw(provider, userId, prompt);
+  return parseLLMResponse(raw);
 }
 
 function mergeDetections(
@@ -597,7 +716,7 @@ function mergeDetections(
   const extra: DetectedVariable[] = [];
 
   for (const llm of llmResults) {
-    if (matchedLabels.has(llm.fieldLabel)) continue; // already found by string matching
+    if (matchedLabels.has(llm.fieldLabel)) continue;
     if (!llm.foundText) continue;
 
     const row = allRows.find(r => r.fieldLabel === llm.fieldLabel);
@@ -607,11 +726,127 @@ function mergeDetections(
       fillPointId: nextId++,
       row,
       searchText: llm.foundText,
-      detectionMethod: 'sampleValue', // LLM found it via value
+      detectionMethod: 'sampleValue',
     });
   }
 
   return extra;
+}
+
+// ─────────── LLM Instruction Matching ───────────
+
+interface InstructionMatchResult { fieldLabel: string; instructionId: number }
+
+function parseInstructionMatchResponse(raw: string): InstructionMatchResult[] {
+  try {
+    const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const parsed = JSON.parse(clean);
+    const arr: any[] = parsed.matches ?? parsed;
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(x => typeof x.fieldLabel === 'string' && typeof x.instructionId === 'number');
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const p = JSON.parse(match[0]);
+        return Array.isArray(p.matches)
+          ? p.matches.filter((x: any) => typeof x.fieldLabel === 'string' && typeof x.instructionId === 'number')
+          : [];
+      } catch { return []; }
+    }
+    return [];
+  }
+}
+
+async function llmMatchInstructions(
+  rows: MappingRow[],
+  instructions: GdInstruction[],
+  provider: string,
+  userId: number
+): Promise<Map<string, GdInstruction>> {
+  const instrList = instructions.map(i =>
+    `ID=${i.id}, rootNode="${i.rootNode}", nodeName="${i.nodeName}"`
+  ).join('\n');
+
+  const fieldList = rows.map(r =>
+    `fieldLabel="${r.fieldLabel}", xsdPath="${r.xsdPath}", sampleValue="${r.sampleValue}"`
+  ).join('\n');
+
+  const prompt = `Match each data field to the best GhostDraft Model Library instruction by semantic similarity.
+
+Fields:
+${fieldList}
+
+Instructions:
+${instrList}
+
+Rules:
+- Match based on what the field conceptually represents, considering the XSD path segments and the instruction nodeName.
+- Example: xsdPath="/root/claim/adjudicator/name", fieldLabel="<claim adjustor name>" → best match is the instruction with nodeName "ClaimAdjudicator" (the adjudicator of the claim).
+- Do NOT match date fields to non-date instructions or vice versa.
+
+Return ONLY valid JSON: {"matches":[{"fieldLabel":"<exact label>","instructionId":<number>},...]}
+Omit fields that have no good match.`;
+
+  const raw = await callLLMRaw(provider, userId, prompt);
+  const results = parseInstructionMatchResponse(raw);
+
+  const idMap = new Map(instructions.map(i => [i.id, i]));
+  const out = new Map<string, GdInstruction>();
+  for (const r of results) {
+    const instr = idMap.get(r.instructionId);
+    if (instr) out.set(r.fieldLabel, instr);
+  }
+  return out;
+}
+
+async function assignResolvedNodes(
+  detected: DetectedVariable[],
+  instructions: GdInstruction[],
+  provider: string,
+  userId: number
+): Promise<void> {
+  if (instructions.length === 0) return;
+
+  const unmatched: DetectedVariable[] = [];
+
+  for (const v of detected) {
+    const instr = heuristicMatch(v.row, instructions);
+    if (instr) {
+      v.resolved = {
+        domain: instr.rootNode,
+        domainGuid: instr.rootguid,
+        nodeName: instr.nodeName,
+        nodeGuid: instr.nodeGuid,
+      };
+    } else {
+      unmatched.push(v);
+    }
+  }
+
+  if (unmatched.length > 0) {
+    try {
+      const llmMap = await llmMatchInstructions(
+        unmatched.map(v => v.row),
+        instructions,
+        provider,
+        userId
+      );
+      for (const v of unmatched) {
+        const instr = llmMap.get(v.row.fieldLabel);
+        if (instr) {
+          v.resolved = {
+            domain: instr.rootNode,
+            domainGuid: instr.rootguid,
+            nodeName: instr.nodeName,
+            nodeGuid: instr.nodeGuid,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('[ghostDraftGenerator] LLM instruction matching failed:', err);
+    }
+  }
 }
 
 // ─────────── Route Handler ───────────
@@ -620,15 +855,17 @@ router.post(
   '/',
   upload.fields([
     { name: 'docx', maxCount: 1 },
-    { name: 'csv', maxCount: 1 },
-    { name: 'xsd', maxCount: 1 },
+    { name: 'csv',  maxCount: 1 },
+    { name: 'xsd',  maxCount: 1 },
+    { name: 'gd',   maxCount: 1 }, // optional .gd reference
   ]),
   async (req: AuthRequest, res: Response) => {
     try {
       const files = req.files as Record<string, Express.Multer.File[]>;
       const docxFile = files?.docx?.[0];
-      const csvFile = files?.csv?.[0];
-      const xsdFile = files?.xsd?.[0];
+      const csvFile  = files?.csv?.[0];
+      const xsdFile  = files?.xsd?.[0];
+      const gdRefFile = files?.gd?.[0]; // optional
 
       if (!docxFile || !csvFile || !xsdFile) {
         return res.status(400).json({ error: 'Missing required files: docx, csv, xsd' });
@@ -652,10 +889,10 @@ router.post(
         mammoth.extractRawText({ buffer: docxFile.buffer }),
       ]);
 
-      // Step 1: fast string matching (free, instant)
+      // Stage 1: fast string matching
       const { detected: stringDetected, skipped: stringSkipped } = detectVariables(rawResult.value, rows);
 
-      // Step 2: LLM for any fields still undetected
+      // Stage 2: LLM for any fields still undetected
       let allDetected = stringDetected;
       let skipped = stringSkipped;
 
@@ -672,8 +909,20 @@ router.post(
           const llmFoundLabels = new Set(llmDetected.map(v => v.row.fieldLabel));
           skipped = skipped.filter(label => !llmFoundLabels.has(label));
         } catch (llmErr) {
-          // LLM failed — continue with string-match results only
           console.warn('[ghostDraftGenerator] LLM detection failed:', llmErr);
+        }
+      }
+
+      // Stage 3: resolve GhostDraft instructions from .gd reference (heuristic + LLM fallback)
+      if (gdRefFile) {
+        try {
+          const gdText = gdRefFile.buffer.toString('utf-8');
+          const gdInstructions = parseGdFile(gdText);
+          if (gdInstructions.length > 0) {
+            await assignResolvedNodes(allDetected, gdInstructions, provider, userId);
+          }
+        } catch (gdErr) {
+          console.warn('[ghostDraftGenerator] .gd reference parsing failed:', gdErr);
         }
       }
 
@@ -687,12 +936,13 @@ router.post(
       const variableMap = allDetected.map(v => ({
         fillPointId: v.fillPointId,
         fieldLabel: v.row.fieldLabel,
-        domain: v.row.domain,
-        fieldName: v.row.fieldName,
+        domain: v.resolved?.domain ?? v.row.domain,
+        fieldName: v.resolved?.nodeName ?? v.row.fieldName,
         xsdPath: v.row.xsdPath,
         sampleValue: v.row.sampleValue,
         detectionMethod: v.detectionMethod,
         isDate: v.row.isDate,
+        gdMatched: !!v.resolved,
       }));
 
       return res.json({ gdContent, sampleXml, variableMap, skipped });

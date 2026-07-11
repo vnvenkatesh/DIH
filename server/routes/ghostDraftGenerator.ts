@@ -534,14 +534,22 @@ function resolveNamedTypes(node: XsdNode, namedTypes: Map<string, string>): void
   for (const child of node.children) resolveNamedTypes(child, namedTypes);
 }
 
-// Type-appropriate placeholder for required fields not covered by the CSV
-function xsdLeafDefault(type: string | null): string {
+// Type-appropriate placeholder for required fields not covered by the CSV.
+// elementName is used as a last-resort heuristic when the XSD type is unresolvable.
+function xsdLeafDefault(type: string | null, elementName = ''): string {
   const t = (type ?? '').replace(/^(xs:|xsd:)/, '').toLowerCase();
-  if (t === 'date') return new Date().toISOString().slice(0, 10);        // YYYY-MM-DD
-  if (t === 'datetime') return new Date().toISOString().slice(0, 19);    // YYYY-MM-DDTHH:MM:SS
+  if (t === 'date') return new Date().toISOString().slice(0, 10);     // YYYY-MM-DD
+  if (t === 'datetime') return new Date().toISOString().slice(0, 19); // YYYY-MM-DDTHH:MM:SS
   if (t === 'decimal' || t === 'float' || t === 'double' ||
       t === 'integer' || t === 'int' || t === 'long' || t === 'nonnegativeinteger') return '0';
   if (t === 'boolean') return 'false';
+
+  // Type still unknown — fall back on element name patterns
+  const n = elementName.toLowerCase().replace(/-/g, '');
+  if (/amount|limit|deductible|premium|balance|cost|fee|price|total|rate|sum/.test(n)) return '0';
+  if (/days|remaining|count|num|qty|quantity|age|years|months|weeks/.test(n)) return '0';
+  if (/date/.test(n)) return new Date().toISOString().slice(0, 10);
+
   return '';
 }
 
@@ -559,11 +567,13 @@ function buildSampleXml(rows: MappingRow[], xsdText: string): string {
     const { name, path, type, minOccurs, children } = node;
 
     if (children.length === 0) {
-      // Leaf element
+      // Leaf element.
+      // Use the CSV sample value only if it is non-empty — an empty string in the
+      // CSV means "no sample provided" and should fall through to the type default.
       const value = sampleMap.get(path);
-      if (value !== undefined) return `${indent}<${name}>${xmlEscape(value)}</${name}>`;
+      if (value) return `${indent}<${name}>${xmlEscape(value)}</${name}>`;
       if (minOccurs === 0) return '';  // optional with no sample → omit
-      return `${indent}<${name}>${xmlEscape(xsdLeafDefault(type))}</${name}>`;
+      return `${indent}<${name}>${xmlEscape(xsdLeafDefault(type, name))}</${name}>`;
     }
 
     // Complex element: render children in XSD document order

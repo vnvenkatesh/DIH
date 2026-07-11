@@ -25,6 +25,7 @@ import BusinessRulesExtractor from './components/BusinessRulesExtractor';
 import { ClipboardRulesIcon } from './components/icons/ClipboardRulesIcon';
 import TestCaseGenerator from './components/TestCaseGenerator';
 import TestCaseIcon from './components/icons/TestCaseIcon';
+import GhostDraftGenerator from './components/GhostDraftGenerator';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
 import HelpPage from './components/HelpPage';
@@ -32,7 +33,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'settings' | 'help';
+type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -57,7 +58,7 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
 const ACCELERATOR_TOOLS: Tool[] = [
   'rationalizer', 'pdfCompare', 'dataMappingGenerator',
   'xpathExtractor', 'syntheticDataGenerator', 'layoutRecommendation', 'accessibilityScorer',
-  'businessRulesExtractor', 'testCaseGenerator',
+  'businessRulesExtractor', 'testCaseGenerator', 'ghostDraftGenerator',
 ];
 
 const App: React.FC = () => {
@@ -111,6 +112,16 @@ const App: React.FC = () => {
     { tool: 'testCaseGenerator', label: 'Test Case Generator', description: 'Generate test suite from rules CSV', icon: <TestCaseIcon className="w-5 h-5" /> },
     { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
     { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
+    {
+      tool: 'ghostDraftGenerator',
+      label: 'GhostDraft Generator',
+      description: 'Generate .gd document + sample XML',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C8.13 2 5 5.13 5 9v8l2-2 2 2 2-2 2 2 2-2 2 2V9c0-3.87-3.13-7-7-7z" />
+        </svg>
+      ),
+    },
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
     { tool: 'accessibilityScorer', label: 'Accessibility Check', description: 'Score PDF accessibility compliance', icon: <AccessibilityIcon className="w-5 h-5" /> },
     { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
@@ -261,6 +272,9 @@ const App: React.FC = () => {
           </div>
           <div className={activeTool === 'testCaseGenerator' ? '' : 'hidden'}>
             <TestCaseGenerator />
+          </div>
+          <div className={activeTool === 'ghostDraftGenerator' ? '' : 'hidden'}>
+            <GhostDraftGenerator />
           </div>
           <div className={activeTool === 'apiDocs' ? '' : 'hidden'}>
             <ApiDocs />

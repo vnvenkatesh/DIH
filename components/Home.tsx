@@ -122,6 +122,22 @@ const accelerators = [
     benefit: 'Cut QA authoring effort by 60–70% on typical implementations',
     accent: { bg: 'bg-lime-50 dark:bg-lime-900/20', icon: 'bg-lime-100 dark:bg-lime-800/60 text-lime-600 dark:text-lime-300', border: 'border-lime-100 dark:border-lime-800/50', tag: 'bg-lime-100 dark:bg-lime-900/40 text-lime-700 dark:text-lime-300' },
   },
+  {
+    id: 'ghostDraftGenerator',
+    Icon: ({ className }: { className?: string }) => (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C8.13 2 5 5.13 5 9v8l2-2 2 2 2-2 2 2 2-2 2 2V9c0-3.87-3.13-7-7-7z" />
+        <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+    name: 'GhostDraft Generator',
+    tagline: 'Word doc to .gd in one click',
+    description:
+      'Upload a Word document, XPath mapping CSV (from XPath Extractor), and XSD schema to generate a GhostDraft Native (.gd) document with embedded fill point bindings plus a pre-populated sample XML ready for immediate testing in GhostDraft Studio.',
+    benefit: 'Eliminates hours of manual variable tagging and Model Library wiring',
+    accent: { bg: 'bg-indigo-50 dark:bg-indigo-900/20', icon: 'bg-indigo-100 dark:bg-indigo-800/60 text-indigo-600 dark:text-indigo-300', border: 'border-indigo-100 dark:border-indigo-800/50', tag: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
+  },
 ];
 
 const securityPoints = [
@@ -269,6 +285,10 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               label: 'Requirements → Test Coverage',
             },
             {
+              steps: ['Data Mapping Generator', '→', 'XPath Extractor', '→', 'GhostDraft Generator'],
+              label: 'Field Mapping → GhostDraft Document',
+            },
+            {
               steps: ['Data Mapping Generator', '→', 'XPath Extractor'],
               label: 'Schema Mapping Pipeline',
             },
@@ -328,7 +348,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Synthetic Data Generation', 'Test Case Generator'], detail: 'Derive a complete test suite from extracted business rules (happy path, mandatory, boundary, conditional, format, calculation). Then feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles, each tagged with the test case IDs it covers, without touching real client PII.' },
+              { phase: 'Build & Test', tools: ['Synthetic Data Generation', 'Test Case Generator', 'GhostDraft Generator'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Generator to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },
               { phase: 'QA & Review', tools: ['PDF AI Compare', 'PDF Visual Compare'], detail: 'Validate every document version change between iterations. Use Visual Compare for a fast, AI-free structural and pixel diff; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },

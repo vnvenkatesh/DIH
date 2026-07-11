@@ -183,7 +183,81 @@ function applySubstitutionsToHtml(html: string, variables: DetectedVariable[]): 
   return result;
 }
 
+// ─────────── HTML Preprocessing ───────────
+
+function preprocessHtml(html: string): string {
+  // Ensure empty paragraphs produce visible blank lines in RTF.
+  // GhostDraft collapses paragraphs with no content, so inject a
+  // non-breaking space (&#160;) so the paragraph has renderable content.
+  return html
+    .replace(/<p>\s*<\/p>/g, '<p>&#160;</p>')
+    .replace(/<p>\s*<br\s*\/?>\s*<\/p>/g, '<p>&#160;</p>');
+}
+
 // ─────────── HTML → RTF ───────────
+
+// Embed a base64 image (from mammoth's HTML output) as an RTF \pict block.
+function imageToRtf(tagContent: string): string {
+  const srcMatch = tagContent.match(/src="([^"]+)"/);
+  if (!srcMatch) return '';
+
+  const src = srcMatch[1];
+  if (!src.startsWith('data:')) return '';
+
+  const semiIdx = src.indexOf(';');
+  const commaIdx = src.indexOf(',');
+  if (semiIdx < 0 || commaIdx < 0 || src.slice(semiIdx + 1, commaIdx) !== 'base64') return '';
+
+  const mimeType = src.slice(5, semiIdx);
+  let picType: string;
+  if (mimeType === 'image/png') picType = '\\pngblip';
+  else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') picType = '\\jpegblip';
+  else return ''; // unsupported type
+
+  const binary = Buffer.from(src.slice(commaIdx + 1), 'base64');
+  const hexData = binary.toString('hex');
+
+  let width = 0, height = 0;
+
+  if (mimeType === 'image/png' && binary.length >= 24) {
+    // PNG IHDR: 8-byte signature + 4-byte length + 4-byte 'IHDR' + width (4) + height (4)
+    width = binary.readUInt32BE(16);
+    height = binary.readUInt32BE(20);
+  } else if (binary.length > 10) {
+    // JPEG: scan for SOF0/SOF1/SOF2 marker (FF C0–C3, C5–C7)
+    let i = 2; // skip SOI marker (FF D8)
+    while (i + 3 < binary.length && i < 65536) {
+      if (binary[i] !== 0xFF) break;
+      const marker = binary[i + 1];
+      if (marker === 0xD9) break; // EOI
+      const segLen = binary.readUInt16BE(i + 2);
+      if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7)) {
+        height = binary.readUInt16BE(i + 5);
+        width = binary.readUInt16BE(i + 7);
+        break;
+      }
+      i += 2 + segLen;
+    }
+  }
+
+  // Fallback: try style attribute (mammoth may include pt dimensions)
+  if (width === 0) {
+    const styleMatch = tagContent.match(/style="([^"]+)"/);
+    if (styleMatch) {
+      const wm = styleMatch[1].match(/width:\s*([\d.]+)pt/);
+      const hm = styleMatch[1].match(/height:\s*([\d.]+)pt/);
+      if (wm) width = Math.round(parseFloat(wm[1]) * 96 / 72);
+      if (hm) height = Math.round(parseFloat(hm[1]) * 96 / 72);
+    }
+    if (width === 0) { width = 200; height = 60; }
+  }
+
+  // Dimensions: px → twips (96 dpi = 1440 twips/inch → 15 twips/px)
+  const wTwips = width * 15;
+  const hTwips = height * 15;
+
+  return `{\\pict${picType}\\picw${width}\\pich${height}\\picwgoal${wTwips}\\pichgoal${hTwips}\n${hexData}\n}`;
+}
 
 function decodeHtmlEntities(text: string): string {
   return text
@@ -261,8 +335,17 @@ function htmlToRtf(html: string): string {
 
     const { tagName, isClosing, isSelfClosing } = parseTag(tok.content);
 
-    if (isSelfClosing || tagName === 'br') {
+    if (tagName === 'br') {
       parts.push('\\line\n');
+      continue;
+    }
+
+    if (isSelfClosing) {
+      if (tagName === 'img') {
+        const rtfImg = imageToRtf(tok.content);
+        if (rtfImg) parts.push(rtfImg);
+      }
+      // other self-closing tags (hr, input, meta…) are ignored
       continue;
     }
 
@@ -926,7 +1009,7 @@ router.post(
         }
       }
 
-      const substitutedHtml = applySubstitutionsToHtml(htmlResult.value, allDetected);
+      const substitutedHtml = applySubstitutionsToHtml(preprocessHtml(htmlResult.value), allDetected);
       const rtfContent = htmlToRtf(substitutedHtml);
 
       const docName = docxFile.originalname.replace(/\.docx$/i, '');

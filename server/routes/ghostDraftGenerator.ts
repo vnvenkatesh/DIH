@@ -452,6 +452,9 @@ function parseXsdTree(xsdText: string): XsdNode | null {
 
   const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9_:.-]*)([^>]*?)(\/?)>/g;
   const stack: Array<{ node: XsdNode; isComplex: boolean }> = [];
+  // Named top-level xs:simpleType definitions: name → base type
+  const namedTypes = new Map<string, string>();
+  let currentNamedType: string | null = null;
   let root: XsdNode | null = null;
 
   let m: RegExpExecArray | null;
@@ -459,14 +462,39 @@ function parseXsdTree(xsdText: string): XsdNode | null {
     const [, closingSlash, tag, attrsStr, selfClosingSlash] = m;
     const isClosing = closingSlash === '/';
     const isSelfClosing = selfClosingSlash === '/';
-    const isXsEl = /^(xs:|xsd:)?element$/i.test(tag);
+    const localTag = tag.replace(/^(xs:|xsd:)/i, '').toLowerCase();
+
+    // Track top-level xs:simpleType name scope (for resolving type="MyType" references)
+    if (localTag === 'simpletype') {
+      if (!isClosing) {
+        const nm = attrsStr.match(/\bname=["']([^"']+)["']/);
+        currentNamedType = nm?.[1] ?? null;
+      } else {
+        currentNamedType = null;
+      }
+    }
+
+    // Capture the effective base type from xs:restriction / xs:extension.
+    // This handles elements whose type is declared inline via xs:simpleType rather
+    // than via a type="xs:..." attribute on the xs:element tag.
+    if ((localTag === 'restriction' || localTag === 'extension') && !isClosing) {
+      const baseM = attrsStr.match(/\bbase=["']([^"']+)["']/);
+      if (baseM) {
+        if (currentNamedType) {
+          // Inside a top-level xs:simpleType definition → register for later resolution
+          namedTypes.set(currentNamedType, baseM[1]);
+        } else if (stack.length > 0 && !stack[stack.length - 1].node.type) {
+          // Inside an xs:element body → assign type directly to that element
+          stack[stack.length - 1].node.type = baseM[1];
+        }
+      }
+    }
 
     if (isClosing) {
-      // Pop the matching non-self-closing xs:element from the stack
-      if (isXsEl && stack.length > 0 && stack[stack.length - 1].isComplex) {
+      if (localTag === 'element' && stack.length > 0 && stack[stack.length - 1].isComplex) {
         stack.pop();
       }
-    } else if (isXsEl) {
+    } else if (localTag === 'element') {
       const nameM = attrsStr.match(/\bname=["']([^"']+)["']/);
       if (nameM) {
         const attrs: Record<string, string> = {};
@@ -487,12 +515,23 @@ function parseXsdTree(xsdText: string): XsdNode | null {
         else stack[stack.length - 1].node.children.push(node);
 
         stack.push({ node, isComplex: !isSelfClosing });
-        if (isSelfClosing) stack.pop(); // immediately pop self-closing
+        if (isSelfClosing) stack.pop();
       }
     }
   }
 
+  // Resolve type="MyType" references to their xs: base type
+  if (root) resolveNamedTypes(root, namedTypes);
+
   return root;
+}
+
+function resolveNamedTypes(node: XsdNode, namedTypes: Map<string, string>): void {
+  if (node.type && !/^(xs:|xsd:)/i.test(node.type)) {
+    const resolved = namedTypes.get(node.type);
+    if (resolved) node.type = resolved;
+  }
+  for (const child of node.children) resolveNamedTypes(child, namedTypes);
 }
 
 // Type-appropriate placeholder for required fields not covered by the CSV

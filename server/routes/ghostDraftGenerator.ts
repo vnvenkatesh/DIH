@@ -1,6 +1,7 @@
 import express, { Response } from 'express';
 import multer from 'multer';
 import mammoth from 'mammoth';
+import sharp from 'sharp';
 import { randomUUID } from 'crypto';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
 import pool from '../db.js';
@@ -183,80 +184,34 @@ function applySubstitutionsToHtml(html: string, variables: DetectedVariable[]): 
   return result;
 }
 
-// ─────────── HTML Preprocessing ───────────
-
-function preprocessHtml(html: string): string {
-  // Ensure empty paragraphs produce visible blank lines in RTF.
-  // GhostDraft collapses paragraphs with no content, so inject a
-  // non-breaking space (&#160;) so the paragraph has renderable content.
-  return html
-    .replace(/<p>\s*<\/p>/g, '<p>&#160;</p>')
-    .replace(/<p>\s*<br\s*\/?>\s*<\/p>/g, '<p>&#160;</p>');
-}
-
 // ─────────── HTML → RTF ───────────
 
-// Embed a base64 image (from mammoth's HTML output) as an RTF \pict block.
-function imageToRtf(tagContent: string): string {
-  const srcMatch = tagContent.match(/src="([^"]+)"/);
-  if (!srcMatch) return '';
+// Use sharp to convert every captured DOCX image to clean PNG and build RTF \pict blocks.
+async function buildImageRtfMap(
+  imageCache: Map<string, { data: Buffer; contentType: string }>
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
 
-  const src = srcMatch[1];
-  if (!src.startsWith('data:')) return '';
+  for (const [key, { data }] of imageCache) {
+    try {
+      const meta = await sharp(data).metadata();
+      const pngBuf = await sharp(data).png().toBuffer();
+      const hex = pngBuf.toString('hex');
+      // Chunk hex into 128-char lines for RTF readability
+      const chunkedHex = hex.replace(/.{1,128}/g, line => line + '\n');
 
-  const semiIdx = src.indexOf(';');
-  const commaIdx = src.indexOf(',');
-  if (semiIdx < 0 || commaIdx < 0 || src.slice(semiIdx + 1, commaIdx) !== 'base64') return '';
+      const w = meta.width ?? 200;
+      const h = meta.height ?? 60;
+      const wTwips = Math.round(w * 15);
+      const hTwips = Math.round(h * 15);
 
-  const mimeType = src.slice(5, semiIdx);
-  let picType: string;
-  if (mimeType === 'image/png') picType = '\\pngblip';
-  else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') picType = '\\jpegblip';
-  else return ''; // unsupported type
-
-  const binary = Buffer.from(src.slice(commaIdx + 1), 'base64');
-  const hexData = binary.toString('hex');
-
-  let width = 0, height = 0;
-
-  if (mimeType === 'image/png' && binary.length >= 24) {
-    // PNG IHDR: 8-byte signature + 4-byte length + 4-byte 'IHDR' + width (4) + height (4)
-    width = binary.readUInt32BE(16);
-    height = binary.readUInt32BE(20);
-  } else if (binary.length > 10) {
-    // JPEG: scan for SOF0/SOF1/SOF2 marker (FF C0–C3, C5–C7)
-    let i = 2; // skip SOI marker (FF D8)
-    while (i + 3 < binary.length && i < 65536) {
-      if (binary[i] !== 0xFF) break;
-      const marker = binary[i + 1];
-      if (marker === 0xD9) break; // EOI
-      const segLen = binary.readUInt16BE(i + 2);
-      if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7)) {
-        height = binary.readUInt16BE(i + 5);
-        width = binary.readUInt16BE(i + 7);
-        break;
-      }
-      i += 2 + segLen;
+      result.set(key, `{\\pict\\pngblip\\picw${w}\\pich${h}\\picwgoal${wTwips}\\pichgoal${hTwips}\n${chunkedHex}}`);
+    } catch (err) {
+      console.warn(`[ghostDraftGenerator] Image processing failed for ${key}:`, err);
     }
   }
 
-  // Fallback: try style attribute (mammoth may include pt dimensions)
-  if (width === 0) {
-    const styleMatch = tagContent.match(/style="([^"]+)"/);
-    if (styleMatch) {
-      const wm = styleMatch[1].match(/width:\s*([\d.]+)pt/);
-      const hm = styleMatch[1].match(/height:\s*([\d.]+)pt/);
-      if (wm) width = Math.round(parseFloat(wm[1]) * 96 / 72);
-      if (hm) height = Math.round(parseFloat(hm[1]) * 96 / 72);
-    }
-    if (width === 0) { width = 200; height = 60; }
-  }
-
-  // Dimensions: px → twips (96 dpi = 1440 twips/inch → 15 twips/px)
-  const wTwips = width * 15;
-  const hTwips = height * 15;
-
-  return `{\\pict${picType}\\picw${width}\\pich${height}\\picwgoal${wTwips}\\pichgoal${hTwips}\n${hexData}\n}`;
+  return result;
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -311,7 +266,7 @@ function parseTag(tagStr: string): { tagName: string; isClosing: boolean; isSelf
   return { tagName, isClosing, isSelfClosing };
 }
 
-function htmlToRtf(html: string): string {
+function htmlToRtf(html: string, imageRtfMap: Map<string, string> = new Map()): string {
   const tokens = tokenizeHtml(html);
   const parts: string[] = [];
 
@@ -325,11 +280,16 @@ function htmlToRtf(html: string): string {
 
   let inTable = false;
   let cellCount = 0;
+  // Tracks whether the current block element has any visible content.
+  // If false at closing tag, emit \~ so GhostDraft renders a visible blank line.
+  let parHasContent = true;
 
   for (const tok of tokens) {
     if (tok.type === 'text') {
       const text = decodeHtmlEntities(tok.content);
-      parts.push(escapeRtfText(text));
+      const escaped = escapeRtfText(text);
+      parts.push(escaped);
+      if (escaped.trim().length > 0) parHasContent = true;
       continue;
     }
 
@@ -337,13 +297,19 @@ function htmlToRtf(html: string): string {
 
     if (tagName === 'br') {
       parts.push('\\line\n');
+      parHasContent = true;
       continue;
     }
 
     if (isSelfClosing) {
       if (tagName === 'img') {
-        const rtfImg = imageToRtf(tok.content);
-        if (rtfImg) parts.push(rtfImg);
+        const srcMatch = tok.content.match(/src="([^"]+)"/);
+        const key = srcMatch?.[1] ?? '';
+        const rtfImg = imageRtfMap.get(key);
+        if (rtfImg) {
+          parts.push(rtfImg);
+          parHasContent = true;
+        }
       }
       // other self-closing tags (hr, input, meta…) are ignored
       continue;
@@ -353,12 +319,16 @@ function htmlToRtf(html: string): string {
       switch (tagName) {
         case 'p': case 'div': case 'h1': case 'h2': case 'h3':
         case 'h4': case 'h5': case 'h6':
+          if (!parHasContent) parts.push('\\~');
           parts.push('\\par\n');
           break;
         case 'strong': case 'b': parts.push('\\b0 '); break;
         case 'em': case 'i': parts.push('\\i0 '); break;
         case 'u': parts.push('\\ulnone '); break;
-        case 'li': parts.push('\\par\n'); break;
+        case 'li':
+          if (!parHasContent) parts.push('\\~');
+          parts.push('\\par\n');
+          break;
         case 'a': parts.push('\\cf0\\ulnone }'); break;
         case 'td': case 'th':
           parts.push(cellCount < 4 ? '\\tab ' : '\\par\n');
@@ -379,20 +349,27 @@ function htmlToRtf(html: string): string {
     switch (tagName) {
       case 'p': case 'div':
         parts.push('\\pard\\plain\\f3\\fs22 ');
+        parHasContent = false;
         break;
       case 'h1': case 'h2':
         parts.push('\\pard\\plain\\f3\\fs28\\b ');
+        parHasContent = false;
         break;
       case 'h3': case 'h4':
         parts.push('\\pard\\plain\\f3\\fs24\\b ');
+        parHasContent = false;
         break;
       case 'h5': case 'h6':
         parts.push('\\pard\\plain\\f3\\fs22\\b ');
+        parHasContent = false;
         break;
       case 'strong': case 'b': parts.push('\\b '); break;
       case 'em': case 'i': parts.push('\\i '); break;
       case 'u': parts.push('\\ul '); break;
-      case 'li': parts.push('\\pard\\plain\\f3\\fs22  \\bullet  '); break;
+      case 'li':
+        parts.push('\\pard\\plain\\f3\\fs22  \\bullet  ');
+        parHasContent = false;
+        break;
       case 'table':
         inTable = true;
         cellCount = 0;
@@ -405,7 +382,6 @@ function htmlToRtf(html: string): string {
         parts.push('{\\cf2\\ul ');
         break;
     }
-    // suppress unused warning
     void inTable;
   }
 
@@ -967,8 +943,19 @@ router.post(
 
       detectDateFields(xsdText, rows);
 
+      const imageCache = new Map<string, { data: Buffer; contentType: string }>();
+      let imgIdx = 0;
+
       const [htmlResult, rawResult] = await Promise.all([
-        mammoth.convertToHtml({ buffer: docxFile.buffer }),
+        mammoth.convertToHtml({
+          buffer: docxFile.buffer,
+          convertImage: mammoth.images.imgElement(async (image: any) => {
+            const data = Buffer.from(await image.read());
+            const key = `__IMG${imgIdx++}__`;
+            imageCache.set(key, { data, contentType: image.contentType ?? 'image/png' });
+            return { src: key };
+          }),
+        } as any),
         mammoth.extractRawText({ buffer: docxFile.buffer }),
       ]);
 
@@ -1009,8 +996,9 @@ router.post(
         }
       }
 
-      const substitutedHtml = applySubstitutionsToHtml(preprocessHtml(htmlResult.value), allDetected);
-      const rtfContent = htmlToRtf(substitutedHtml);
+      const imageRtfMap = await buildImageRtfMap(imageCache);
+      const substitutedHtml = applySubstitutionsToHtml(htmlResult.value, allDetected);
+      const rtfContent = htmlToRtf(substitutedHtml, imageRtfMap);
 
       const docName = docxFile.originalname.replace(/\.docx$/i, '');
       const gdContent = buildGdXml(docName, rtfContent, allDetected);

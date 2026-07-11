@@ -498,10 +498,10 @@ function parseXsdTree(xsdText: string): XsdNode | null {
 // Type-appropriate placeholder for required fields not covered by the CSV
 function xsdLeafDefault(type: string | null): string {
   const t = (type ?? '').replace(/^(xs:|xsd:)/, '').toLowerCase();
-  if (t === 'date') return '2025-01-01';
-  if (t === 'datetime') return '2025-01-01T00:00:00';
-  if (t === 'decimal' || t === 'float' || t === 'double') return '0.00';
-  if (t === 'integer' || t === 'int' || t === 'long' || t === 'nonnegativeinteger') return '0';
+  if (t === 'date') return new Date().toISOString().slice(0, 10);        // YYYY-MM-DD
+  if (t === 'datetime') return new Date().toISOString().slice(0, 19);    // YYYY-MM-DDTHH:MM:SS
+  if (t === 'decimal' || t === 'float' || t === 'double' ||
+      t === 'integer' || t === 'int' || t === 'long' || t === 'nonnegativeinteger') return '0';
   if (t === 'boolean') return 'false';
   return '';
 }

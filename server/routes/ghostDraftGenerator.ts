@@ -165,24 +165,43 @@ function detectVariables(
 
 // ─────────── HTML Variable Substitution ───────────
 
-function applySubstitutionsToHtml(html: string, variables: DetectedVariable[]): string {
+function applySubstitutionsToHtml(
+  html: string,
+  variables: DetectedVariable[]
+): { html: string; allVariables: DetectedVariable[] } {
   let result = html;
+  const allVariables: DetectedVariable[] = [];
+  // Start new IDs one past the highest existing fillPointId so they never collide.
+  let nextId = variables.reduce((m, v) => Math.max(m, v.fillPointId), 0) + 1;
+
   for (const v of variables) {
-    const marker = `%[${v.fillPointId}]`;
-    if (v.detectionMethod === 'placeholder') {
-      // Angle-bracket labels are HTML-encoded by mammoth (<foo> → &lt;foo&gt;);
-      // square-bracket labels [foo] pass through unchanged. Encoding only
-      // affects < > & so it is safe to apply unconditionally.
-      const encoded = v.searchText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      result = result.split(encoded).join(marker);
-    } else {
-      result = result.split(v.searchText).join(marker);
+    // Angle-bracket labels are HTML-encoded by mammoth (<foo> → &lt;foo&gt;);
+    // square-bracket labels [foo] pass through unchanged.
+    const searchText = v.detectionMethod === 'placeholder'
+      ? v.searchText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      : v.searchText;
+
+    // Replace every occurrence individually so each gets a unique fill-point ID.
+    // GhostDraft treats each %[N] marker as a distinct document location; reusing
+    // the same ID for multiple occurrences risks only the first being substituted.
+    let occurrences = 0;
+    let pos = 0;
+    while (true) {
+      const idx = result.indexOf(searchText, pos);
+      if (idx === -1) break;
+      const fillId = occurrences === 0 ? v.fillPointId : nextId++;
+      const marker = `%[${fillId}]`;
+      allVariables.push(occurrences === 0 ? v : { ...v, fillPointId: fillId });
+      result = result.slice(0, idx) + marker + result.slice(idx + searchText.length);
+      pos = idx + marker.length;
+      occurrences++;
     }
+
+    // Variable not found in HTML — preserve it in the list (mirrors original behaviour).
+    if (occurrences === 0) allVariables.push(v);
   }
-  return result;
+
+  return { html: result, allVariables };
 }
 
 // ─────────── HTML → RTF ───────────
@@ -1240,14 +1259,16 @@ router.post(
 
       const imageRtfMap = buildImageRtfMap(imageCache);
       const enhancedHtml = injectBlankParagraphs(htmlResult.value, rawResult.value);
-      const substitutedHtml = applySubstitutionsToHtml(enhancedHtml, allDetected);
+      const { html: substitutedHtml, allVariables } = applySubstitutionsToHtml(enhancedHtml, allDetected);
       const rtfContent = htmlToRtf(substitutedHtml, imageRtfMap);
 
       const docName = docxFile.originalname.replace(/\.docx$/i, '');
-      const gdContent = buildGdXml(docName, rtfContent, allDetected);
+      // Use allVariables (expanded for multi-occurrence) so each RTF %[N] marker
+      // has its own instruction entry in the .gd XML.
+      const gdContent = buildGdXml(docName, rtfContent, allVariables);
       const sampleXml = buildSampleXml(rows, xsdText);
 
-      const variableMap = allDetected.map(v => ({
+      const variableMap = allVariables.map(v => ({
         fillPointId: v.fillPointId,
         fieldLabel: v.row.fieldLabel,
         domain: v.resolved?.domain ?? v.row.domain,

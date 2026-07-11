@@ -355,14 +355,14 @@ function htmlToRtf(html: string, imageRtfMap: Map<string, string> = new Map()): 
       switch (tagName) {
         case 'p': case 'div': case 'h1': case 'h2': case 'h3':
         case 'h4': case 'h5': case 'h6':
-          if (!parHasContent) parts.push('\\~');
+          if (!parHasContent) parts.push(' ');
           parts.push('\\par\n');
           break;
         case 'strong': case 'b': parts.push('\\b0 '); break;
         case 'em': case 'i': parts.push('\\i0 '); break;
         case 'u': parts.push('\\ulnone '); break;
         case 'li':
-          if (!parHasContent) parts.push('\\~');
+          if (!parHasContent) parts.push(' ');
           parts.push('\\par\n');
           break;
         case 'a': parts.push('\\cf0\\ulnone }'); break;
@@ -423,6 +423,68 @@ function htmlToRtf(html: string, imageRtfMap: Map<string, string> = new Map()): 
 
   parts.push('}');
   return parts.join('');
+}
+
+// ─────────── Blank Paragraph Injection ───────────
+// mammoth.convertToHtml silently drops empty DOCX paragraphs.
+// This restores them by aligning the raw-text output (which preserves
+// blank lines as empty \n\n-delimited entries) with the HTML output,
+// then inserting <p></p> at the correct positions before RTF conversion.
+function injectBlankParagraphs(html: string, rawText: string): string {
+  // Normalise line endings and split into paragraph-level tokens.
+  // Each \n\n is one paragraph boundary; empty strings between boundaries
+  // are blank DOCX paragraphs that mammoth's HTML converter omits.
+  const rawParagraphs = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n\n');
+
+  // Extract all <p> and <li> block elements from the HTML in document order.
+  const blockRe = /<(p|li)([ \t>][\s\S]*?)<\/\1>/g;
+  const htmlBlocks: Array<{ content: string; start: number; end: number }> = [];
+  let bm: RegExpExecArray | null;
+  while ((bm = blockRe.exec(html)) !== null) {
+    htmlBlocks.push({ content: bm[0], start: bm.index, end: bm.index + bm[0].length });
+  }
+  if (htmlBlocks.length === 0) return html;
+
+  // True if the HTML block has visible text (not an image-only paragraph).
+  // Tag attributes (including alt="…") are stripped with the tags → '' for <img>.
+  function hasText(content: string): boolean {
+    return content.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().length > 0;
+  }
+
+  // Walk rawParagraphs sequentially, accumulating blank counts per HTML block.
+  let htmlIdx = 0;
+  const insertBefore = new Map<number, number>();
+
+  for (const rawPara of rawParagraphs) {
+    if (rawPara.trim() === '') {
+      if (htmlIdx < htmlBlocks.length && !hasText(htmlBlocks[htmlIdx].content)) {
+        // Image-only HTML block paired with an empty raw paragraph — consume it.
+        htmlIdx++;
+      } else if (htmlIdx < htmlBlocks.length) {
+        // Genuine blank paragraph: record insertion before the next HTML block.
+        insertBefore.set(htmlIdx, (insertBefore.get(htmlIdx) ?? 0) + 1);
+      }
+    } else {
+      // Non-empty raw paragraph — consume the corresponding HTML block.
+      if (htmlIdx < htmlBlocks.length) htmlIdx++;
+    }
+  }
+
+  if (insertBefore.size === 0) return html;
+
+  // Rebuild HTML, inserting <p></p> markers before the marked blocks.
+  let result = '';
+  let pos = 0;
+  for (let i = 0; i < htmlBlocks.length; i++) {
+    const block = htmlBlocks[i];
+    result += html.slice(pos, block.start);
+    const blanks = insertBefore.get(i) ?? 0;
+    for (let b = 0; b < blanks; b++) result += '<p></p>';
+    result += block.content;
+    pos = block.end;
+  }
+  result += html.slice(pos);
+  return result;
 }
 
 // ─────────── Sample XML Builder ───────────
@@ -1177,7 +1239,8 @@ router.post(
       }
 
       const imageRtfMap = buildImageRtfMap(imageCache);
-      const substitutedHtml = applySubstitutionsToHtml(htmlResult.value, allDetected);
+      const enhancedHtml = injectBlankParagraphs(htmlResult.value, rawResult.value);
+      const substitutedHtml = applySubstitutionsToHtml(enhancedHtml, allDetected);
       const rtfContent = htmlToRtf(substitutedHtml, imageRtfMap);
 
       const docName = docxFile.originalname.replace(/\.docx$/i, '');

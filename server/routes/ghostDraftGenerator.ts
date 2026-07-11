@@ -141,9 +141,9 @@ function detectVariables(
     let searchText: string | null = null;
     let detectionMethod: 'placeholder' | 'sampleValue' = 'sampleValue';
 
-    // Angle-bracket placeholder pattern: <something>
-    const placeholderMatch = row.fieldLabel.match(/^<(.+)>$/);
-    if (placeholderMatch && rawText.includes(row.fieldLabel)) {
+    // Bracket placeholder patterns: <something> or [something]
+    const isPlaceholder = /^<.+>$/.test(row.fieldLabel) || /^\[.+\]$/.test(row.fieldLabel);
+    if (isPlaceholder && rawText.includes(row.fieldLabel)) {
       searchText = row.fieldLabel;
       detectionMethod = 'placeholder';
     }
@@ -170,7 +170,9 @@ function applySubstitutionsToHtml(html: string, variables: DetectedVariable[]): 
   for (const v of variables) {
     const marker = `%[${v.fillPointId}]`;
     if (v.detectionMethod === 'placeholder') {
-      // Angle-bracket placeholders are HTML-encoded by mammoth
+      // Angle-bracket labels are HTML-encoded by mammoth (<foo> → &lt;foo&gt;);
+      // square-bracket labels [foo] pass through unchanged. Encoding only
+      // affects < > & so it is safe to apply unconditionally.
       const encoded = v.searchText
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

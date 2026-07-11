@@ -417,7 +417,7 @@ function buildGdXml(docName: string, rtfContent: string, variables: DetectedVari
     .join('\n');
 
   return `<?xml version="1.0" encoding="utf-8"?>
-<Content Name="${xmlEscape(docName)}" Version="1.0" ApplicationVersion="GhostDraft 5.3.55828.0" CompatibleVersion="GhostDraft 3.3">
+<Content Name="GhostDraftDocument" Version="1.0" ApplicationVersion="GhostDraft 5.3.55828.0" CompatibleVersion="GhostDraft 3.3">
   <document xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://schemas.korbitec.com/GhostDraft/Document/1.0">
     <properties>
       <system xmlns="http://schemas.korbitec.com/GhostDraft/DocumentProperties/1.0">

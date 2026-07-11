@@ -1,4 +1,6 @@
 import React, { useState, useCallback } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface VariableMapEntry {
   fillPointId: number;
@@ -116,6 +118,8 @@ const UploadZone: React.FC<{
 };
 
 const GhostDraftGenerator: React.FC = () => {
+  const { token } = useAuth();
+  const { settings } = useSettings();
   const [docxFile, setDocxFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [xsdFile, setXsdFile] = useState<File | null>(null);
@@ -132,11 +136,11 @@ const GhostDraftGenerator: React.FC = () => {
     setError(null);
     setResult(null);
 
-    const token = localStorage.getItem('dih_token');
     const form = new FormData();
     form.append('docx', docxFile);
     form.append('csv', csvFile);
     form.append('xsd', xsdFile);
+    form.append('provider', settings.llmProvider ?? 'gemini');
 
     try {
       const response = await fetch('/v1/ghostdraft-generator', {
@@ -144,6 +148,7 @@ const GhostDraftGenerator: React.FC = () => {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,
       });
+
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Generation failed');
       setResult(data as GenerationResult);

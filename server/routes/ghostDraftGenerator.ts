@@ -2,7 +2,8 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import mammoth from 'mammoth';
 import { randomUUID } from 'crypto';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, AuthRequest } from '../middleware/auth.js';
+import pool from '../db.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -456,6 +457,163 @@ ${domainModels}
 </Content>`;
 }
 
+// ─────────── LLM Variable Detection ───────────
+
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const CLAUDE_API  = 'https://api.anthropic.com/v1/messages';
+const OPENAI_API  = 'https://api.openai.com/v1/chat/completions';
+
+function buildDetectionPrompt(docText: string, rows: MappingRow[]): string {
+  const truncated = docText.length > 5000 ? docText.slice(0, 5000) + '\n...[truncated]' : docText;
+  const csvLines = rows.map(r => `"${r.fieldLabel}","${r.xsdPath}","${r.sampleValue}"`).join('\n');
+  return `You are analyzing a document template to identify data field positions.
+
+DOCUMENT TEXT:
+---
+${truncated}
+---
+
+FIELD MAPPING CSV (Field Label, XSD Path, Sample Value):
+${csvLines}
+
+For each field, find the EXACT text substring in the document that should be replaced by a variable.
+Rules:
+- If the field has a bracketed placeholder like <claimNumber>, [FieldName], or {{variable}}, return that exact placeholder text.
+- Otherwise, search for the sample value verbatim in the document and return it if found.
+- If descriptive labels appear in parentheses in the Field Label (e.g., "Check Mail Date (10/18/2025)"), the text to find is the part in parentheses: "10/18/2025".
+- If the field cannot be found in the document, return null for foundText.
+- Return the shortest unique match.
+
+Return ONLY valid JSON, no markdown:
+{"variables":[{"fieldLabel":"<exact field label from CSV>","foundText":"<exact substring from document or null>"}]}`;
+}
+
+interface LLMVariableResult { fieldLabel: string; foundText: string | null }
+
+function parseLLMResponse(raw: string): LLMVariableResult[] {
+  try {
+    const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    const parsed = JSON.parse(clean);
+    const arr = parsed.variables ?? parsed;
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((v: any) => typeof v.fieldLabel === 'string');
+  } catch {
+    // Try extracting JSON object from raw text
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const p = JSON.parse(match[0]);
+        return Array.isArray(p.variables) ? p.variables : [];
+      } catch { return []; }
+    }
+    return [];
+  }
+}
+
+async function callLLMForDetection(
+  provider: string,
+  userId: number,
+  prompt: string
+): Promise<LLMVariableResult[]> {
+  if (provider === 'gemini') {
+    const { rows } = await pool.query('SELECT gemini_api_key FROM users WHERE id=$1', [userId]);
+    const apiKey = rows[0]?.gemini_api_key || process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) throw new Error('Gemini API key not configured');
+
+    const model = 'gemini-2.5-flash';
+    const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+      }),
+    });
+    const data = await res.json() as any;
+    const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    return parseLLMResponse(text);
+  }
+
+  if (provider === 'claude') {
+    const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [userId]);
+    const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('Claude API key not configured');
+
+    const res = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await res.json() as any;
+    const text: string = data?.content?.[0]?.text ?? '';
+    return parseLLMResponse(text);
+  }
+
+  if (provider === 'openai') {
+    const { rows } = await pool.query('SELECT openai_api_key FROM users WHERE id=$1', [userId]);
+    const apiKey = rows[0]?.openai_api_key || process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OpenAI API key not configured');
+
+    const res = await fetch(OPENAI_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        temperature: 0,
+        messages: [
+          { role: 'system', content: 'You return only valid JSON when asked to analyze document templates.' },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+    const data = await res.json() as any;
+    const text: string = data?.choices?.[0]?.message?.content ?? '';
+    return parseLLMResponse(text);
+  }
+
+  throw new Error(`Unknown provider: ${provider}`);
+}
+
+function mergeDetections(
+  stringMatched: DetectedVariable[],
+  llmResults: LLMVariableResult[],
+  allRows: MappingRow[],
+  nextId: number
+): DetectedVariable[] {
+  const matchedLabels = new Set(stringMatched.map(v => v.row.fieldLabel));
+  const extra: DetectedVariable[] = [];
+
+  for (const llm of llmResults) {
+    if (matchedLabels.has(llm.fieldLabel)) continue; // already found by string matching
+    if (!llm.foundText) continue;
+
+    const row = allRows.find(r => r.fieldLabel === llm.fieldLabel);
+    if (!row) continue;
+
+    extra.push({
+      fillPointId: nextId++,
+      row,
+      searchText: llm.foundText,
+      detectionMethod: 'sampleValue', // LLM found it via value
+    });
+  }
+
+  return extra;
+}
+
 // ─────────── Route Handler ───────────
 
 router.post(
@@ -465,7 +623,7 @@ router.post(
     { name: 'csv', maxCount: 1 },
     { name: 'xsd', maxCount: 1 },
   ]),
-  async (req: Request, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     try {
       const files = req.files as Record<string, Express.Multer.File[]>;
       const docxFile = files?.docx?.[0];
@@ -475,6 +633,9 @@ router.post(
       if (!docxFile || !csvFile || !xsdFile) {
         return res.status(400).json({ error: 'Missing required files: docx, csv, xsd' });
       }
+
+      const provider: string = (req.body?.provider as string) || 'gemini';
+      const userId = req.user!.id;
 
       const csvText = csvFile.buffer.toString('utf-8');
       const xsdText = xsdFile.buffer.toString('utf-8');
@@ -491,16 +652,39 @@ router.post(
         mammoth.extractRawText({ buffer: docxFile.buffer }),
       ]);
 
-      const { detected, skipped } = detectVariables(rawResult.value, rows);
+      // Step 1: fast string matching (free, instant)
+      const { detected: stringDetected, skipped: stringSkipped } = detectVariables(rawResult.value, rows);
 
-      const substitutedHtml = applySubstitutionsToHtml(htmlResult.value, detected);
+      // Step 2: LLM for any fields still undetected
+      let allDetected = stringDetected;
+      let skipped = stringSkipped;
+
+      if (skipped.length > 0) {
+        try {
+          const undetectedRows = rows.filter(r => skipped.includes(r.fieldLabel));
+          const prompt = buildDetectionPrompt(rawResult.value, undetectedRows);
+          const llmResults = await callLLMForDetection(provider, userId, prompt);
+
+          const nextId = (stringDetected[stringDetected.length - 1]?.fillPointId ?? 0) + 1;
+          const llmDetected = mergeDetections(stringDetected, llmResults, rows, nextId);
+          allDetected = [...stringDetected, ...llmDetected];
+
+          const llmFoundLabels = new Set(llmDetected.map(v => v.row.fieldLabel));
+          skipped = skipped.filter(label => !llmFoundLabels.has(label));
+        } catch (llmErr) {
+          // LLM failed — continue with string-match results only
+          console.warn('[ghostDraftGenerator] LLM detection failed:', llmErr);
+        }
+      }
+
+      const substitutedHtml = applySubstitutionsToHtml(htmlResult.value, allDetected);
       const rtfContent = htmlToRtf(substitutedHtml);
 
       const docName = docxFile.originalname.replace(/\.docx$/i, '');
-      const gdContent = buildGdXml(docName, rtfContent, detected);
+      const gdContent = buildGdXml(docName, rtfContent, allDetected);
       const sampleXml = buildSampleXml(rows);
 
-      const variableMap = detected.map(v => ({
+      const variableMap = allDetected.map(v => ({
         fillPointId: v.fillPointId,
         fieldLabel: v.row.fieldLabel,
         domain: v.row.domain,

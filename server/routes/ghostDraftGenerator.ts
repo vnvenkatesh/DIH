@@ -698,7 +698,7 @@ function buildGdXml(docName: string, rtfContent: string, variables: DetectedVari
       <custom xmlns="http://schemas.korbitec.com/GhostDraft/DocumentProperties/1.0" />
     </properties>
     <content>
-      <rtf>${rtfContent}</rtf>
+      <rtf><![CDATA[${rtfContent}]]></rtf>
       <bookmarks />
     </content>
     <library xsi:nil="true" />

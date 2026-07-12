@@ -166,6 +166,23 @@ function detectVariables(
       }
     }
 
+    // 2.5. Normalized doc-side match: replace hyphens in each bracket found in the .gd with
+    //      spaces, collapse runs, then compare case-insensitively to the CSV label.
+    //      e.g. doc "[support-email]" → inner "support-email" → "support email" == CSV "support email"
+    if (!searchText) {
+      const csvLabelLc = row.fieldLabel.toLowerCase().trim();
+      const bracketScanRe = /[\[<]\s*([A-Za-z][^\[\]<>\n\r]*?)\s*[\]>]/g;
+      let bm: RegExpExecArray | null;
+      while ((bm = bracketScanRe.exec(rawText)) !== null) {
+        const docNorm = bm[1].replace(/-/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (docNorm === csvLabelLc) {
+          searchText = bm[0]; // original bracket form from doc (e.g. "[support-email]")
+          detectionMethod = 'placeholder';
+          break;
+        }
+      }
+    }
+
     // 3. Last resort: sample value (useful when the doc has the literal value hardcoded, not a placeholder)
     if (!searchText && row.sampleValue && rawText.includes(row.sampleValue)) {
       searchText = row.sampleValue;
@@ -1369,21 +1386,6 @@ router.post(
         allDetected = stringDetected;
         skipped = stringSkipped;
 
-        // Stage 2: LLM fallback for any CSV fields still undetected
-        if (skipped.length > 0) {
-          try {
-            const undetectedRows = rows.filter(r => skipped.includes(r.fieldLabel));
-            const prompt = buildDetectionPrompt(rawText, undetectedRows);
-            const llmResults = await callLLMForDetection(provider, userId, prompt);
-            const nextId = (stringDetected[stringDetected.length - 1]?.fillPointId ?? 0) + 1;
-            const llmDetected = mergeDetections(stringDetected, llmResults, rows, nextId);
-            allDetected = [...stringDetected, ...llmDetected];
-            const llmFoundLabels = new Set(llmDetected.map(v => v.row.fieldLabel));
-            skipped = skipped.filter(label => !llmFoundLabels.has(label));
-          } catch (llmErr) {
-            console.warn('[ghostDraftGenerator] LLM detection failed:', llmErr);
-          }
-        }
       } else {
         // ── Auto-detect mode: scan for [bracket] and <bracket> patterns ────────
         allDetected = autoDetectVariables(rawText);

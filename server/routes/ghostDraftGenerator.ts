@@ -1400,6 +1400,11 @@ router.post(
           if (gdInstructions.length > 0) {
             await assignResolvedNodes(allDetected, gdInstructions, provider, userId);
           }
+          // Only substitute variables whose node was confirmed in the reference .gd.
+          // Variables without a confirmed match would produce instructions with
+          // non-existent GUIDs/nodes — leave their brackets unchanged so they are
+          // reported as unresolved rather than written into the .gd with wrong tags.
+          allDetected = allDetected.filter(v => v.resolved !== undefined);
         } catch (gdErr) {
           console.warn('[ghostDraftGenerator] .gd reference parsing failed:', gdErr);
         }

@@ -33,6 +33,8 @@ On login, `App.tsx` hydrates `SettingsContext` (and localStorage) from the user'
 
 ### Tools (in `/components`)
 
+> For critical code paths, state variables, integration details, and gotchas per accelerator, see **`components/CLAUDE.md`** and **`server/routes/CLAUDE.md`**.
+
 | Component | Purpose | Inputs |
 |---|---|---|
 | `Rationalizer.tsx` | Groups similar PDFs by hash or semantic embedding | Multiple PDFs |
@@ -40,9 +42,11 @@ On login, `App.tsx` hydrates `SettingsContext` (and localStorage) from the user'
 | `PdfVisualCompare.tsx` | Visual word-level page diff with smart page matching, no AI | Two PDFs |
 | `DataMappingGenerator.tsx` | Maps Word doc fields to XSD schema, generates XML | DOCX + XSD |
 | `XPathExtractor.tsx` | Extracts PDF data and maps to XML XPath locations | PDF + XML |
-| `FieldExtractor.tsx` | Generates synthetic data from an XSD schema | XSD |
+| `FieldExtractor.tsx` | Generates synthetic data from an XSD schema; bundle mode with test cases CSV | XSD (+ optional CSV) |
 | `LayoutRecommendation.tsx` | Reformats a customer communication document into optimised Email and WhatsApp versions | PDF or DOCX |
 | `AccessibilityScorer.tsx` | Scores a PDF against WCAG 2.1 Level A/AA criteria | PDF |
+| `GhostDraftGenerator.tsx` | Converts a `.gd` template into a variable-mapped GhostDraft XML with fill point instructions | `.gd` (+ optional CSV, XSD, ref `.gd`) |
+| `TestCaseGenerator.tsx` | Generates categorised test cases from a business rules CSV; output feeds FieldExtractor bundle mode | CSV of rules |
 
 ### Pages (also in `/components`)
 
@@ -68,39 +72,36 @@ On login, `App.tsx` hydrates `SettingsContext` (and localStorage) from the user'
 
 ### AI Service Layer
 
-All LLM calls are routed through `services/llmService.ts`, which reads the user's provider preference (`llmProvider` in `dih_settings` localStorage key) and delegates to the appropriate backend:
+All LLM calls are routed through `services/llmService.ts` → `/v1/llm/gemini` or `/v1/llm/claude` proxy (server fetches per-user API key from Postgres; env vars are fallback). **Exception**: `GhostDraftGenerator` posts directly to `/v1/ghostdraft-generator`; all provider routing is handled server-side there.
 
-- `services/geminiService.ts` — Gemini provider. Two model tiers:
-  - `gemini-2.5-flash` — simpler tasks (field extraction, semantic comparison, layout, accessibility)
-  - `gemini-2.5-pro` — complex tasks (XPath mapping, data mapping generation)
-- `services/claudeService.ts` — Claude (Anthropic) provider. Model tiers:
-  - `claude-haiku-4-5-20251001` — simpler tasks
-  - `claude-sonnet-4-6` — complex tasks (XPath extraction, data mapping)
+| Service | Models used |
+|---|---|
+| `geminiService.ts` | `gemini-2.5-flash` for all tasks. Structured schema (`responseMimeType:'application/json'` + `responseSchema`) except `scoreAccessibility` which uses `cleanJson()` post-processing |
+| `claudeService.ts` | `claude-haiku-4-5-20251001` (simpler) / `claude-sonnet-4-6` (XPath extraction, data mapping) |
 
-Both services call a server-side proxy (`server/routes/llm.ts`) at `/v1/llm/gemini` and `/v1/llm/claude` respectively. The proxy fetches the user's API key from the database (with `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` env var fallback) and forwards the request to the upstream LLM API.
-
-Structured responses use JSON Schema validation (Gemini only). Client-side cosine similarity on embeddings is used as a fallback when the API is unavailable (Rationalizer).
+`embedContentBatch` in `geminiService` is a **client-side word-hash function** (768-dim vectors) — it does NOT call the Gemini API. Real embeddings are only available via `POST /v1/rationalizer/embed`.
 
 ### Server (Express, port 3001)
 
 `server/app.ts` registers all routes; `server/index.ts` starts the server. All `/v1/*` requests from the Vite dev server are proxied here.
 
-| Route prefix | File | Purpose |
+| Route prefix | File | Auth required |
 |---|---|---|
-| `/v1/auth` | `routes/auth.ts` | Login, JWT issuance |
-| `/v1/users` | `routes/users.ts` | User management (Admin only) |
-| `/v1/llm` | `routes/llm.ts` | LLM proxy (Gemini + Claude) |
-| `/v1/rationalizer` | `routes/rationalizer.ts` | PDF rationalization |
-| `/v1/pdf-compare` | `routes/pdfCompare.ts` | AI PDF compare |
-| `/v1/pdf-exact-compare` | `routes/pdfExactCompare.ts` | Exact/visual PDF compare |
-| `/v1/api` | `routes/exactCompareApi.ts` | REST API for exact compare |
-| `/v1/data-mapping` | `routes/dataMapping.ts` | Data mapping generation |
-| `/v1/xpath-extractor` | `routes/xpathExtractor.ts` | XPath extraction |
-| `/v1/synthetic-data` | `routes/syntheticData.ts` | Synthetic data generation |
-| `/v1/layout-recommendation` | `routes/layoutRecommendation.ts` | Layout recommendation |
-| `/v1/health` | inline | Health check |
+| `/v1/auth` | `routes/auth.ts` | — |
+| `/v1/users` | `routes/users.ts` | Admin only |
+| `/v1/llm` | `routes/llm.ts` | — (API key enforced) |
+| `/v1/rationalizer` | `routes/rationalizer.ts` | — |
+| `/v1/pdf-compare` | `routes/pdfCompare.ts` | — |
+| `/v1/pdf-exact-compare` | `routes/pdfExactCompare.ts` | **Yes** |
+| `/v1/api` | `routes/exactCompareApi.ts` | — |
+| `/v1/data-mapping` | `routes/dataMapping.ts` | — |
+| `/v1/xpath-extractor` | `routes/xpathExtractor.ts` | — |
+| `/v1/synthetic-data` | `routes/syntheticData.ts` | — |
+| `/v1/layout-recommendation` | `routes/layoutRecommendation.ts` | — |
+| `/v1/ghostdraft-generator` | `routes/ghostDraftGenerator.ts` | **Yes** |
+| `/v1/health` | inline | — |
 
-Auth middleware lives at `server/middleware/auth.ts` (JWT verification). `server/db.ts` holds the Neon Postgres connection pool.
+Auth middleware: `server/middleware/auth.ts` (JWT verification, sets `req.user`). DB pool: `server/db.ts` (Neon Postgres). Detailed route internals: see **`server/routes/CLAUDE.md`**.
 
 ### Document Processing
 

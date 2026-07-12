@@ -219,8 +219,58 @@ function extractRtfFromGd(gdXml: string): string {
   throw new Error('Could not locate <rtf> element in .gd file');
 }
 
+// Mask {\pict...} groups so image binary/hex data is never read as variable text
+// and never modified during substitution.  Returns the masked string plus a
+// restore function that puts the original pict groups back verbatim.
+function maskRtfPictBlocks(rtf: string): { masked: string; restore: (s: string) => string } {
+  const blocks: string[] = [];
+  let output = '';
+  let i = 0;
+
+  while (i < rtf.length) {
+    const nextPict = rtf.indexOf('\\pict', i);
+    if (nextPict === -1) { output += rtf.slice(i); break; }
+
+    // Walk backwards from \pict to find the opening brace of its group
+    let bracePos = nextPict - 1;
+    while (bracePos >= i && rtf[bracePos] !== '{') bracePos--;
+
+    if (bracePos < i) {
+      // No enclosing { found — copy up to and past \pict and continue
+      output += rtf.slice(i, nextPict + 5);
+      i = nextPict + 5;
+      continue;
+    }
+
+    // Copy everything before this pict group
+    output += rtf.slice(i, bracePos);
+
+    // Find the matching closing } via brace-depth counting
+    let depth = 0, j = bracePos;
+    while (j < rtf.length) {
+      const ch = rtf[j];
+      if (ch === '\\') { j += 2; continue; }   // skip RTF escape sequences
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) { j++; break; } }
+      j++;
+    }
+
+    const idx = blocks.length;
+    blocks.push(rtf.slice(bracePos, j));
+    output += `\x00PICT${idx}\x00`;
+    i = j;
+  }
+
+  return {
+    masked: output,
+    restore: (s: string) => blocks.reduce((acc, blk, idx) => acc.replace(`\x00PICT${idx}\x00`, blk), s),
+  };
+}
+
 function extractRawTextFromRtf(rtf: string): string {
-  let t = rtf;
+  // Exclude image blocks entirely so their hex/binary data never pollutes variable detection
+  const { masked } = maskRtfPictBlocks(rtf);
+  let t = masked;
   // Strip optional destination groups {\*\...} — repeat for shallow nesting
   for (let i = 0; i < 3; i++) t = t.replace(/\{\\\*[^{}]*\}/g, ' ');
   t = t.replace(/\\'[0-9a-fA-F]{2}/g, ' ');          // hex-encoded chars \'xx
@@ -265,7 +315,9 @@ function applySubstitutionsToRtf(
   rtf: string,
   variables: DetectedVariable[]
 ): { rtf: string; allVariables: DetectedVariable[] } {
-  let result = rtf;
+  // Mask pict blocks first so image data is never matched or modified
+  const { masked, restore } = maskRtfPictBlocks(rtf);
+  let result = masked;
   const allVariables: DetectedVariable[] = [];
   let nextId = variables.reduce((m, v) => Math.max(m, v.fillPointId), 0) + 1;
 
@@ -286,7 +338,7 @@ function applySubstitutionsToRtf(
     }
     if (occurrences === 0) allVariables.push(v);
   }
-  return { rtf: result, allVariables };
+  return { rtf: restore(result), allVariables };
 }
 
 // ─────────── HTML → RTF ───────────

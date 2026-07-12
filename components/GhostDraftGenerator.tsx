@@ -19,6 +19,7 @@ interface GenerationResult {
   sampleXml: string;
   variableMap: VariableMapEntry[];
   skipped: string[];
+  unresolved: string[];
 }
 
 const DOMAIN_COLORS: Record<string, string> = {
@@ -345,6 +346,14 @@ const GhostDraftGenerator: React.FC = () => {
                 <span className="text-sm">{result.skipped.length} field{result.skipped.length !== 1 ? 's' : ''} not found in document</span>
               </div>
             )}
+            {result.unresolved?.length > 0 && (
+              <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <span className="text-sm">{result.unresolved.length} placeholder{result.unresolved.length !== 1 ? 's' : ''} not completed</span>
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={() => downloadFile(result.gdContent, `${baseName}.gd`, 'text/xml')}
@@ -375,6 +384,28 @@ const GhostDraftGenerator: React.FC = () => {
                 {result.skipped.map((label, i) => (
                   <span key={i} className="inline-block px-2.5 py-0.5 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded-full border border-amber-200 dark:border-amber-700">
                     {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Unresolved Placeholders */}
+          {result.unresolved?.length > 0 && (
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+              <div className="flex items-start gap-2 mb-3">
+                <svg className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-red-800 dark:text-red-300">Placeholders not completed — no mapping found</p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">These tags remain unchanged in the output .gd file. Add them to your CSV mapping or reference .gd to complete them.</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {result.unresolved.map((tag, i) => (
+                  <span key={i} className="inline-block px-2.5 py-0.5 text-xs bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 rounded-full border border-red-200 dark:border-red-700 font-mono">
+                    {tag}
                   </span>
                 ))}
               </div>

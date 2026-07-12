@@ -285,11 +285,11 @@ function autoDetectVariables(rawText: string): DetectedVariable[] {
   const detected: DetectedVariable[] = [];
   let fillPointId = 1;
 
-  // Match [Foo Bar] and <Foo Bar> — inner text must start with a letter
-  const re = /[\[<]([A-Za-z][^\[\]<>\n\r]*?)[\]>]/g;
+  // Match [Foo Bar], < Foo Bar>, <Foo Bar> — allow optional whitespace after the opening bracket
+  const re = /[\[<]\s*([A-Za-z][^\[\]<>\n\r]*?)\s*[\]>]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(rawText)) !== null) {
-    const full = m[0];
+    const full = m[0];           // exact matched text (may have leading space: "< Foo >")
     if (seen.has(full)) continue;
     seen.add(full);
 
@@ -309,6 +309,17 @@ function autoDetectVariables(rawText: string): DetectedVariable[] {
     });
   }
   return detected;
+}
+
+// Scan the output RTF for any bracket/angle placeholders that were NOT replaced.
+// Returns the unique un-replaced placeholder strings found in the document text.
+function findUnresolvedPlaceholders(rtf: string): string[] {
+  const { masked } = maskRtfPictBlocks(rtf);
+  const re = /[\[<]\s*([A-Za-z][^\[\]<>\n\r]*?)\s*[\]>]/g;
+  const found = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(masked)) !== null) found.add(m[0]);
+  return Array.from(found);
 }
 
 function applySubstitutionsToRtf(
@@ -336,7 +347,8 @@ function applySubstitutionsToRtf(
       pos = idx + marker.length;
       occurrences++;
     }
-    if (occurrences === 0) allVariables.push(v);
+    // Skip: if 0 occurrences found, the placeholder stays in the RTF unchanged
+    // and will be reported as unresolved — don't add a dangling instruction entry.
   }
   return { rtf: restore(result), allVariables };
 }
@@ -1391,6 +1403,9 @@ router.post(
       const gdContent = buildGdXml(docName, substitutedRtf, allVariables);
       const sampleXml = rows.length > 0 ? buildSampleXml(rows, xsdText) : '';
 
+      // Scan output RTF for any bracket placeholders that were NOT replaced
+      const unresolved = findUnresolvedPlaceholders(substitutedRtf);
+
       const variableMap = allVariables.map(v => ({
         fillPointId: v.fillPointId,
         fieldLabel: v.row.fieldLabel,
@@ -1403,7 +1418,7 @@ router.post(
         gdMatched: !!v.resolved,
       }));
 
-      return res.json({ gdContent, sampleXml, variableMap, skipped });
+      return res.json({ gdContent, sampleXml, variableMap, skipped, unresolved });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Internal server error';
       console.error('[ghostDraftGenerator]', err);

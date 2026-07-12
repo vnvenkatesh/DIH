@@ -141,14 +141,32 @@ function detectVariables(
     let searchText: string | null = null;
     let detectionMethod: 'placeholder' | 'sampleValue' = 'sampleValue';
 
-    // Bracket placeholder patterns: <something> or [something]
+    // 1. If the CSV label itself is already bracket-wrapped (<foo> or [foo]), search for it directly.
     const isPlaceholder = /^<.+>$/.test(row.fieldLabel) || /^\[.+\]$/.test(row.fieldLabel);
     if (isPlaceholder && rawText.includes(row.fieldLabel)) {
       searchText = row.fieldLabel;
       detectionMethod = 'placeholder';
     }
 
-    // Fallback: sample value
+    // 2. If the label is plain text (most CSVs), try wrapping it in bracket styles used by the document.
+    //    This handles the common pattern where the CSV says "Policy Number" and the
+    //    document has the placeholder <Policy Number> or [Policy Number].
+    if (!searchText) {
+      const candidates = [
+        `<${row.fieldLabel}>`,          // exact angle-bracket form
+        `[${row.fieldLabel}]`,          // exact square-bracket form
+        `< ${row.fieldLabel}>`,         // angle with leading space (GhostDraft variant)
+      ];
+      for (const c of candidates) {
+        if (rawText.includes(c)) {
+          searchText = c;
+          detectionMethod = 'placeholder';
+          break;
+        }
+      }
+    }
+
+    // 3. Last resort: sample value (useful when the doc has the literal value hardcoded, not a placeholder)
     if (!searchText && row.sampleValue && rawText.includes(row.sampleValue)) {
       searchText = row.sampleValue;
       detectionMethod = 'sampleValue';

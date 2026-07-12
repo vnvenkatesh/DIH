@@ -204,6 +204,91 @@ function applySubstitutionsToHtml(
   return { html: result, allVariables };
 }
 
+// ─────────── .gd RTF extraction and auto-detect ───────────
+
+function extractRtfFromGd(gdXml: string): string {
+  // CDATA-wrapped (our generated files and most GhostDraft exports)
+  const cdataMatch = gdXml.match(/<rtf><!\[CDATA\[([\s\S]*?)\]\]><\/rtf>/);
+  if (cdataMatch) return cdataMatch[1];
+  // Plain-text content — XML-decode the standard entities
+  const plainMatch = gdXml.match(/<rtf>([\s\S]*?)<\/rtf>/);
+  if (plainMatch) {
+    return plainMatch[1]
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  }
+  throw new Error('Could not locate <rtf> element in .gd file');
+}
+
+function extractRawTextFromRtf(rtf: string): string {
+  let t = rtf;
+  // Strip optional destination groups {\*\...} — repeat for shallow nesting
+  for (let i = 0; i < 3; i++) t = t.replace(/\{\\\*[^{}]*\}/g, ' ');
+  t = t.replace(/\\'[0-9a-fA-F]{2}/g, ' ');          // hex-encoded chars \'xx
+  t = t.replace(/\\[a-zA-Z]+(-?\d+)? ?/g, ' ');      // control words
+  t = t.replace(/[{}]/g, ' ');                        // braces
+  t = t.replace(/\\\\/g, '\\').replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+  return t.replace(/[ \t]{2,}/g, ' ');
+}
+
+function autoDetectVariables(rawText: string): DetectedVariable[] {
+  const seen = new Set<string>();
+  const detected: DetectedVariable[] = [];
+  let fillPointId = 1;
+
+  // Match [Foo Bar] and <Foo Bar> — inner text must start with a letter
+  const re = /[\[<]([A-Za-z][^\[\]<>\n\r]*?)[\]>]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(rawText)) !== null) {
+    const full = m[0];
+    if (seen.has(full)) continue;
+    seen.add(full);
+
+    const inner = m[1].trim();
+    const words = inner.split(/\s+/);
+    // Heuristic: first word → domain, remaining words → node name
+    const domain = words[0].charAt(0).toUpperCase() + words[0].slice(1);
+    const nodeName = words.length > 1
+      ? words.slice(1).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('')
+      : domain;
+
+    detected.push({
+      fillPointId: fillPointId++,
+      row: { fieldLabel: full, fieldName: nodeName, domain, xsdPath: '', sampleValue: '', isDate: false },
+      searchText: full,
+      detectionMethod: 'placeholder',
+    });
+  }
+  return detected;
+}
+
+function applySubstitutionsToRtf(
+  rtf: string,
+  variables: DetectedVariable[]
+): { rtf: string; allVariables: DetectedVariable[] } {
+  let result = rtf;
+  const allVariables: DetectedVariable[] = [];
+  let nextId = variables.reduce((m, v) => Math.max(m, v.fillPointId), 0) + 1;
+
+  for (const v of variables) {
+    // RTF stores bracket characters as plain text — no HTML encoding needed
+    const searchText = v.searchText;
+    let occurrences = 0;
+    let pos = 0;
+    while (true) {
+      const idx = result.indexOf(searchText, pos);
+      if (idx === -1) break;
+      const fillId = occurrences === 0 ? v.fillPointId : nextId++;
+      const marker = `%[${fillId}]`;
+      allVariables.push(occurrences === 0 ? v : { ...v, fillPointId: fillId });
+      result = result.slice(0, idx) + marker + result.slice(idx + searchText.length);
+      pos = idx + marker.length;
+      occurrences++;
+    }
+    if (occurrences === 0) allVariables.push(v);
+  }
+  return { rtf: result, allVariables };
+}
+
 // ─────────── HTML → RTF ───────────
 
 // Read PNG dimensions from IHDR chunk (bytes 16-23 after the 8-byte signature).
@@ -1172,83 +1257,75 @@ async function assignResolvedNodes(
 router.post(
   '/',
   upload.fields([
-    { name: 'docx', maxCount: 1 },
-    { name: 'csv',  maxCount: 1 },
-    { name: 'xsd',  maxCount: 1 },
-    { name: 'gd',   maxCount: 1 }, // optional .gd reference
+    { name: 'gd',    maxCount: 1 }, // primary .gd document (required)
+    { name: 'csv',   maxCount: 1 }, // data mapping CSV (optional — deterministic mode)
+    { name: 'xsd',   maxCount: 1 }, // XSD schema (optional)
+    { name: 'gdref', maxCount: 1 }, // reference .gd for domain/node GUIDs (optional)
   ]),
   async (req: AuthRequest, res: Response) => {
     try {
       const files = req.files as Record<string, Express.Multer.File[]>;
-      const docxFile = files?.docx?.[0];
-      const csvFile  = files?.csv?.[0];
-      const xsdFile  = files?.xsd?.[0];
-      const gdRefFile = files?.gd?.[0]; // optional
+      const gdFile    = files?.gd?.[0];     // primary .gd document (required)
+      const csvFile   = files?.csv?.[0];    // data mapping CSV (optional)
+      const xsdFile   = files?.xsd?.[0];    // XSD schema (optional)
+      const gdRefFile = files?.gdref?.[0];  // reference .gd for GUIDs (optional)
 
-      if (!docxFile || !csvFile || !xsdFile) {
-        return res.status(400).json({ error: 'Missing required files: docx, csv, xsd' });
+      if (!gdFile) {
+        return res.status(400).json({ error: 'A .gd document file is required' });
       }
 
       const provider: string = (req.body?.provider as string) || 'gemini';
       const userId = req.user!.id;
 
-      const csvText = csvFile.buffer.toString('utf-8');
-      const xsdText = xsdFile.buffer.toString('utf-8');
-
-      const rows = parseMappingCsv(csvText);
-      if (rows.length === 0) {
+      const xsdText = xsdFile ? xsdFile.buffer.toString('utf-8') : '';
+      const rows: MappingRow[] = csvFile ? parseMappingCsv(csvFile.buffer.toString('utf-8')) : [];
+      if (csvFile && rows.length === 0) {
         return res.status(400).json({ error: 'No valid rows found in CSV — all XSD paths may be "path not found".' });
       }
+      if (rows.length > 0) detectDateFields(xsdText, rows);
 
-      detectDateFields(xsdText, rows);
+      // Extract RTF content directly from the uploaded .gd file
+      const gdXml   = gdFile.buffer.toString('utf-8');
+      const docName = gdFile.originalname.replace(/\.gd$/i, '');
+      const baseRtf = extractRtfFromGd(gdXml);
+      const rawText = extractRawTextFromRtf(baseRtf);
 
-      const imageCache = new Map<string, { data: Buffer; contentType: string }>();
-      let imgIdx = 0;
+      let allDetected: DetectedVariable[];
+      let skipped: string[];
 
-      const [htmlResult, rawResult] = await Promise.all([
-        (mammoth.convertToHtml as any)(
-          { buffer: docxFile.buffer },
-          {
-            convertImage: mammoth.images.imgElement(async (image: any) => {
-              const data = Buffer.from(await image.read());
-              const key = `__IMG${imgIdx++}__`;
-              imageCache.set(key, { data, contentType: image.contentType ?? 'image/png' });
-              return { src: key };
-            }),
+      if (rows.length > 0) {
+        // ── Deterministic mode: match CSV fields to variables in document ──────
+        // Stage 1: fast string matching
+        const { detected: stringDetected, skipped: stringSkipped } = detectVariables(rawText, rows);
+        allDetected = stringDetected;
+        skipped = stringSkipped;
+
+        // Stage 2: LLM fallback for any CSV fields still undetected
+        if (skipped.length > 0) {
+          try {
+            const undetectedRows = rows.filter(r => skipped.includes(r.fieldLabel));
+            const prompt = buildDetectionPrompt(rawText, undetectedRows);
+            const llmResults = await callLLMForDetection(provider, userId, prompt);
+            const nextId = (stringDetected[stringDetected.length - 1]?.fillPointId ?? 0) + 1;
+            const llmDetected = mergeDetections(stringDetected, llmResults, rows, nextId);
+            allDetected = [...stringDetected, ...llmDetected];
+            const llmFoundLabels = new Set(llmDetected.map(v => v.row.fieldLabel));
+            skipped = skipped.filter(label => !llmFoundLabels.has(label));
+          } catch (llmErr) {
+            console.warn('[ghostDraftGenerator] LLM detection failed:', llmErr);
           }
-        ),
-        mammoth.extractRawText({ buffer: docxFile.buffer }),
-      ]);
-
-      // Stage 1: fast string matching
-      const { detected: stringDetected, skipped: stringSkipped } = detectVariables(rawResult.value, rows);
-
-      // Stage 2: LLM for any fields still undetected
-      let allDetected = stringDetected;
-      let skipped = stringSkipped;
-
-      if (skipped.length > 0) {
-        try {
-          const undetectedRows = rows.filter(r => skipped.includes(r.fieldLabel));
-          const prompt = buildDetectionPrompt(rawResult.value, undetectedRows);
-          const llmResults = await callLLMForDetection(provider, userId, prompt);
-
-          const nextId = (stringDetected[stringDetected.length - 1]?.fillPointId ?? 0) + 1;
-          const llmDetected = mergeDetections(stringDetected, llmResults, rows, nextId);
-          allDetected = [...stringDetected, ...llmDetected];
-
-          const llmFoundLabels = new Set(llmDetected.map(v => v.row.fieldLabel));
-          skipped = skipped.filter(label => !llmFoundLabels.has(label));
-        } catch (llmErr) {
-          console.warn('[ghostDraftGenerator] LLM detection failed:', llmErr);
         }
+      } else {
+        // ── Auto-detect mode: scan for [bracket] and <bracket> patterns ────────
+        allDetected = autoDetectVariables(rawText);
+        skipped = [];
       }
 
-      // Stage 3: resolve GhostDraft instructions from .gd reference (heuristic + LLM fallback)
+      // Stage 3: resolve domain/node GUIDs from reference .gd (both modes)
       if (gdRefFile) {
         try {
-          const gdText = gdRefFile.buffer.toString('utf-8');
-          const gdInstructions = parseGdFile(gdText);
+          const gdRefText = gdRefFile.buffer.toString('utf-8');
+          const gdInstructions = parseGdFile(gdRefText);
           if (gdInstructions.length > 0) {
             await assignResolvedNodes(allDetected, gdInstructions, provider, userId);
           }
@@ -1257,16 +1334,10 @@ router.post(
         }
       }
 
-      const imageRtfMap = buildImageRtfMap(imageCache);
-      const enhancedHtml = injectBlankParagraphs(htmlResult.value, rawResult.value);
-      const { html: substitutedHtml, allVariables } = applySubstitutionsToHtml(enhancedHtml, allDetected);
-      const rtfContent = htmlToRtf(substitutedHtml, imageRtfMap);
-
-      const docName = docxFile.originalname.replace(/\.docx$/i, '');
-      // Use allVariables (expanded for multi-occurrence) so each RTF %[N] marker
-      // has its own instruction entry in the .gd XML.
-      const gdContent = buildGdXml(docName, rtfContent, allVariables);
-      const sampleXml = buildSampleXml(rows, xsdText);
+      // Apply substitutions directly to the RTF (bracket chars need no HTML encoding)
+      const { rtf: substitutedRtf, allVariables } = applySubstitutionsToRtf(baseRtf, allDetected);
+      const gdContent = buildGdXml(docName, substitutedRtf, allVariables);
+      const sampleXml = rows.length > 0 ? buildSampleXml(rows, xsdText) : '';
 
       const variableMap = allVariables.map(v => ({
         fillPointId: v.fillPointId,

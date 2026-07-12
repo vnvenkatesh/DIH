@@ -338,14 +338,6 @@ const GhostDraftGenerator: React.FC = () => {
             }`}>
               {isAutoDetect ? 'Auto-detect' : 'Deterministic'}
             </span>
-            {result.skipped.length > 0 && (
-              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-                </svg>
-                <span className="text-sm">{result.skipped.length} field{result.skipped.length !== 1 ? 's' : ''} not found in document</span>
-              </div>
-            )}
             {result.unresolved?.length > 0 && (
               <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -375,20 +367,6 @@ const GhostDraftGenerator: React.FC = () => {
               </button>
             </div>
           </div>
-
-          {/* Skipped Fields */}
-          {result.skipped.length > 0 && (
-            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-2">Fields not detected in document:</p>
-              <div className="flex flex-wrap gap-2">
-                {result.skipped.map((label, i) => (
-                  <span key={i} className="inline-block px-2.5 py-0.5 text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 rounded-full border border-amber-200 dark:border-amber-700">
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Unresolved Placeholders */}
           {result.unresolved?.length > 0 && (

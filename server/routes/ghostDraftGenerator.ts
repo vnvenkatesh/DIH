@@ -285,6 +285,18 @@ function maskRtfPictBlocks(rtf: string): { masked: string; restore: (s: string) 
   };
 }
 
+// Trim whitespace immediately inside bracket placeholder patterns so that
+// "< Issuing Company Name>" and "[Amount ]" are normalised to their clean forms
+// before detection and substitution.  Runs on the masked RTF so pict image
+// data is never touched.
+function normalizeRtfBracketSpaces(rtf: string): string {
+  const { masked, restore } = maskRtfPictBlocks(rtf);
+  const normalized = masked
+    .replace(/\[\s+([A-Za-z][^\[\]\n\r]*?)\s*\]/g, '[$1]')   // [ foo ] → [foo]
+    .replace(/<\s+([A-Za-z][^\<\>\n\r]*?)\s*>/g, '<$1>');     // < foo > → <foo>
+  return restore(normalized);
+}
+
 function extractRawTextFromRtf(rtf: string): string {
   // Exclude image blocks entirely so their hex/binary data never pollutes variable detection
   const { masked } = maskRtfPictBlocks(rtf);
@@ -1288,12 +1300,10 @@ Omit fields that have no good match.`;
 async function assignResolvedNodes(
   detected: DetectedVariable[],
   instructions: GdInstruction[],
-  provider: string,
-  userId: number
+  _provider: string,
+  _userId: number
 ): Promise<void> {
   if (instructions.length === 0) return;
-
-  const unmatched: DetectedVariable[] = [];
 
   for (const v of detected) {
     const instr = heuristicMatch(v.row, instructions);
@@ -1304,33 +1314,9 @@ async function assignResolvedNodes(
         nodeName: instr.nodeName,
         nodeGuid: instr.nodeGuid,
       };
-    } else {
-      unmatched.push(v);
     }
-  }
-
-  if (unmatched.length > 0) {
-    try {
-      const llmMap = await llmMatchInstructions(
-        unmatched.map(v => v.row),
-        instructions,
-        provider,
-        userId
-      );
-      for (const v of unmatched) {
-        const instr = llmMap.get(v.row.fieldLabel);
-        if (instr) {
-          v.resolved = {
-            domain: instr.rootNode,
-            domainGuid: instr.rootguid,
-            nodeName: instr.nodeName,
-            nodeGuid: instr.nodeGuid,
-          };
-        }
-      }
-    } catch (err) {
-      console.warn('[ghostDraftGenerator] LLM instruction matching failed:', err);
-    }
+    // No LLM fallback: a wrong guess is worse than no guess.
+    // Variables without a heuristic match keep their XSD-derived domain/nodeName.
   }
 }
 
@@ -1369,7 +1355,8 @@ router.post(
       // Extract RTF content directly from the uploaded .gd file
       const gdXml   = gdFile.buffer.toString('utf-8');
       const docName = gdFile.originalname.replace(/\.gd$/i, '');
-      const baseRtf = extractRtfFromGd(gdXml);
+      // Normalise bracket spaces BEFORE detection so "< Foo >" matches "<Foo>"
+      const baseRtf = normalizeRtfBracketSpaces(extractRtfFromGd(gdXml));
       const rawText = extractRawTextFromRtf(baseRtf);
 
       let allDetected: DetectedVariable[];

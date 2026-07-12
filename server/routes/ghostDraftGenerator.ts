@@ -191,6 +191,19 @@ function detectVariables(
 
     if (searchText) {
       detected.push({ fillPointId: fillPointId++, row, searchText, detectionMethod });
+
+      // A variable may appear in both bracket forms in the same document
+      // (e.g. <Issuing Company Name> near the top and [Issuing Company Name] at the end).
+      // Detect and add the alternate form as a second entry sharing the same row so both
+      // occurrences get their own %[N] fill point and the same instruction GUID.
+      const altSearchText = searchText.startsWith('<')
+        ? `[${searchText.slice(1, -1)}]`   // <Foo> → [Foo]
+        : searchText.startsWith('[')
+          ? `<${searchText.slice(1, -1)}>`  // [Foo] → <Foo>
+          : null;
+      if (altSearchText && rawText.includes(altSearchText)) {
+        detected.push({ fillPointId: fillPointId++, row, searchText: altSearchText, detectionMethod });
+      }
     } else {
       skipped.push(row.fieldLabel);
     }
@@ -1073,11 +1086,12 @@ function heuristicMatch(row: MappingRow, instructions: GdInstruction[]): GdInstr
 
   for (const candidate of candidates) {
     const lc = candidate.toLowerCase();
-    // Domain-filtered first (more specific)
-    const inDomain = domainFiltered.find(i => i.nodeName.toLowerCase() === lc);
+    // Strip spaces from reference node names before comparing — reference .gd files often use
+    // human-readable names with spaces (e.g. "Policy Holder") while candidates are PascalCase
+    // without spaces (e.g. "PolicyHolder"). Removing spaces from both sides aligns them.
+    const inDomain = domainFiltered.find(i => i.nodeName.toLowerCase().replace(/\s+/g, '') === lc);
     if (inDomain) return inDomain;
-    // Global fallback
-    const global = instructions.find(i => i.nodeName.toLowerCase() === lc);
+    const global = instructions.find(i => i.nodeName.toLowerCase().replace(/\s+/g, '') === lc);
     if (global) return global;
   }
 

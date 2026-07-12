@@ -183,6 +183,40 @@ function detectVariables(
       }
     }
 
+    // 2.7. Word-prefix partial match (last-resort bracket fallback, before sample-value).
+    //      A doc bracket whose words are a strict leading prefix of the CSV label words is
+    //      treated as a truncated form of the same variable.
+    //      e.g. doc "[Premium Amount]" → ["premium","amount"] is a prefix of
+    //           CSV "Premium Amount Paid" → ["premium","amount","paid"].
+    //
+    //      Domain safety: because ALL doc words must equal the first N CSV label words in
+    //      order, a bracket from a different context (e.g. "[Claim Amount]" vs
+    //      "Premium Amount Paid") fails at the first-word comparison and never matches.
+    //
+    //      Guards:
+    //      - CSV label must have ≥ 3 words (shorter labels are handled by steps 2/2.5).
+    //      - Doc bracket must have ≥ 2 words and be strictly shorter than the CSV label.
+    if (!searchText) {
+      const csvWords = row.fieldLabel.toLowerCase().trim().replace(/-/g, ' ').split(/\s+/);
+      if (csvWords.length >= 3) {
+        const bracketScanRe = /[\[<]\s*([A-Za-z][^\[\]<>\n\r]*?)\s*[\]>]/g;
+        let bm: RegExpExecArray | null;
+        while ((bm = bracketScanRe.exec(rawText)) !== null) {
+          const docInner = bm[1].replace(/-/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+          const docWords = docInner.split(/\s+/);
+          if (
+            docWords.length >= 2 &&
+            docWords.length < csvWords.length &&
+            docWords.every((w, i) => w === csvWords[i])
+          ) {
+            searchText = bm[0];
+            detectionMethod = 'placeholder';
+            break;
+          }
+        }
+      }
+    }
+
     // 3. Last resort: sample value (useful when the doc has the literal value hardcoded, not a placeholder)
     if (!searchText && row.sampleValue && rawText.includes(row.sampleValue)) {
       searchText = row.sampleValue;

@@ -15,55 +15,153 @@ interface ValidationResult {
   x: number | null; y: number | null; w: number | null; h: number | null;
 }
 
-interface Summary { total: number; passed: number; failed: number; na: number; }
+interface Summary { total: number; passed: number; failed: number; na: number; skipped: number; }
 
 interface ValidateResponse { summary: Summary; fieldMap: FieldMatch[]; results: ValidationResult[]; }
 
 type StatusFilter = 'ALL' | 'PASS' | 'FAIL' | 'NA';
 type Mode = 'deterministic' | 'ai';
+type FileSlot = 'pdf' | 'data' | 'rules' | 'testcases';
 
-// ─── File Drop Zone ───────────────────────────────────────────────────────────
+// ─── File Auto-Detection ──────────────────────────────────────────────────────
 
-interface DropZoneProps {
-  label: string; accept: string; file: File | null;
-  onChange: (f: File | null) => void; required?: boolean;
+async function detectFileRole(file: File): Promise<FileSlot | null> {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'json' || ext === 'xml') return 'data';
+  if (ext === 'csv') {
+    const nameLc = file.name.toLowerCase();
+    if (/test|tc[-_ ]|testcase/.test(nameLc)) return 'testcases';
+    try {
+      const text = await file.slice(0, 512).text();
+      const firstLine = text.split('\n')[0] ?? '';
+      if (/Test Case ID|TC-\d|Category.*Description/i.test(firstLine)) return 'testcases';
+    } catch { /* ignore */ }
+    return 'rules';
+  }
+  return null;
 }
 
-const DropZone: React.FC<DropZoneProps> = ({ label, accept, file, onChange, required }) => {
+// ─── Multi-File Drop Zone ─────────────────────────────────────────────────────
+
+interface SlotState {
+  pdf: File | null;
+  data: File | null;
+  rules: File | null;
+  testcases: File | null;
+}
+
+interface MultiDropZoneProps {
+  slots: SlotState;
+  onSlotChange: (slot: FileSlot, file: File | null) => void;
+}
+
+const SLOT_META: Array<{ key: FileSlot; label: string; hint: string; required: boolean }> = [
+  { key: 'pdf',       label: 'PDF',           hint: '.pdf',        required: true },
+  { key: 'data',      label: 'Input Data',     hint: '.json / .xml', required: true },
+  { key: 'testcases', label: 'Test Cases',     hint: '.csv',        required: true },
+  { key: 'rules',     label: 'Business Rules', hint: '.csv',        required: false },
+];
+
+const SLOT_COLORS: Record<FileSlot, { filled: string; empty: string }> = {
+  pdf:       { filled: 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300',     empty: 'border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
+  data:      { filled: 'bg-violet-50 dark:bg-violet-900/20 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300', empty: 'border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
+  testcases: { filled: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300', empty: 'border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
+  rules:     { filled: 'bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300',   empty: 'border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
+};
+
+const MultiDropZone: React.FC<MultiDropZoneProps> = ({ slots, onSlotChange }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
+  const assignFiles = useCallback(async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    // Track remaining available slots to handle multiple CSVs
+    const taken: Partial<Record<FileSlot, boolean>> = {};
+    for (const [k, v] of Object.entries(slots)) {
+      if (v !== null) taken[k as FileSlot] = true;
+    }
+
+    for (const file of files) {
+      let role = await detectFileRole(file);
+      if (!role) continue;
+      // If slot is already occupied try the other CSV slot
+      if (taken[role]) {
+        if (role === 'testcases' && !taken['rules']) role = 'rules';
+        else if (role === 'rules' && !taken['testcases']) role = 'testcases';
+        else continue; // Both CSV slots taken — skip
+      }
+      taken[role] = true;
+      onSlotChange(role, file);
+    }
+  }, [slots, onSlotChange]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
-    const f = e.dataTransfer.files[0];
-    if (f) onChange(f);
-  }, [onChange]);
+    assignFiles(e.dataTransfer.files);
+  }, [assignFiles]);
 
   return (
-    <div
-      onClick={() => inputRef.current?.click()}
-      onDragOver={e => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={handleDrop}
-      className={`relative flex flex-col items-center justify-center gap-1 p-3 rounded-lg border-2 border-dashed cursor-pointer transition-colors text-center
-        ${dragging ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : file ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-slate-300 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-600'}`}
-    >
-      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={e => onChange(e.target.files?.[0] ?? null)} />
-      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-        {label}{required && <span className="text-red-400 ml-0.5">*</span>}
-      </span>
-      {file ? (
-        <span className="text-xs text-green-600 dark:text-green-400 font-medium truncate max-w-full px-1">{file.name}</span>
-      ) : (
-        <span className="text-xs text-slate-400 dark:text-slate-500">Drop or click</span>
-      )}
-      {file && (
-        <button
-          onClick={e => { e.stopPropagation(); onChange(null); }}
-          className="absolute top-1 right-1 text-slate-400 hover:text-red-500 text-xs leading-none"
-          title="Remove"
-        >✕</button>
-      )}
+    <div className="space-y-3">
+      {/* Drop target */}
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors
+          ${dragging
+            ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20'
+            : 'border-slate-300 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-600 bg-slate-50/50 dark:bg-slate-800/50'
+          }`}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".pdf,.json,.xml,.csv"
+          className="hidden"
+          onChange={e => { if (e.target.files) assignFiles(e.target.files); e.target.value = ''; }}
+        />
+        <svg className="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+        <div className="text-center">
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Drop files here or click to browse</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">PDF · JSON/XML · CSV (rules &amp; test cases) — auto-detected</p>
+        </div>
+      </div>
+
+      {/* Slot chips */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {SLOT_META.map(({ key, label, hint, required }) => {
+          const file = slots[key];
+          const colors = SLOT_COLORS[key];
+          return (
+            <div
+              key={key}
+              className={`relative flex flex-col gap-0.5 px-3 py-2 rounded-lg border text-xs transition-colors ${file ? colors.filled : colors.empty}`}
+            >
+              <span className="font-semibold leading-none">
+                {label}
+                {required && !file && <span className="text-red-400 ml-0.5">*</span>}
+              </span>
+              {file ? (
+                <>
+                  <span className="truncate opacity-80">{file.name}</span>
+                  <button
+                    onClick={() => onSlotChange(key, null)}
+                    className="absolute top-1 right-1.5 text-slate-400 hover:text-red-500 text-xs leading-none"
+                    title="Remove"
+                  >✕</button>
+                </>
+              ) : (
+                <span className="opacity-60">{hint}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
@@ -89,10 +187,7 @@ const StatusBadge: React.FC<{ status: 'PASS' | 'FAIL' | 'NA' }> = ({ status }) =
 const PdfValidator: React.FC = () => {
   const { settings } = useSettings();
 
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [dataFile, setDataFile] = useState<File | null>(null);
-  const [rulesFile, setRulesFile] = useState<File | null>(null);
-  const [testcasesFile, setTestcasesFile] = useState<File | null>(null);
+  const [slots, setSlots] = useState<SlotState>({ pdf: null, data: null, rules: null, testcases: null });
   const [mode, setMode] = useState<Mode>('deterministic');
 
   const [loading, setLoading] = useState(false);
@@ -109,11 +204,16 @@ const PdfValidator: React.FC = () => {
 
   const provider = settings.llmProvider ?? 'gemini';
 
+  const handleSlotChange = useCallback((slot: FileSlot, file: File | null) => {
+    setSlots(prev => ({ ...prev, [slot]: file }));
+  }, []);
+
   // ── Validate ────────────────────────────────────────────────────────────────
 
   const handleValidate = async () => {
+    const { pdf: pdfFile, data: dataFile, testcases: testcasesFile, rules: rulesFile } = slots;
     if (!pdfFile || !dataFile || !testcasesFile) {
-      setError('PDF, input data, and test cases files are required.');
+      setError('PDF, Input Data, and Test Cases files are required.');
       return;
     }
     setLoading(true); setError(null); setSummary(null); setResults([]); setFieldMap([]);
@@ -126,6 +226,10 @@ const PdfValidator: React.FC = () => {
       if (rulesFile) fd.append('rules', rulesFile);
       fd.append('mode', mode);
       fd.append('provider', provider);
+
+      // Pass per-user API key so server doesn't need env vars
+      const apiKey = provider === 'claude' ? settings.claudeApiKey : settings.geminiApiKey;
+      if (apiKey) fd.append('apiKey', apiKey);
 
       const resp = await fetch('/v1/pdf-validator/validate', { method: 'POST', body: fd });
       if (!resp.ok) {
@@ -147,6 +251,7 @@ const PdfValidator: React.FC = () => {
   // ── Annotate ────────────────────────────────────────────────────────────────
 
   const handleAnnotate = async () => {
+    const pdfFile = slots.pdf;
     if (!pdfFile || results.length === 0) return;
     setAnnotating(true);
     try {
@@ -182,6 +287,8 @@ const PdfValidator: React.FC = () => {
     return true;
   });
 
+  const canValidate = !loading && !!slots.pdf && !!slots.data && !!slots.testcases;
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -191,15 +298,10 @@ const PdfValidator: React.FC = () => {
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Upload Files</h3>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <DropZone label="PDF to Validate" accept=".pdf" file={pdfFile} onChange={setPdfFile} required />
-          <DropZone label="Input Data (JSON / XML)" accept=".json,.xml" file={dataFile} onChange={setDataFile} required />
-          <DropZone label="Business Rules CSV" accept=".csv" file={rulesFile} onChange={setRulesFile} />
-          <DropZone label="Test Cases CSV" accept=".csv" file={testcasesFile} onChange={setTestcasesFile} required />
-        </div>
+        <MultiDropZone slots={slots} onSlotChange={handleSlotChange} />
 
-        {/* Mode toggle */}
-        <div className="flex items-center gap-4 flex-wrap">
+        {/* Mode toggle + Validate */}
+        <div className="flex items-center gap-4 flex-wrap mt-4">
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
             {(['deterministic', 'ai'] as Mode[]).map(m => (
               <button
@@ -222,7 +324,7 @@ const PdfValidator: React.FC = () => {
           )}
           <button
             onClick={handleValidate}
-            disabled={loading || !pdfFile || !dataFile || !testcasesFile}
+            disabled={!canValidate}
             className="ml-auto px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center gap-2"
           >
             {loading ? (
@@ -251,12 +353,13 @@ const PdfValidator: React.FC = () => {
       {summary && (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex gap-4 flex-1">
+            <div className="flex gap-4 flex-1 flex-wrap">
               {[
                 { label: 'Total', value: summary.total, color: 'text-slate-700 dark:text-slate-300' },
                 { label: 'Passed', value: summary.passed, color: 'text-green-600 dark:text-green-400' },
                 { label: 'Failed', value: summary.failed, color: 'text-red-600 dark:text-red-400' },
                 { label: 'N/A', value: summary.na, color: 'text-slate-400 dark:text-slate-500' },
+                { label: 'Skipped', value: summary.skipped, color: 'text-amber-500 dark:text-amber-400' },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-center min-w-[56px]">
                   <div className={`text-2xl font-bold ${color}`}>{value}</div>
@@ -266,7 +369,7 @@ const PdfValidator: React.FC = () => {
 
               {/* Pass rate bar */}
               {summary.total > 0 && (
-                <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 flex items-center gap-2 min-w-[120px]">
                   <div className="flex-1 h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-green-500 rounded-full transition-all"
@@ -303,6 +406,12 @@ const PdfValidator: React.FC = () => {
               )}
             </button>
           </div>
+
+          {summary.skipped > 0 && (
+            <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
+              {summary.skipped} test case{summary.skipped > 1 ? 's' : ''} skipped — fields not present in the input data file
+            </p>
+          )}
         </div>
       )}
 

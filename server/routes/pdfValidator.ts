@@ -8,7 +8,6 @@ import multer from 'multer';
 import path from 'path';
 import { PDFDocument, PDFName, PDFArray, PDFString, rgb } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
-import { callGemini, extractJsonText } from '../gemini.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -401,6 +400,27 @@ function validateDeterministic(
   });
 }
 
+// ─── Applicability Pre-filter ─────────────────────────────────────────────────
+
+function isApplicable(tc: TestCase, flatData: Record<string, string>): boolean {
+  const inputLc = tc.inputData.toLowerCase().trim();
+  const expectLc = tc.expectedResult.toLowerCase().trim();
+
+  if (inputLc.startsWith('user action:') || expectLc.startsWith('error displayed')) return false;
+  if (inputLc === '(empty)' || inputLc === 'null') return false;
+
+  const cat = tc.category.toLowerCase();
+
+  if (cat === 'conditional') {
+    const cond = parseCondition(tc.inputData);
+    if (!cond || cond.condField.toLowerCase().startsWith('user action')) return false;
+    return evaluateCondition(cond.condField, cond.condValue, flatData) !== null;
+  }
+
+  // boundary, calculation, happy path, format, mandatory — field must exist in data
+  return lookupField(tc.field, flatData) !== null;
+}
+
 // ─── AI Validator ─────────────────────────────────────────────────────────────
 
 async function validateWithAI(
@@ -409,6 +429,7 @@ async function validateWithAI(
   corpus: string,
   rulesText: string,
   provider: string,
+  apiKey?: string,
 ): Promise<ValidationResult[]> {
   const dataLines = Object.entries(flatData).map(([k, v]) => `  ${k}: ${v}`).join('\n');
   const tcLines = testCases.map(tc =>
@@ -447,11 +468,11 @@ Return ONLY a JSON array — no markdown, no explanation:
 
   let rawJson: string;
   if (provider === 'claude') {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+    const key = apiKey || process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error('No Claude API key configured. Add one in Settings.');
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001', max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
@@ -459,15 +480,23 @@ Return ONLY a JSON array — no markdown, no explanation:
     });
     const data = await resp.json() as any;
     rawJson = data.content?.[0]?.text ?? '[]';
-    // Strip markdown fences if Claude wraps output
     rawJson = rawJson.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
   } else {
-    const result = await callGemini(
-      'gemini-2.5-flash',
-      [{ role: 'user', parts: [{ text: prompt }] }],
-      { responseMimeType: 'application/json', temperature: 0 },
+    const key = apiKey || process.env.GEMINI_API_KEY;
+    if (!key) throw new Error('No Gemini API key configured. Add one in Settings.');
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+        }),
+      },
     );
-    rawJson = extractJsonText(result);
+    const gData = await resp.json() as any;
+    rawJson = gData.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
   }
 
   const parsed = JSON.parse(rawJson) as Array<{ id: string; status: string; reason: string; page?: number }>;
@@ -589,7 +618,7 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
     const dataFile = files['data']?.[0];
     const testcasesFile = files['testcases']?.[0];
     const rulesFile = files['rules']?.[0];
-    const { mode = 'deterministic', provider = 'gemini' } = req.body;
+    const { mode = 'deterministic', provider = 'gemini', apiKey } = req.body;
 
     if (!pdfFile || !dataFile || !testcasesFile) {
       res.status(400).json({ error: 'pdf, data, and testcases files are required' });
@@ -615,11 +644,14 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
     const fieldMap = buildFieldMap(flatData, items);
     const rulesText = rulesFile ? rulesFile.buffer.toString('utf8') : '';
 
+    const applicable = testCases.filter(tc => isApplicable(tc, flatData));
+    const skipped = testCases.length - applicable.length;
+
     let results: ValidationResult[];
     if (mode === 'ai') {
-      results = await validateWithAI(testCases, flatData, corpus, rulesText, provider);
+      results = await validateWithAI(applicable, flatData, corpus, rulesText, provider, apiKey);
     } else {
-      results = validateDeterministic(testCases, flatData, items, corpus);
+      results = validateDeterministic(applicable, flatData, items, corpus);
     }
 
     const summary = {
@@ -627,6 +659,7 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
       passed: results.filter(r => r.status === 'PASS').length,
       failed: results.filter(r => r.status === 'FAIL').length,
       na: results.filter(r => r.status === 'NA').length,
+      skipped,
     };
 
     res.json({ summary, fieldMap, results });

@@ -623,11 +623,29 @@ async function buildAnnotatedPdf(
     // Coloured rectangle over the matched text
     page.drawRectangle({ x: fm.x, y: fm.y, width: w, height: h, color: fillColor, opacity: 0.2, borderWidth: 1, borderColor: fillColor, borderOpacity: 0.6 });
 
-    // Sticky-note annotation with test case results
+    // Sticky-note annotation — rich context
     const relatedResults = resultsByField.get(fm.field) ?? [];
-    const noteLines = relatedResults.length > 0
-      ? relatedResults.map(r => `[${r.status}] ${r.id}: ${r.reason}`).join('\n')
-      : `${fm.field} = ${fm.value} (${fm.matchType === 'near' ? 'near-match — rendering issue' : 'matched'})`;
+    const matchDesc = fm.matchType === 'exact'
+      ? 'Exact match found in PDF'
+      : fm.matchType === 'near'
+      ? 'Near-match: rendering artifact (double $ prefix detected)'
+      : 'Value not found anywhere in PDF';
+
+    const header = [
+      `Field: ${fm.field}`,
+      `Data value: ${fm.value}`,
+      `XML path: ${fm.xmlKey}`,
+      `PDF match: ${matchDesc}`,
+      fm.page != null ? `Location: Page ${fm.page}` : '',
+    ].filter(Boolean).join('\n');
+
+    const tcSection = relatedResults.length > 0
+      ? '\n\n--- Validation Results ---\n' + relatedResults.map(r =>
+          `[${r.status}] ${r.id} (${r.category})\n  ${r.description}\n  Outcome: ${r.reason}`
+        ).join('\n\n')
+      : '\n\nNo test cases cover this field.\nField coverage check only.';
+
+    const noteLines = header + tcSection;
 
     addAnnotToPage(pageIdx, {
       Type: PDFName.of('Annot'),
@@ -643,7 +661,10 @@ async function buildAnnotatedPdf(
   // Unlocated FAIL results → margin sticky note on page 1
   const unlocated = results.filter(r => r.status === 'FAIL' && r.page == null);
   if (unlocated.length > 0) {
-    const noteText = unlocated.map(r => `[FAIL] ${r.id} (${r.field}): ${r.reason}`).join('\n');
+    const noteText = `Unlocated Failures (${unlocated.length})\nThese fields failed validation but could not be located in the PDF.\n\n`
+      + unlocated.map(r =>
+          `[FAIL] ${r.id} · ${r.category}\nField: ${r.field}\n${r.description}\nReason: ${r.reason}`
+        ).join('\n\n');
     addAnnotToPage(0, {
       Type: PDFName.of('Annot'),
       Subtype: PDFName.of('Text'),

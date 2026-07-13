@@ -325,6 +325,140 @@ function buildAdditionalResults(
   return additional;
 }
 
+// ─── Output Issue Detector ────────────────────────────────────────────────────
+
+// Pattern-based checks — always run regardless of mode.
+function detectOutputIssues(corpus: string, items: TextItem[]): ValidationResult[] {
+  const issues: ValidationResult[] = [];
+  const seen = new Set<string>();
+
+  const check = (
+    pattern: RegExp,
+    field: string,
+    describe: (m: string) => string,
+    explain: (m: string) => string,
+  ) => {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(corpus)) !== null) {
+      const raw = match[0];
+      const key = `${field}:${raw.trim().toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const loc = searchInItems(items, raw.trim());
+      issues.push({
+        id: '',  // renumbered after merge
+        field,
+        category: 'Output Issue',
+        description: describe(raw),
+        status: 'FAIL',
+        reason: explain(raw),
+        page: loc.page, x: loc.x, y: loc.y, w: loc.w, h: loc.h,
+      });
+    }
+  };
+
+  // Double dollar sign — variable substitution artifact ($$1,200.00)
+  check(
+    /\$\$[\d,]+(?:\.\d{2})?/g,
+    'Double Dollar Sign',
+    m => `Currency rendered with double $ sign: "${m}"`,
+    m => `"${m}" appears in PDF — the $ currency symbol was doubled during variable substitution`,
+  );
+
+  // Repeated consecutive words (3+ char words, case-insensitive)
+  check(
+    /\b([A-Za-z]{3,})\s+\1\b/gi,
+    'Repeated Word',
+    m => `Word repeated consecutively: "${m.trim()}"`,
+    m => `"${m.trim().split(/\s+/)[0]}" appears twice in a row — possible copy-paste or merge artifact`,
+  );
+
+  // Unresolved template placeholders left in the output
+  check(
+    /\{[A-Z][A-Z0-9_]{1,}\}|\[\[[A-Za-z][A-Za-z0-9_\s]{1,}\]\]/g,
+    'Unresolved Placeholder',
+    m => `Unresolved placeholder in PDF: "${m}"`,
+    m => `"${m}" was not substituted — the template variable may be missing from the input data`,
+  );
+
+  // Double punctuation (e.g. ".." or ",," or "!!" that aren't ellipsis "...")
+  check(
+    /(?<!\.)\.\.(?!\.)|\,\,|!!|\?\?/g,
+    'Double Punctuation',
+    m => `Double punctuation mark: "${m}"`,
+    m => `"${m}" appears in PDF — likely a formatting or concatenation error`,
+  );
+
+  return issues;
+}
+
+// AI-powered proofreading — runs in AI mode only, catches spelling/grammar/style issues.
+async function detectOutputIssuesWithAI(
+  corpus: string,
+  provider: string,
+  apiKey?: string,
+): Promise<Array<{ field: string; description: string; excerpt: string; reason: string }>> {
+  const prompt = `You are a document quality reviewer. Check this PDF text for output quality issues.
+
+PDF TEXT:
+---
+${corpus.slice(0, 6000)}
+---
+
+Find ONLY high-confidence issues in these categories:
+- Spelling mistakes (genuine typos — NOT proper nouns, brand names, or technical terms)
+- Grammar errors (missing words, wrong tense, broken sentence structure, subject-verb disagreement)
+- Punctuation errors (missing full stops, double punctuation not caught by pattern scanning)
+- Formatting artifacts (garbled text, broken mid-word line breaks, visible template syntax not substituted)
+
+DO NOT flag:
+- Proper nouns, names, company names, product names, or place names
+- Numbers, dates, currency amounts, reference codes, or IDs
+- Industry-specific abbreviations or technical terms
+- Content that reads naturally in context
+
+Return a JSON array — empty array [] if nothing found:
+[{"field":"Spelling Mistake","description":"one-line label","excerpt":"exact text from PDF (max 80 chars)","reason":"why this is wrong"}]`;
+
+  try {
+    let rawJson: string;
+    if (provider === 'claude') {
+      const key = apiKey || process.env.ANTHROPIC_API_KEY;
+      if (!key) return [];
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001', max_tokens: 2048,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await resp.json() as any;
+      rawJson = (data.content?.[0]?.text ?? '[]').replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    } else {
+      const key = apiKey || process.env.GEMINI_API_KEY;
+      if (!key) return [];
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+          }),
+        },
+      );
+      const gData = await resp.json() as any;
+      rawJson = gData.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
+    }
+    return JSON.parse(rawJson) as Array<{ field: string; description: string; excerpt: string; reason: string }>;
+  } catch {
+    return [];
+  }
+}
+
 // ─── Format Pattern Library ───────────────────────────────────────────────────
 
 const FORMAT_PATTERNS: Array<{ test: RegExp; pattern: RegExp; label: string }> = [
@@ -784,7 +918,25 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
     }
 
     const additionalResults = buildAdditionalResults(fieldMap, tcResults, corpus);
-    const results = [...tcResults, ...additionalResults];
+
+    // Output quality issues — pattern-based always, AI proofreading in AI mode
+    const patternIssues = detectOutputIssues(corpus, items);
+    const aiRaw = mode === 'ai'
+      ? await detectOutputIssuesWithAI(corpus, provider, apiKey)
+      : [];
+    const aiIssues: ValidationResult[] = aiRaw.map(p => {
+      const loc = searchInItems(items, p.excerpt);
+      return {
+        id: '', field: p.field, category: 'Output Issue',
+        description: p.description, status: 'FAIL', reason: p.reason,
+        page: loc.page, x: loc.x, y: loc.y, w: loc.w, h: loc.h,
+      };
+    });
+    const outputIssues = [...patternIssues, ...aiIssues].map((r, i) => ({
+      ...r, id: `OID-${String(i + 1).padStart(3, '0')}`,
+    }));
+
+    const results = [...tcResults, ...additionalResults, ...outputIssues];
 
     const passed = results.filter(r => r.status === 'PASS').length;
     const failed = results.filter(r => r.status === 'FAIL').length;

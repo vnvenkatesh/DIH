@@ -24,7 +24,7 @@ type FileSlot = 'pdf' | 'data' | 'rules' | 'testcases';
 interface SlotState { pdf: File | null; data: File | null; rules: File | null; testcases: File | null; }
 
 interface ColFilters {
-  id: string;       // 'ALL' | 'TC-' | 'FC-' | 'BF-'
+  id: string;       // 'ALL' | 'TC-' | 'FC-' | 'BF-' | 'OID-'
   field: string;
   category: string; // 'ALL' | specific category
   status: string;   // 'ALL' | 'PASS' | 'FAIL' | 'NA'
@@ -452,6 +452,7 @@ const PdfValidator: React.FC = () => {
                       <option value="TC-">TC-*</option>
                       <option value="FC-">FC-*</option>
                       <option value="BF-">BF-*</option>
+                      <option value="OID-">OID-*</option>
                     </select>
                   </td>
                   {/* Field filter */}
@@ -537,6 +538,7 @@ const PdfValidator: React.FC = () => {
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-slate-300"></span>TC-* Test Cases</span>
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-teal-400"></span>FC-* Field Coverage</span>
               <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-400"></span>BF-* Bug Findings</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-purple-400"></span>OID-* Output Issues</span>
             </div>
           </div>
         </div>

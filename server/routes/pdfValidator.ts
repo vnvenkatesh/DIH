@@ -217,6 +217,62 @@ function buildFieldMap(flatData: Record<string, string>, items: TextItem[]): Fie
   });
 }
 
+// ─── Additional Results (field coverage + unexpected bugs) ────────────────────
+
+function buildAdditionalResults(
+  fieldMap: FieldMatch[],
+  existingResults: ValidationResult[],
+): ValidationResult[] {
+  // Normalise field names to deduplicate against test-case results
+  const covered = new Set<string>();
+  for (const r of existingResults) {
+    covered.add(r.field.toLowerCase().replace(/[\s\-_\/]/g, ''));
+  }
+
+  const additional: ValidationResult[] = [];
+  let fcIdx = 1;
+  let bfIdx = 1;
+
+  for (const fm of fieldMap) {
+    const norm = fm.field.toLowerCase().replace(/[\s\-_\/]/g, '');
+    if (covered.has(norm)) continue; // Already validated by a test case
+
+    if (fm.matchType === 'exact') {
+      additional.push({
+        id: `FC-${String(fcIdx++).padStart(3, '0')}`,
+        field: fm.field,
+        category: 'Field Coverage',
+        description: `Field "${fm.field}" rendered correctly from input data`,
+        status: 'PASS',
+        reason: `Value "${fm.value}" found in PDF`,
+        page: fm.page, x: fm.x, y: fm.y, w: fm.w, h: fm.h,
+      });
+    } else if (fm.matchType === 'near') {
+      additional.push({
+        id: `BF-${String(bfIdx++).padStart(3, '0')}`,
+        field: fm.field,
+        category: 'Bug Finding',
+        description: `Rendering artifact detected for "${fm.field}" — not covered by any test case`,
+        status: 'FAIL',
+        reason: `Rendering issue: PDF contains "${'$' + fm.value}" but input has "${fm.value}" (double dollar sign)`,
+        page: fm.page, x: fm.x, y: fm.y, w: fm.w, h: fm.h,
+      });
+    } else {
+      additional.push({
+        id: `BF-${String(bfIdx++).padStart(3, '0')}`,
+        field: fm.field,
+        category: 'Bug Finding',
+        description: `Field "${fm.field}" from input data not found in PDF — not covered by any test case`,
+        status: 'FAIL',
+        reason: `Value "${fm.value}" not found anywhere in PDF`,
+        page: null, x: null, y: null, w: null, h: null,
+      });
+    }
+  }
+
+  return additional;
+}
+
 // ─── Format Pattern Library ───────────────────────────────────────────────────
 
 const FORMAT_PATTERNS: Array<{ test: RegExp; pattern: RegExp; label: string }> = [
@@ -647,17 +703,22 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
     const applicable = testCases.filter(tc => isApplicable(tc, flatData));
     const skipped = testCases.length - applicable.length;
 
-    let results: ValidationResult[];
+    let tcResults: ValidationResult[];
     if (mode === 'ai') {
-      results = await validateWithAI(applicable, flatData, corpus, rulesText, provider, apiKey);
+      tcResults = await validateWithAI(applicable, flatData, corpus, rulesText, provider, apiKey);
     } else {
-      results = validateDeterministic(applicable, flatData, items, corpus);
+      tcResults = validateDeterministic(applicable, flatData, items, corpus);
     }
 
+    const additionalResults = buildAdditionalResults(fieldMap, tcResults);
+    const results = [...tcResults, ...additionalResults];
+
+    const passed = results.filter(r => r.status === 'PASS').length;
+    const failed = results.filter(r => r.status === 'FAIL').length;
     const summary = {
       total: results.length,
-      passed: results.filter(r => r.status === 'PASS').length,
-      failed: results.filter(r => r.status === 'FAIL').length,
+      passed,
+      failed,
       na: results.filter(r => r.status === 'NA').length,
       skipped,
     };

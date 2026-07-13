@@ -42,121 +42,109 @@ async function detectFileRole(file: File): Promise<FileSlot | null> {
   return null;
 }
 
-// ─── Multi-File Drop Zone ─────────────────────────────────────────────────────
+// ─── Slot metadata ────────────────────────────────────────────────────────────
 
-interface SlotState {
-  pdf: File | null;
-  data: File | null;
-  rules: File | null;
-  testcases: File | null;
-}
+interface SlotState { pdf: File | null; data: File | null; rules: File | null; testcases: File | null; }
 
-interface MultiDropZoneProps {
-  slots: SlotState;
-  onSlotChange: (slot: FileSlot, file: File | null) => void;
-}
-
-const SLOT_META: Array<{ key: FileSlot; label: string; hint: string; required: boolean }> = [
-  { key: 'pdf',       label: 'PDF',           hint: '.pdf',        required: true },
-  { key: 'data',      label: 'Input Data',     hint: '.json / .xml', required: true },
-  { key: 'testcases', label: 'Test Cases',     hint: '.csv',        required: true },
-  { key: 'rules',     label: 'Business Rules', hint: '.csv',        required: false },
+const SLOT_META: Array<{ key: FileSlot; label: string; accept: string; hint: string; required: boolean }> = [
+  { key: 'pdf',       label: 'PDF to Validate',    accept: '.pdf',       hint: '.pdf',         required: true },
+  { key: 'data',      label: 'Input Data',          accept: '.json,.xml', hint: '.json / .xml', required: true },
+  { key: 'testcases', label: 'Test Cases',          accept: '.csv',       hint: '.csv',         required: true },
+  { key: 'rules',     label: 'Business Rules',      accept: '.csv',       hint: '.csv',         required: false },
 ];
 
 const SLOT_COLORS: Record<FileSlot, { filled: string; empty: string }> = {
-  pdf:       { filled: 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300',     empty: 'border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
-  data:      { filled: 'bg-violet-50 dark:bg-violet-900/20 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300', empty: 'border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
-  testcases: { filled: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300', empty: 'border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
-  rules:     { filled: 'bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300',   empty: 'border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500' },
+  pdf:       { filled: 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300',         empty: 'border-slate-200 dark:border-slate-600 text-slate-400 hover:border-blue-300 dark:hover:border-blue-700' },
+  data:      { filled: 'bg-violet-50 dark:bg-violet-900/20 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300', empty: 'border-slate-200 dark:border-slate-600 text-slate-400 hover:border-violet-300 dark:hover:border-violet-700' },
+  testcases: { filled: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300', empty: 'border-slate-200 dark:border-slate-600 text-slate-400 hover:border-indigo-300 dark:hover:border-indigo-700' },
+  rules:     { filled: 'bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300',       empty: 'border-dashed border-slate-200 dark:border-slate-600 text-slate-400 hover:border-slate-400' },
 };
 
+// ─── Multi-File Drop Zone ─────────────────────────────────────────────────────
+
+interface MultiDropZoneProps { slots: SlotState; onSlotChange: (slot: FileSlot, file: File | null) => void; }
+
 const MultiDropZone: React.FC<MultiDropZoneProps> = ({ slots, onSlotChange }) => {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const bulkInputRef = useRef<HTMLInputElement>(null);
+  const slotRefs = useRef<Partial<Record<FileSlot, HTMLInputElement | null>>>({});
   const [dragging, setDragging] = useState(false);
 
   const assignFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
-    // Track remaining available slots to handle multiple CSVs
     const taken: Partial<Record<FileSlot, boolean>> = {};
-    for (const [k, v] of Object.entries(slots)) {
-      if (v !== null) taken[k as FileSlot] = true;
-    }
+    for (const [k, v] of Object.entries(slots)) if (v !== null) taken[k as FileSlot] = true;
 
     for (const file of files) {
       let role = await detectFileRole(file);
       if (!role) continue;
-      // If slot is already occupied try the other CSV slot
       if (taken[role]) {
         if (role === 'testcases' && !taken['rules']) role = 'rules';
         else if (role === 'rules' && !taken['testcases']) role = 'testcases';
-        else continue; // Both CSV slots taken — skip
+        else continue;
       }
       taken[role] = true;
       onSlotChange(role, file);
     }
   }, [slots, onSlotChange]);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setDragging(false);
-    assignFiles(e.dataTransfer.files);
-  }, [assignFiles]);
-
   return (
     <div className="space-y-3">
-      {/* Drop target */}
+      {/* Bulk drop target */}
       <div
-        onClick={() => inputRef.current?.click()}
+        onClick={() => bulkInputRef.current?.click()}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors
+        onDrop={e => { e.preventDefault(); setDragging(false); assignFiles(e.dataTransfer.files); }}
+        className={`flex items-center justify-center gap-3 px-4 py-4 rounded-xl border-2 border-dashed cursor-pointer transition-colors
           ${dragging
             ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20'
             : 'border-slate-300 dark:border-slate-600 hover:border-indigo-300 dark:hover:border-indigo-600 bg-slate-50/50 dark:bg-slate-800/50'
           }`}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept=".pdf,.json,.xml,.csv"
-          className="hidden"
-          onChange={e => { if (e.target.files) assignFiles(e.target.files); e.target.value = ''; }}
-        />
-        <svg className="w-8 h-8 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <input ref={bulkInputRef} type="file" multiple accept=".pdf,.json,.xml,.csv" className="hidden"
+          onChange={e => { if (e.target.files) assignFiles(e.target.files); e.target.value = ''; }} />
+        <svg className="w-7 h-7 flex-shrink-0 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
         </svg>
-        <div className="text-center">
-          <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Drop files here or click to browse</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">PDF · JSON/XML · CSV (rules &amp; test cases) — auto-detected</p>
+        <div>
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Drop all files here — auto-detected</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">PDF · JSON/XML · Test Cases CSV · Business Rules CSV</p>
         </div>
       </div>
 
-      {/* Slot chips */}
+      {/* Individual slot chips */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {SLOT_META.map(({ key, label, hint, required }) => {
+        {SLOT_META.map(({ key, label, accept, hint, required }) => {
           const file = slots[key];
           const colors = SLOT_COLORS[key];
           return (
-            <div
-              key={key}
-              className={`relative flex flex-col gap-0.5 px-3 py-2 rounded-lg border text-xs transition-colors ${file ? colors.filled : colors.empty}`}
-            >
-              <span className="font-semibold leading-none">
-                {label}
-                {required && !file && <span className="text-red-400 ml-0.5">*</span>}
-              </span>
-              {file ? (
-                <>
-                  <span className="truncate opacity-80">{file.name}</span>
-                  <button
-                    onClick={() => onSlotChange(key, null)}
-                    className="absolute top-1 right-1.5 text-slate-400 hover:text-red-500 text-xs leading-none"
-                    title="Remove"
-                  >✕</button>
-                </>
-              ) : (
-                <span className="opacity-60">{hint}</span>
+            <div key={key} className="relative">
+              <input
+                type="file"
+                accept={accept}
+                className="hidden"
+                ref={el => { slotRefs.current[key] = el; }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) onSlotChange(key, f); e.target.value = ''; }}
+              />
+              <div
+                onClick={() => slotRefs.current[key]?.click()}
+                className={`flex flex-col gap-0.5 px-3 py-2.5 rounded-lg border text-xs cursor-pointer transition-colors ${file ? colors.filled : colors.empty}`}
+              >
+                <span className="font-semibold leading-none">
+                  {label}
+                  {required && !file && <span className="text-red-400 ml-0.5">*</span>}
+                </span>
+                {file
+                  ? <span className="truncate opacity-80 pr-4" title={file.name}>{file.name}</span>
+                  : <span className="opacity-60">{hint} — click to browse</span>
+                }
+              </div>
+              {file && (
+                <button
+                  onClick={e => { e.stopPropagation(); onSlotChange(key, null); }}
+                  className="absolute top-1.5 right-1.5 text-slate-400 hover:text-red-500 leading-none text-xs"
+                  title="Remove"
+                >✕</button>
               )}
             </div>
           );
@@ -169,17 +157,18 @@ const MultiDropZone: React.FC<MultiDropZoneProps> = ({ slots, onSlotChange }) =>
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 const StatusBadge: React.FC<{ status: 'PASS' | 'FAIL' | 'NA' }> = ({ status }) => {
-  const styles = {
-    PASS: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
-    FAIL: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
-    NA:   'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
-  };
+  const styles = { PASS: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300', FAIL: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300', NA: 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400' };
   const icons = { PASS: '✓', FAIL: '✗', NA: '—' };
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${styles[status]}`}>
-      {icons[status]} {status}
-    </span>
-  );
+  return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${styles[status]}`}>{icons[status]} {status}</span>;
+};
+
+const CategoryBadge: React.FC<{ category: string }> = ({ category }) => {
+  const styles: Record<string, string> = {
+    'Field Coverage': 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-300',
+    'Bug Finding':    'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+  };
+  const style = styles[category] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400';
+  return <span className={`px-2 py-0.5 rounded-full text-xs ${style}`}>{category}</span>;
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -208,7 +197,7 @@ const PdfValidator: React.FC = () => {
     setSlots(prev => ({ ...prev, [slot]: file }));
   }, []);
 
-  // ── Validate ────────────────────────────────────────────────────────────────
+  // ── Validate ──────────────────────────────────────────────────────────────
 
   const handleValidate = async () => {
     const { pdf: pdfFile, data: dataFile, testcases: testcasesFile, rules: rulesFile } = slots;
@@ -226,8 +215,6 @@ const PdfValidator: React.FC = () => {
       if (rulesFile) fd.append('rules', rulesFile);
       fd.append('mode', mode);
       fd.append('provider', provider);
-
-      // Pass per-user API key so server doesn't need env vars
       const apiKey = provider === 'claude' ? settings.claudeApiKey : settings.geminiApiKey;
       if (apiKey) fd.append('apiKey', apiKey);
 
@@ -248,7 +235,7 @@ const PdfValidator: React.FC = () => {
     }
   };
 
-  // ── Annotate ────────────────────────────────────────────────────────────────
+  // ── Annotate ──────────────────────────────────────────────────────────────
 
   const handleAnnotate = async () => {
     const pdfFile = slots.pdf;
@@ -275,21 +262,26 @@ const PdfValidator: React.FC = () => {
     }
   };
 
-  // ── Filtered results ────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────────────────────
 
   const filtered = results.filter(r => {
     if (filter !== 'ALL' && r.status !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
       return r.id.toLowerCase().includes(q) || r.field.toLowerCase().includes(q) ||
-        r.description.toLowerCase().includes(q) || r.reason.toLowerCase().includes(q);
+        r.category.toLowerCase().includes(q) || r.description.toLowerCase().includes(q) ||
+        r.reason.toLowerCase().includes(q);
     }
     return true;
   });
 
+  // Pass rate excludes NA — only decisive results count
+  const decisive = summary ? summary.passed + summary.failed : 0;
+  const passRate = decisive > 0 ? Math.round((summary!.passed / decisive) * 100) : 0;
+
   const canValidate = !loading && !!slots.pdf && !!slots.data && !!slots.testcases;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -297,20 +289,14 @@ const PdfValidator: React.FC = () => {
       {/* ── Upload Panel ── */}
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 shadow-sm">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-4">Upload Files</h3>
-
         <MultiDropZone slots={slots} onSlotChange={handleSlotChange} />
 
-        {/* Mode toggle + Validate */}
         <div className="flex items-center gap-4 flex-wrap mt-4">
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
             {(['deterministic', 'ai'] as Mode[]).map(m => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
+              <button key={m} onClick={() => setMode(m)}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                  mode === m
-                    ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+                  mode === m ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                 }`}
               >
                 {m === 'deterministic' ? 'Deterministic' : 'AI-Assisted'}
@@ -322,9 +308,7 @@ const PdfValidator: React.FC = () => {
               Provider: <span className="font-medium text-indigo-500">{provider}</span>
             </span>
           )}
-          <button
-            onClick={handleValidate}
-            disabled={!canValidate}
+          <button onClick={handleValidate} disabled={!canValidate}
             className="ml-auto px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center gap-2"
           >
             {loading ? (
@@ -332,13 +316,11 @@ const PdfValidator: React.FC = () => {
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Validating…
+                </svg>Validating…
               </>
             ) : 'Validate'}
           </button>
         </div>
-
         {mode === 'ai' && <LLMWarning onGoToSettings={() => {}} />}
       </div>
 
@@ -353,39 +335,34 @@ const PdfValidator: React.FC = () => {
       {summary && (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex gap-4 flex-1 flex-wrap">
+            <div className="flex gap-5 flex-1 flex-wrap items-end">
               {[
-                { label: 'Total', value: summary.total, color: 'text-slate-700 dark:text-slate-300' },
-                { label: 'Passed', value: summary.passed, color: 'text-green-600 dark:text-green-400' },
-                { label: 'Failed', value: summary.failed, color: 'text-red-600 dark:text-red-400' },
-                { label: 'N/A', value: summary.na, color: 'text-slate-400 dark:text-slate-500' },
-                { label: 'Skipped', value: summary.skipped, color: 'text-amber-500 dark:text-amber-400' },
+                { label: 'Total Run', value: summary.total,   color: 'text-slate-700 dark:text-slate-300' },
+                { label: 'Passed',    value: summary.passed,  color: 'text-green-600 dark:text-green-400' },
+                { label: 'Failed',    value: summary.failed,  color: 'text-red-600 dark:text-red-400' },
+                { label: 'N/A',       value: summary.na,      color: 'text-slate-400 dark:text-slate-500' },
+                { label: 'Skipped',   value: summary.skipped, color: 'text-amber-500 dark:text-amber-400' },
               ].map(({ label, value, color }) => (
-                <div key={label} className="text-center min-w-[56px]">
+                <div key={label} className="text-center min-w-[52px]">
                   <div className={`text-2xl font-bold ${color}`}>{value}</div>
                   <div className="text-xs text-slate-500 dark:text-slate-400">{label}</div>
                 </div>
               ))}
 
-              {/* Pass rate bar */}
-              {summary.total > 0 && (
+              {/* Pass rate bar — decisive results only (excludes NA & skipped) */}
+              {decisive > 0 && (
                 <div className="flex-1 flex items-center gap-2 min-w-[120px]">
                   <div className="flex-1 h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      style={{ width: `${(summary.passed / summary.total) * 100}%` }}
-                    />
+                    <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${passRate}%` }} />
                   </div>
                   <span className="text-xs font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                    {Math.round((summary.passed / summary.total) * 100)}% pass
+                    {passRate}% pass
                   </span>
                 </div>
               )}
             </div>
 
-            <button
-              onClick={handleAnnotate}
-              disabled={annotating || results.length === 0}
+            <button onClick={handleAnnotate} disabled={annotating || results.length === 0}
               className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white text-sm font-semibold transition-colors"
             >
               {annotating ? (
@@ -393,57 +370,25 @@ const PdfValidator: React.FC = () => {
                   <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Generating…
+                  </svg>Generating…
                 </>
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                  Download Annotated PDF
+                  </svg>Download Annotated PDF
                 </>
               )}
             </button>
           </div>
 
-          {summary.skipped > 0 && (
-            <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
-              {summary.skipped} test case{summary.skipped > 1 ? 's' : ''} skipped — fields not present in the input data file
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* ── Field Coverage ── */}
-      {fieldMap.length > 0 && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700">
-            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-              Field Coverage
-              <span className="ml-2 text-xs font-normal text-slate-400">
-                {fieldMap.filter(f => f.found).length} / {fieldMap.length} input fields found in PDF
-              </span>
-            </h3>
-          </div>
-          <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-            {fieldMap.map(fm => (
-              <div
-                key={fm.xmlKey}
-                title={`${fm.xmlKey} = ${fm.value}`}
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs border ${
-                  fm.found && fm.matchType === 'exact'
-                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
-                    : fm.found && fm.matchType === 'near'
-                    ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300'
-                    : 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-600 text-slate-400'
-                }`}
-              >
-                <span className="flex-shrink-0">{fm.found ? (fm.matchType === 'near' ? '⚠' : '✓') : '✗'}</span>
-                <span className="truncate font-medium">{fm.field}</span>
-                {fm.page && <span className="ml-auto flex-shrink-0 opacity-60">p{fm.page}</span>}
-              </div>
-            ))}
+          <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400 dark:text-slate-500">
+            {summary.skipped > 0 && (
+              <span>{summary.skipped} test case{summary.skipped > 1 ? 's' : ''} skipped — field not in input data</span>
+            )}
+            {decisive > 0 && summary.na > 0 && (
+              <span>Pass rate excludes {summary.na} N/A result{summary.na > 1 ? 's' : ''}</span>
+            )}
           </div>
         </div>
       )}
@@ -451,45 +396,30 @@ const PdfValidator: React.FC = () => {
       {/* ── Results Table ── */}
       {results.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-          {/* Table toolbar */}
           <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-3">
             <div className="flex gap-1">
               {(['ALL', 'PASS', 'FAIL', 'NA'] as StatusFilter[]).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
+                <button key={f} onClick={() => setFilter(f)}
                   className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                    filter === f
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                    filter === f ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                   }`}
                 >
-                  {f}
-                  {f !== 'ALL' && (
-                    <span className="ml-1 opacity-70">
-                      ({results.filter(r => r.status === f).length})
-                    </span>
-                  )}
+                  {f}{f !== 'ALL' && <span className="ml-1 opacity-70">({results.filter(r => r.status === f).length})</span>}
                 </button>
               ))}
             </div>
             <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search…"
+              value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
               className="ml-auto px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48"
             />
           </div>
 
-          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-slate-50 dark:bg-slate-700/50">
                 <tr>
                   {['ID', 'Field / Section', 'Category', 'Status', 'Page', 'Reason / Detail'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                      {h}
-                    </th>
+                    <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -504,19 +434,13 @@ const PdfValidator: React.FC = () => {
                     >
                       <td className="px-4 py-2.5 font-mono font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{r.id}</td>
                       <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300 max-w-[140px] truncate">{r.field}</td>
-                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                        <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-xs">{r.category}</span>
-                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap"><CategoryBadge category={r.category} /></td>
                       <td className="px-4 py-2.5 whitespace-nowrap"><StatusBadge status={r.status} /></td>
-                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-center">
-                        {r.page != null ? `p${r.page}` : '—'}
-                      </td>
+                      <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-center">{r.page != null ? `p${r.page}` : '—'}</td>
                       <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400 max-w-xs">
                         <span className="line-clamp-1">{r.reason}</span>
                       </td>
                     </tr>
-
-                    {/* Expanded row */}
                     {expandedId === r.id && (
                       <tr className="bg-slate-50/80 dark:bg-slate-800/80">
                         <td colSpan={6} className="px-6 py-3">
@@ -534,7 +458,6 @@ const PdfValidator: React.FC = () => {
                     )}
                   </React.Fragment>
                 ))}
-
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-slate-400 dark:text-slate-500 text-sm">
@@ -546,8 +469,13 @@ const PdfValidator: React.FC = () => {
             </table>
           </div>
 
-          <div className="px-5 py-2.5 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-400 dark:text-slate-500">
-            Showing {filtered.length} of {results.length} — click a row to expand details
+          <div className="px-5 py-2.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
+            <span>Showing {filtered.length} of {results.length} — click a row to expand</span>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-slate-300"></span>TC-* Test Cases</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-teal-400"></span>FC-* Field Coverage</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-400"></span>BF-* Bug Findings</span>
+            </div>
           </div>
         </div>
       )}

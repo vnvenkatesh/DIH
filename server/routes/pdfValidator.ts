@@ -236,11 +236,13 @@ const GENERIC_FIELD_WORDS = new Set([
   'input', 'state', 'line', 'page', 'size', 'area', 'zone', 'each',
 ]);
 
-function extractDomainWords(field: string, xmlKey: string): string[] {
-  // Split camelCase and path separators into individual words, keep domain-specific ones
-  const raw = `${field} ${xmlKey}`;
-  const words = raw
-    .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase → words
+function extractDomainWords(field: string): string[] {
+  // Use only the leaf field name — NOT the full xmlKey path.
+  // Parent element names (e.g. "ClaimDetails" in "ClaimDetails.settled-amount") inject
+  // words like "claim" that appear legitimately in unrelated document sections (e.g.
+  // "file a claim" in a welcome letter), producing false-positive context matches.
+  const words = field
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/[_\-\.]/g, ' ')
     .toLowerCase()
     .split(/\s+/)
@@ -249,11 +251,11 @@ function extractDomainWords(field: string, xmlKey: string): string[] {
 }
 
 // A missing field is contextually applicable only if at least one specific domain
-// word from its name/path appears in the PDF corpus.
+// word from its leaf name appears in the PDF corpus.
 // If no domain words survive the generic filter, the field name is too generic to
 // infer context — skip it rather than raising a false positive.
 function isContextApplicable(fm: FieldMatch, corpusLc: string): boolean {
-  const domainWords = extractDomainWords(fm.field, fm.xmlKey);
+  const domainWords = extractDomainWords(fm.field);
   if (domainWords.length === 0) return false; // All words are generic — cannot determine context, skip
   return domainWords.some(w => corpusLc.includes(w));
 }

@@ -219,12 +219,21 @@ function buildFieldMap(flatData: Record<string, string>, items: TextItem[]): Fie
 
 // ─── Context Applicability Check ─────────────────────────────────────────────
 
-// Generic structural words that appear in almost every XML schema — not useful
-// for determining whether a field belongs in a specific document type.
+// Generic structural words that appear in almost every XML schema or document —
+// not useful for determining whether a field belongs in a specific document type.
 const GENERIC_FIELD_WORDS = new Set([
+  // Structural XML field names
   'name', 'date', 'code', 'type', 'text', 'value', 'data', 'info',
   'first', 'last', 'full', 'start', 'time', 'list', 'item', 'root',
   'base', 'main', 'from', 'bool', 'flag', 'mode', 'sort', 'true', 'null',
+  // Common business / document words that appear in almost any document type
+  'amount', 'total', 'count', 'number', 'detail', 'details', 'status',
+  'result', 'reason', 'source', 'target', 'field', 'label', 'title',
+  'group', 'class', 'level', 'order', 'price', 'rate', 'note', 'notes',
+  'address', 'contact', 'phone', 'email', 'settled', 'settlement',
+  'payment', 'record', 'entry', 'index', 'range', 'limit', 'section',
+  'description', 'message', 'subject', 'content', 'format', 'output',
+  'input', 'state', 'line', 'page', 'size', 'area', 'zone', 'each',
 ]);
 
 function extractDomainWords(field: string, xmlKey: string): string[] {
@@ -239,12 +248,13 @@ function extractDomainWords(field: string, xmlKey: string): string[] {
   return [...new Set(words)];
 }
 
-// A missing field is contextually applicable if at least one domain word from its
-// name/path appears in the PDF corpus. If no domain words are found in the PDF at all,
-// the field belongs to a different document type or context and should not be flagged.
+// A missing field is contextually applicable only if at least one specific domain
+// word from its name/path appears in the PDF corpus.
+// If no domain words survive the generic filter, the field name is too generic to
+// infer context — skip it rather than raising a false positive.
 function isContextApplicable(fm: FieldMatch, corpusLc: string): boolean {
   const domainWords = extractDomainWords(fm.field, fm.xmlKey);
-  if (domainWords.length === 0) return true; // Purely generic field — can't determine context, keep
+  if (domainWords.length === 0) return false; // All words are generic — cannot determine context, skip
   return domainWords.some(w => corpusLc.includes(w));
 }
 

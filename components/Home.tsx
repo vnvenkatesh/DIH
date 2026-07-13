@@ -138,6 +138,20 @@ const accelerators = [
     benefit: 'Eliminates hours of manual variable tagging and Model Library wiring',
     accent: { bg: 'bg-indigo-50 dark:bg-indigo-900/20', icon: 'bg-indigo-100 dark:bg-indigo-800/60 text-indigo-600 dark:text-indigo-300', border: 'border-indigo-100 dark:border-indigo-800/50', tag: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
   },
+  {
+    id: 'pdfValidator',
+    Icon: ({ className }: { className?: string }) => (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      </svg>
+    ),
+    name: 'PDF Validator',
+    tagline: 'Prove every field rendered correctly',
+    description:
+      'Upload a generated PDF alongside the input XML/JSON, a Business Rules CSV, and a Test Cases CSV. The validator checks every data field, formatting rule, and conditional requirement — then produces a downloadable annotated PDF with colour-coded highlights and sticky-note comments on each finding.',
+    benefit: 'Replace manual QA spot-checks with a complete, evidence-backed validation report',
+    accent: { bg: 'bg-teal-50 dark:bg-teal-900/20', icon: 'bg-teal-100 dark:bg-teal-800/60 text-teal-600 dark:text-teal-300', border: 'border-teal-100 dark:border-teal-800/50', tag: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' },
+  },
 ];
 
 const securityPoints = [

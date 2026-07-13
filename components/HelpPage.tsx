@@ -59,20 +59,26 @@ const FaqItem: React.FC<{ q: string; a: React.ReactNode }> = ({ q, a }) => {
 const HelpPage: React.FC = () => {
     const workflows = [
         {
-            steps: ['Upload BRD / Document', 'Business Rules', 'Test Case Generator', 'Synthetic Data Generation'],
-            label: 'Requirements → Test Coverage',
+            steps: ['Business Rules', 'Test Case Generator', 'Synthetic Data Generation', 'Output Validator'],
+            label: 'Full QA Pipeline',
             color: 'text-indigo-600 dark:text-indigo-400',
             dot: 'bg-indigo-500',
         },
         {
-            steps: ['Upload Word / XSD', 'Data Mapping Generator', 'XPath Extractor'],
-            label: 'Schema Mapping Pipeline',
+            steps: ['Data Mapping Generator', 'XPath Extractor', 'GhostDraft Generator'],
+            label: 'Field Mapping → GhostDraft Document',
             color: 'text-violet-600 dark:text-violet-400',
             dot: 'bg-violet-500',
         },
         {
-            steps: ['PDF v1', 'PDF AI Compare', 'PDF Visual Compare'],
-            label: 'Document Review & Validation',
+            steps: ['Synthetic Data Generation', 'Output Validator'],
+            label: 'Data-Driven Output Validation',
+            color: 'text-cyan-600 dark:text-cyan-400',
+            dot: 'bg-cyan-500',
+        },
+        {
+            steps: ['PDF AI Compare', 'PDF Visual Compare'],
+            label: 'Document Review & Diff',
             color: 'text-sky-600 dark:text-sky-400',
             dot: 'bg-sky-500',
         },
@@ -99,7 +105,7 @@ const HelpPage: React.FC = () => {
         },
         {
             q: 'How do the accelerators connect with each other?',
-            a: 'Several accelerators are designed to chain together. The recommended sequence for requirements testing is: Business Rules Extractor (from a BRD) → Test Case Generator (from the rules CSV) → Synthetic Data Generation (XSD + test cases CSV). The Data Mapping Generator and XPath Extractor similarly chain together for XML schema work.',
+            a: 'Several accelerators are designed to chain together. The full QA pipeline is: Business Rules (from a BRD) → Test Case Generator (rules CSV) → Synthetic Data Generation (XSD + test cases CSV) → Output Validator (generated PDF + input data + test cases CSV). For schema work: Data Mapping Generator → XPath Extractor → GhostDraft Generator.',
         },
         {
             q: 'What file types are supported?',
@@ -107,9 +113,10 @@ const HelpPage: React.FC = () => {
                 <ul className="space-y-1 list-disc list-inside">
                     <li><strong>PDF</strong> — all accelerators that accept documents</li>
                     <li><strong>DOCX</strong> — Data Mapping Generator, Layout Recommendation</li>
-                    <li><strong>XSD</strong> — Data Mapping Generator, XPath Extractor, Synthetic Data Generation</li>
-                    <li><strong>XML</strong> — XPath Extractor</li>
-                    <li><strong>CSV</strong> — Test Case Generator (business rules input), Synthetic Data Generation (test cases input)</li>
+                    <li><strong>XSD</strong> — Data Mapping Generator, XPath Extractor, Synthetic Data Generation, GhostDraft Generator</li>
+                    <li><strong>XML / JSON</strong> — XPath Extractor, Output Validator (input data)</li>
+                    <li><strong>CSV</strong> — Test Case Generator (business rules input), Synthetic Data Generation (test cases input), Output Validator (test cases input)</li>
+                    <li><strong>.gd</strong> — GhostDraft Generator (template + optional reference)</li>
                 </ul>
             ),
         },
@@ -243,7 +250,7 @@ const HelpPage: React.FC = () => {
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">What's Included</h3>
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm divide-y divide-slate-100 dark:divide-slate-700 overflow-hidden">
                     {[
-                        { feature: '10 accelerators', detail: '9 AI-powered, 1 fully local (PDF Visual Compare)' },
+                        { feature: '12 accelerators', detail: '11 AI-powered, 1 fully local (PDF Visual Compare)' },
                         { feature: 'Multi-provider LLM support', detail: 'Gemini 2.5 Pro/Flash, Claude Sonnet/Haiku, OpenAI GPT-4o' },
                         { feature: 'Zero data retention', detail: 'Document content never persists after your session' },
                         { feature: 'Connected workflows', detail: 'Accelerators designed to chain — rules → test cases → XML data' },

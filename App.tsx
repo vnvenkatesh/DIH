@@ -57,9 +57,9 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const ACCELERATOR_TOOLS: Tool[] = [
-  'rationalizer', 'pdfCompare', 'dataMappingGenerator',
-  'xpathExtractor', 'syntheticDataGenerator', 'layoutRecommendation', 'accessibilityScorer',
-  'businessRulesExtractor', 'testCaseGenerator', 'ghostDraftGenerator', 'pdfValidator',
+  'rationalizer', 'pdfCompare', 'pdfVisualCompare', 'dataMappingGenerator',
+  'businessRulesExtractor', 'testCaseGenerator', 'syntheticDataGenerator', 'pdfValidator',
+  'ghostDraftGenerator', 'layoutRecommendation', 'accessibilityScorer', 'xpathExtractor',
 ];
 
 const App: React.FC = () => {
@@ -111,8 +111,17 @@ const App: React.FC = () => {
     { tool: 'dataMappingGenerator', label: 'Data Mapping Generator', description: 'Map fields to XSD schema', icon: <LinkIcon className="w-5 h-5" /> },
     { tool: 'businessRulesExtractor', label: 'Business Rules', description: 'Extract rules from form specs', icon: <ClipboardRulesIcon className="w-5 h-5" /> },
     { tool: 'testCaseGenerator', label: 'Test Case Generator', description: 'Generate test suite from rules CSV', icon: <TestCaseIcon className="w-5 h-5" /> },
-    { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
     { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
+    {
+      tool: 'pdfValidator',
+      label: 'Output Validator',
+      description: 'Validate output against data & test cases',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+        </svg>
+      ),
+    },
     {
       tool: 'ghostDraftGenerator',
       label: 'GhostDraft Generator',
@@ -125,16 +134,7 @@ const App: React.FC = () => {
     },
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
     { tool: 'accessibilityScorer', label: 'Accessibility Check', description: 'Score PDF accessibility compliance', icon: <AccessibilityIcon className="w-5 h-5" /> },
-    {
-      tool: 'pdfValidator',
-      label: 'PDF Validator',
-      description: 'Validate PDF against data, rules & test cases',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-        </svg>
-      ),
-    },
+    { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
     { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
   ];
 

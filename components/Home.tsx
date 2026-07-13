@@ -63,14 +63,24 @@ const accelerators = [
     accent: { bg: 'bg-violet-50 dark:bg-violet-900/20', icon: 'bg-violet-100 dark:bg-violet-800/60 text-violet-600 dark:text-violet-300', border: 'border-violet-100 dark:border-violet-800/50', tag: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300' },
   },
   {
-    id: 'xpathExtractor',
-    Icon: CodeBracketIcon,
-    name: 'XPath Extractor',
-    tagline: 'Bridge PDF data to XML structure',
+    id: 'businessRulesExtractor',
+    Icon: ClipboardRulesIcon,
+    name: 'Business Rules',
+    tagline: 'Every rule, automatically surfaced',
     description:
-      'Point at a PDF and an XML template and let AI extract every data value and map it to the right XPath location. Turns a multi-day data-extraction task into a one-step operation.',
-    benefit: 'Accelerate XML data population for CCM templates',
-    accent: { bg: 'bg-cyan-50 dark:bg-cyan-900/20', icon: 'bg-cyan-100 dark:bg-cyan-800/60 text-cyan-600 dark:text-cyan-300', border: 'border-cyan-100 dark:border-cyan-800/50', tag: 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300' },
+      'Upload any requirements document or BRD and AI extracts every validation, conditional, calculation, and presentation rule — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Exports to CSV and JSON.',
+    benefit: 'Capture rules that would otherwise be missed in manual review',
+    accent: { bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20', icon: 'bg-fuchsia-100 dark:bg-fuchsia-800/60 text-fuchsia-600 dark:text-fuchsia-300', border: 'border-fuchsia-100 dark:border-fuchsia-800/50', tag: 'bg-fuchsia-100 dark:bg-fuchsia-900/40 text-fuchsia-700 dark:text-fuchsia-300' },
+  },
+  {
+    id: 'testCaseGenerator',
+    Icon: TestCaseIcon,
+    name: 'Test Case Generator',
+    tagline: 'Rules in, full test suite out',
+    description:
+      'Upload a Business Rules CSV and receive a complete test suite covering all six categories — happy path, mandatory violations, boundary values, conditional branches, format violations, and calculation checks. Add domain hints to generate additional edge-case tests.',
+    benefit: 'Cut QA authoring effort by 60–70% on typical implementations',
+    accent: { bg: 'bg-lime-50 dark:bg-lime-900/20', icon: 'bg-lime-100 dark:bg-lime-800/60 text-lime-600 dark:text-lime-300', border: 'border-lime-100 dark:border-lime-800/50', tag: 'bg-lime-100 dark:bg-lime-900/40 text-lime-700 dark:text-lime-300' },
   },
   {
     id: 'syntheticDataGenerator',
@@ -81,6 +91,36 @@ const accelerators = [
       'Provide an XSD schema and AI generates contextually accurate synthetic data. Optionally upload a Test Cases CSV — AI then groups the test cases and produces a set of valid XML bundles, each tagged with the test case IDs it covers.',
     benefit: 'Safe, schema-valid test data aligned to your test suite',
     accent: { bg: 'bg-emerald-50 dark:bg-emerald-900/20', icon: 'bg-emerald-100 dark:bg-emerald-800/60 text-emerald-600 dark:text-emerald-300', border: 'border-emerald-100 dark:border-emerald-800/50', tag: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' },
+  },
+  {
+    id: 'pdfValidator',
+    Icon: ({ className }: { className?: string }) => (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      </svg>
+    ),
+    name: 'Output Validator',
+    tagline: 'Prove every field rendered correctly',
+    description:
+      'Upload a generated PDF alongside the input XML/JSON, a Business Rules CSV, and a Test Cases CSV. The validator checks every data field, formatting rule, and conditional requirement — then produces a downloadable annotated PDF with colour-coded highlights and sticky-note comments on each finding.',
+    benefit: 'Replace manual QA spot-checks with a complete, evidence-backed validation report',
+    accent: { bg: 'bg-cyan-50 dark:bg-cyan-900/20', icon: 'bg-cyan-100 dark:bg-cyan-800/60 text-cyan-600 dark:text-cyan-300', border: 'border-cyan-100 dark:border-cyan-800/50', tag: 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300' },
+  },
+  {
+    id: 'ghostDraftGenerator',
+    Icon: ({ className }: { className?: string }) => (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C8.13 2 5 5.13 5 9v8l2-2 2 2 2-2 2 2 2-2 2 2V9c0-3.87-3.13-7-7-7z" />
+        <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+    name: 'GhostDraft Generator',
+    tagline: 'Word doc to .gd in one click',
+    description:
+      'Upload a Word document, XPath mapping CSV (from XPath Extractor), and XSD schema to generate a GhostDraft Native (.gd) document with embedded fill point bindings plus a pre-populated sample XML ready for immediate testing in GhostDraft Studio.',
+    benefit: 'Eliminates hours of manual variable tagging and Model Library wiring',
+    accent: { bg: 'bg-indigo-50 dark:bg-indigo-900/20', icon: 'bg-indigo-100 dark:bg-indigo-800/60 text-indigo-600 dark:text-indigo-300', border: 'border-indigo-100 dark:border-indigo-800/50', tag: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
   },
   {
     id: 'layoutRecommendation',
@@ -103,54 +143,14 @@ const accelerators = [
     accent: { bg: 'bg-rose-50 dark:bg-rose-900/20', icon: 'bg-rose-100 dark:bg-rose-800/60 text-rose-600 dark:text-rose-300', border: 'border-rose-100 dark:border-rose-800/50', tag: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300' },
   },
   {
-    id: 'businessRulesExtractor',
-    Icon: ClipboardRulesIcon,
-    name: 'Business Rules',
-    tagline: 'Every rule, automatically surfaced',
+    id: 'xpathExtractor',
+    Icon: CodeBracketIcon,
+    name: 'XPath Extractor',
+    tagline: 'Bridge PDF data to XML structure',
     description:
-      'Upload any requirements document or BRD and AI extracts every validation, conditional, calculation, and presentation rule — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Exports to CSV and JSON.',
-    benefit: 'Capture rules that would otherwise be missed in manual review',
-    accent: { bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20', icon: 'bg-fuchsia-100 dark:bg-fuchsia-800/60 text-fuchsia-600 dark:text-fuchsia-300', border: 'border-fuchsia-100 dark:border-fuchsia-800/50', tag: 'bg-fuchsia-100 dark:bg-fuchsia-900/40 text-fuchsia-700 dark:text-fuchsia-300' },
-  },
-  {
-    id: 'testCaseGenerator',
-    Icon: TestCaseIcon,
-    name: 'Test Case Generator',
-    tagline: 'Rules in, full test suite out',
-    description:
-      'Upload a Business Rules CSV and receive a complete test suite covering all six categories — happy path, mandatory violations, boundary values, conditional branches, format violations, and calculation checks. Add domain hints to generate additional edge-case tests.',
-    benefit: 'Cut QA authoring effort by 60–70% on typical implementations',
-    accent: { bg: 'bg-lime-50 dark:bg-lime-900/20', icon: 'bg-lime-100 dark:bg-lime-800/60 text-lime-600 dark:text-lime-300', border: 'border-lime-100 dark:border-lime-800/50', tag: 'bg-lime-100 dark:bg-lime-900/40 text-lime-700 dark:text-lime-300' },
-  },
-  {
-    id: 'ghostDraftGenerator',
-    Icon: ({ className }: { className?: string }) => (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C8.13 2 5 5.13 5 9v8l2-2 2 2 2-2 2 2 2-2 2 2V9c0-3.87-3.13-7-7-7z" />
-        <circle cx="9" cy="9" r="1" fill="currentColor" stroke="none" />
-        <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
-      </svg>
-    ),
-    name: 'GhostDraft Generator',
-    tagline: 'Word doc to .gd in one click',
-    description:
-      'Upload a Word document, XPath mapping CSV (from XPath Extractor), and XSD schema to generate a GhostDraft Native (.gd) document with embedded fill point bindings plus a pre-populated sample XML ready for immediate testing in GhostDraft Studio.',
-    benefit: 'Eliminates hours of manual variable tagging and Model Library wiring',
-    accent: { bg: 'bg-indigo-50 dark:bg-indigo-900/20', icon: 'bg-indigo-100 dark:bg-indigo-800/60 text-indigo-600 dark:text-indigo-300', border: 'border-indigo-100 dark:border-indigo-800/50', tag: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
-  },
-  {
-    id: 'pdfValidator',
-    Icon: ({ className }: { className?: string }) => (
-      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-      </svg>
-    ),
-    name: 'PDF Validator',
-    tagline: 'Prove every field rendered correctly',
-    description:
-      'Upload a generated PDF alongside the input XML/JSON, a Business Rules CSV, and a Test Cases CSV. The validator checks every data field, formatting rule, and conditional requirement — then produces a downloadable annotated PDF with colour-coded highlights and sticky-note comments on each finding.',
-    benefit: 'Replace manual QA spot-checks with a complete, evidence-backed validation report',
-    accent: { bg: 'bg-teal-50 dark:bg-teal-900/20', icon: 'bg-teal-100 dark:bg-teal-800/60 text-teal-600 dark:text-teal-300', border: 'border-teal-100 dark:border-teal-800/50', tag: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' },
+      'Point at a PDF and an XML template and let AI extract every data value and map it to the right XPath location. Turns a multi-day data-extraction task into a one-step operation.',
+    benefit: 'Accelerate XML data population for CCM templates',
+    accent: { bg: 'bg-slate-50 dark:bg-slate-700/40', icon: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300', border: 'border-slate-200 dark:border-slate-600', tag: 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300' },
   },
 ];
 
@@ -233,7 +233,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '10', label: 'Accelerators', sub: '9 AI-powered, 1 AI-free' },
+          { value: '12', label: 'Accelerators', sub: '11 AI-powered, 1 AI-free' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
           { value: '0', label: 'Data retained', sub: 'after each session' },
           { value: '100%', label: 'Browser-side', sub: 'document processing' },
@@ -295,16 +295,16 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         <div className="flex flex-col sm:flex-row gap-3">
           {[
             {
-              steps: ['Business Rules', '→', 'Test Case Generator', '→', 'Synthetic Data'],
-              label: 'Requirements → Test Coverage',
+              steps: ['Business Rules', '→', 'Test Case Generator', '→', 'Synthetic Data', '→', 'Output Validator'],
+              label: 'Full QA Pipeline',
             },
             {
               steps: ['Data Mapping Generator', '→', 'XPath Extractor', '→', 'GhostDraft Generator'],
               label: 'Field Mapping → GhostDraft Document',
             },
             {
-              steps: ['Data Mapping Generator', '→', 'XPath Extractor'],
-              label: 'Schema Mapping Pipeline',
+              steps: ['Synthetic Data', '→', 'Output Validator'],
+              label: 'Data-Driven Output Validation',
             },
           ].map(({ steps, label }) => (
             <div key={label} className="flex-1 bg-white dark:bg-slate-800 rounded-xl border border-indigo-100 dark:border-indigo-800/60 px-4 py-3 shadow-sm">
@@ -362,8 +362,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Synthetic Data Generation', 'Test Case Generator', 'GhostDraft Generator'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Generator to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },
-              { phase: 'QA & Review', tools: ['PDF AI Compare', 'PDF Visual Compare'], detail: 'Validate every document version change between iterations. Use Visual Compare for a fast, AI-free structural and pixel diff; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
+              { phase: 'Build & Test', tools: ['Test Case Generator', 'Synthetic Data Generation', 'GhostDraft Generator'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Generator to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },
+              { phase: 'QA & Review', tools: ['Output Validator', 'PDF AI Compare', 'PDF Visual Compare'], detail: 'Close the loop with Output Validator: upload the rendered PDF, input XML/JSON, and test cases CSV to automatically validate every field, conditional rule, and format check — with a colour-coded annotated PDF as evidence. Use Visual Compare for a fast, AI-free structural and pixel diff between iterations; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },
             ].map(({ phase, tools, detail }) => (

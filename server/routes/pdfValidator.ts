@@ -393,6 +393,80 @@ function detectOutputIssues(corpus: string, items: TextItem[]): ValidationResult
   return issues;
 }
 
+// AI document quality analysis — tone, completeness, missing blocks, suggestions.
+interface DocumentAnalysis {
+  tone: string;
+  toneNotes: string;
+  completeness: number;
+  completenessNotes: string;
+  missingBlocks: string[];
+  suggestions: string[];
+  overallQuality: 'Good' | 'Acceptable' | 'Needs Review';
+}
+
+async function analyzeDocumentQuality(
+  corpus: string,
+  provider: string,
+  apiKey?: string,
+): Promise<DocumentAnalysis | null> {
+  const prompt = `You are a document quality analyst reviewing a rendered PDF from a Customer Communication Management (CCM) system.
+
+PDF TEXT:
+---
+${corpus.slice(0, 8000)}
+---
+
+Analyze this document and return a single JSON object with these keys:
+- "tone": one short phrase describing the overall tone (e.g. "Formal and professional", "Friendly and conversational", "Legal and technical")
+- "toneNotes": 1-2 sentences on whether the tone is appropriate for the apparent document type and any inconsistencies
+- "completeness": integer 0-100 — how structurally complete the document appears for its type (100 = all expected sections present)
+- "completenessNotes": one sentence explaining the completeness score
+- "missingBlocks": array of strings listing key sections or information blocks that appear absent (e.g. "Contact information", "Signature block", "Disclaimer", "Effective date", "Grievance procedure"). Empty array if nothing is clearly missing.
+- "suggestions": array of up to 5 specific, actionable improvement suggestions for wording, structure, or clarity. Empty array if none.
+- "overallQuality": exactly one of "Good", "Acceptable", or "Needs Review"
+
+Return ONLY valid JSON — no markdown fences, no explanation:
+{"tone":"...","toneNotes":"...","completeness":85,"completenessNotes":"...","missingBlocks":[],"suggestions":[],"overallQuality":"Good"}`;
+
+  try {
+    let rawJson: string;
+    if (provider === 'claude') {
+      const key = apiKey || process.env.ANTHROPIC_API_KEY;
+      if (!key) return null;
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001', max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const data = await resp.json() as any;
+      rawJson = (data.content?.[0]?.text ?? '{}').replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    } else {
+      const key = apiKey || process.env.GEMINI_API_KEY;
+      if (!key) return null;
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+          }),
+        },
+      );
+      const gData = await resp.json() as any;
+      rawJson = gData.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    }
+    const parsed = JSON.parse(rawJson) as DocumentAnalysis;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 // AI-powered proofreading — runs in AI mode only, catches spelling/grammar/style issues.
 async function detectOutputIssuesWithAI(
   corpus: string,
@@ -919,12 +993,16 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
 
     const additionalResults = buildAdditionalResults(fieldMap, tcResults, corpus);
 
-    // Output quality issues — pattern-based always, AI proofreading in AI mode
+    // Output quality issues + document analysis — pattern always; AI calls run in parallel
     const patternIssues = detectOutputIssues(corpus, items);
-    const aiRaw = mode === 'ai'
-      ? await detectOutputIssuesWithAI(corpus, provider, apiKey)
-      : [];
-    const aiIssues: ValidationResult[] = aiRaw.map(p => {
+    const [aiRaw, documentAnalysis] = mode === 'ai'
+      ? await Promise.all([
+          detectOutputIssuesWithAI(corpus, provider, apiKey),
+          analyzeDocumentQuality(corpus, provider, apiKey),
+        ])
+      : [[], null];
+
+    const aiIssues: ValidationResult[] = (aiRaw as Array<{ field: string; description: string; excerpt: string; reason: string }>).map(p => {
       const loc = searchInItems(items, p.excerpt);
       return {
         id: '', field: p.field, category: 'Output Issue',
@@ -948,7 +1026,7 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
       skipped,
     };
 
-    res.json({ summary, fieldMap, results });
+    res.json({ summary, fieldMap, results, documentAnalysis });
   } catch (err: any) {
     console.error('[pdf-validator] validate error', err);
     res.status(500).json({ error: err.message ?? 'Validation failed' });

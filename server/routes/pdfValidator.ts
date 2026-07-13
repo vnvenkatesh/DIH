@@ -217,18 +217,50 @@ function buildFieldMap(flatData: Record<string, string>, items: TextItem[]): Fie
   });
 }
 
+// ─── Context Applicability Check ─────────────────────────────────────────────
+
+// Generic structural words that appear in almost every XML schema — not useful
+// for determining whether a field belongs in a specific document type.
+const GENERIC_FIELD_WORDS = new Set([
+  'name', 'date', 'code', 'type', 'text', 'value', 'data', 'info',
+  'first', 'last', 'full', 'start', 'time', 'list', 'item', 'root',
+  'base', 'main', 'from', 'bool', 'flag', 'mode', 'sort', 'true', 'null',
+]);
+
+function extractDomainWords(field: string, xmlKey: string): string[] {
+  // Split camelCase and path separators into individual words, keep domain-specific ones
+  const raw = `${field} ${xmlKey}`;
+  const words = raw
+    .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase → words
+    .replace(/[_\-\.]/g, ' ')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !GENERIC_FIELD_WORDS.has(w));
+  return [...new Set(words)];
+}
+
+// A missing field is contextually applicable if at least one domain word from its
+// name/path appears in the PDF corpus. If no domain words are found in the PDF at all,
+// the field belongs to a different document type or context and should not be flagged.
+function isContextApplicable(fm: FieldMatch, corpusLc: string): boolean {
+  const domainWords = extractDomainWords(fm.field, fm.xmlKey);
+  if (domainWords.length === 0) return true; // Purely generic field — can't determine context, keep
+  return domainWords.some(w => corpusLc.includes(w));
+}
+
 // ─── Additional Results (field coverage + unexpected bugs) ────────────────────
 
 function buildAdditionalResults(
   fieldMap: FieldMatch[],
   existingResults: ValidationResult[],
+  corpus: string,
 ): ValidationResult[] {
-  // Normalise field names to deduplicate against test-case results
   const covered = new Set<string>();
   for (const r of existingResults) {
     covered.add(r.field.toLowerCase().replace(/[\s\-_\/]/g, ''));
   }
 
+  const corpusLc = corpus.toLowerCase();
   const additional: ValidationResult[] = [];
   let fcIdx = 1;
   let bfIdx = 1;
@@ -238,6 +270,7 @@ function buildAdditionalResults(
     if (covered.has(norm)) continue; // Already validated by a test case
 
     if (fm.matchType === 'exact') {
+      // Value found in PDF — always a valid field coverage PASS regardless of context
       additional.push({
         id: `FC-${String(fcIdx++).padStart(3, '0')}`,
         field: fm.field,
@@ -248,6 +281,8 @@ function buildAdditionalResults(
         page: fm.page, x: fm.x, y: fm.y, w: fm.w, h: fm.h,
       });
     } else if (fm.matchType === 'near') {
+      // Near-match means the PDF did render this field (just with a rendering artifact).
+      // Context is confirmed — always flag as a bug.
       additional.push({
         id: `BF-${String(bfIdx++).padStart(3, '0')}`,
         field: fm.field,
@@ -258,13 +293,18 @@ function buildAdditionalResults(
         page: fm.page, x: fm.x, y: fm.y, w: fm.w, h: fm.h,
       });
     } else {
+      // Value is missing. Only flag as a bug if the field's domain is contextually
+      // relevant to this PDF (i.e., at least one domain word from the field name/path
+      // appears in the PDF text). Fields from unrelated domains (e.g. a claim
+      // adjudicator field in a welcome letter) are silently skipped.
+      if (!isContextApplicable(fm, corpusLc)) continue;
       additional.push({
         id: `BF-${String(bfIdx++).padStart(3, '0')}`,
         field: fm.field,
         category: 'Bug Finding',
-        description: `Field "${fm.field}" from input data not found in PDF — not covered by any test case`,
+        description: `Field "${fm.field}" is referenced in this document's context but its value is missing from the PDF`,
         status: 'FAIL',
-        reason: `Value "${fm.value}" not found anywhere in PDF`,
+        reason: `Value "${fm.value}" not found in PDF`,
         page: null, x: null, y: null, w: null, h: null,
       });
     }
@@ -731,7 +771,7 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
       tcResults = validateDeterministic(applicable, flatData, items, corpus);
     }
 
-    const additionalResults = buildAdditionalResults(fieldMap, tcResults);
+    const additionalResults = buildAdditionalResults(fieldMap, tcResults, corpus);
     const results = [...tcResults, ...additionalResults];
 
     const passed = results.filter(r => r.status === 'PASS').length;

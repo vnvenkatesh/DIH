@@ -256,6 +256,25 @@ const PdfValidator: React.FC = () => {
     }
   };
 
+  // ── Reset helpers ────────────────────────────────────────────────────────
+
+  const clearResults = () => {
+    setSummary(null); setFieldMap([]); setResults([]); setDocAnalysis(null);
+    setError(null); setColFilters(EMPTY_FILTERS); setGlobalSearch(''); setExpandedId(null);
+  };
+
+  // Clears only PDF + input data (keeps test cases & business rules for reuse)
+  const handleResetPdfInput = () => {
+    setSlots(prev => ({ ...prev, pdf: null, data: null }));
+    clearResults();
+  };
+
+  // Clears everything
+  const handleResetAll = () => {
+    setSlots({ pdf: null, data: null, rules: null, testcases: null });
+    clearResults();
+  };
+
   // ── Annotate ──────────────────────────────────────────────────────────────
 
   const handleAnnotate = async () => {
@@ -338,8 +357,42 @@ const PdfValidator: React.FC = () => {
               Provider: <span className="font-medium text-indigo-500">{provider}</span>
             </span>
           )}
+
+          {/* Reset buttons — only shown when files are loaded */}
+          {(slots.pdf || slots.data || slots.rules || slots.testcases) && (
+            <div className="flex items-center gap-2 ml-auto">
+              {/* Reset PDF & Input — keeps test cases & rules */}
+              <button
+                onClick={handleResetPdfInput}
+                disabled={loading || annotating}
+                title="Clear PDF and input data — keeps test cases and business rules"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Reset PDF &amp; Input
+              </button>
+
+              {/* Reset All */}
+              <button
+                onClick={handleResetAll}
+                disabled={loading || annotating}
+                title="Clear all files and results"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-800/60 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Reset All
+              </button>
+
+              <div className="w-px h-5 bg-slate-200 dark:bg-slate-600" />
+            </div>
+          )}
+
           <button onClick={handleValidate} disabled={!canValidate}
-            className="ml-auto px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center gap-2"
+            className={`${!(slots.pdf || slots.data || slots.rules || slots.testcases) ? 'ml-auto' : ''} px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white text-sm font-semibold transition-colors flex items-center gap-2`}
           >
             {loading ? (
               <>

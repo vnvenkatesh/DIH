@@ -918,10 +918,47 @@ async function buildAnnotatedPdf(
     });
   }
 
-  // Unlocated FAIL results → margin sticky note on page 1
-  const unlocated = results.filter(r => r.status === 'FAIL' && r.page == null);
+  // Annotate located OID output issues with purple highlights + sticky notes
+  const purple = rgb(0.5, 0.1, 0.8);
+  const oidResults = results.filter(r => r.id.startsWith('OID-'));
+  for (const oid of oidResults) {
+    if (oid.page == null || oid.x == null || oid.y == null) continue;
+    const pageIdx = oid.page - 1;
+    const page = pages[pageIdx];
+    if (!page) continue;
+
+    const w = Math.max(oid.w ?? 60, 20);
+    const h = Math.max(oid.h ?? 10, 8);
+
+    page.drawRectangle({
+      x: oid.x, y: oid.y, width: w, height: h,
+      color: purple, opacity: 0.15,
+      borderWidth: 1.5, borderColor: purple, borderOpacity: 0.8,
+    });
+
+    const noteText = [
+      `${oid.id} — Output Issue`,
+      `Type: ${oid.field}`,
+      `Issue: ${oid.description}`,
+      `Detail: ${oid.reason}`,
+      `Location: Page ${oid.page}`,
+    ].join('\n');
+
+    addAnnotToPage(pageIdx, {
+      Type: PDFName.of('Annot'),
+      Subtype: PDFName.of('Text'),
+      Rect: pdfDoc.context.obj([oid.x + w + 2, oid.y + h, oid.x + w + 18, oid.y + h + 16]),
+      Contents: PDFString.of(noteText),
+      Name: PDFName.of('Comment'),
+      Open: false,
+      C: pdfDoc.context.obj([0.5, 0.1, 0.8]),
+    });
+  }
+
+  // Unlocated validation FAIL results (TC-*, BF-*, FC-*) → red margin note on page 1
+  const unlocated = results.filter(r => r.status === 'FAIL' && r.page == null && !r.id.startsWith('OID-'));
   if (unlocated.length > 0) {
-    const noteText = `Unlocated Failures (${unlocated.length})\nThese fields failed validation but could not be located in the PDF.\n\n`
+    const noteText = `Unlocated Validation Failures (${unlocated.length})\nThese fields failed validation but could not be pinpointed in the PDF.\n\n`
       + unlocated.map(r =>
           `[FAIL] ${r.id} · ${r.category}\nField: ${r.field}\n${r.description}\nReason: ${r.reason}`
         ).join('\n\n');
@@ -929,10 +966,28 @@ async function buildAnnotatedPdf(
       Type: PDFName.of('Annot'),
       Subtype: PDFName.of('Text'),
       Rect: pdfDoc.context.obj([8, 8, 24, 24]),
-      Contents: PDFString.of(`Unlocated failures:\n${noteText}`),
+      Contents: PDFString.of(noteText),
       Name: PDFName.of('Note'),
       Open: false,
       C: pdfDoc.context.obj([0.8, 0, 0]),
+    });
+  }
+
+  // Unlocated OID output issues → separate purple margin note on page 1
+  const unlocatedOid = oidResults.filter(r => r.page == null);
+  if (unlocatedOid.length > 0) {
+    const noteText = `Unlocated Output Issues (${unlocatedOid.length})\nThese output quality issues could not be pinpointed to a specific location.\n\n`
+      + unlocatedOid.map(r =>
+          `[${r.id}] ${r.field}\n${r.description}\nDetail: ${r.reason}`
+        ).join('\n\n');
+    addAnnotToPage(0, {
+      Type: PDFName.of('Annot'),
+      Subtype: PDFName.of('Text'),
+      Rect: pdfDoc.context.obj([8, 32, 24, 48]),
+      Contents: PDFString.of(noteText),
+      Name: PDFName.of('Note'),
+      Open: false,
+      C: pdfDoc.context.obj([0.5, 0.1, 0.8]),
     });
   }
 

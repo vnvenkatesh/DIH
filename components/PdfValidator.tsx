@@ -195,7 +195,9 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [totalPages, setTotalPages] = useState(0);
-  const renderTaskRef = useRef<any>(null);
+  // Counter-based stale-render guard — avoids cancelling pdfjs tasks mid-draw
+  // which leaves the canvas context dirty and silently breaks the next render.
+  const renderIdRef = useRef(0);
 
   // Zoom (1.0 = fit-to-width)
   const [zoomLevel, setZoomLevel] = useState(1.0);
@@ -277,16 +279,13 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
 
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch {}
-      renderTaskRef.current = null;
-    }
-
-    let isCancelled = false;
+    // Claim a unique ID for this render invocation.
+    // Any earlier doRender that's still awaiting will see its ID is stale and bail.
+    const myId = ++renderIdRef.current;
 
     const doRender = async () => {
       const page = await pdfDoc.getPage(currentPage);
-      if (isCancelled) return;
+      if (renderIdRef.current !== myId) return;
 
       const containerW = (containerRef.current?.clientWidth ?? 800) - 32;
       const unscaled = page.getViewport({ scale: 1 });
@@ -299,13 +298,9 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
       canvas.width = viewport.width;
       canvas.height = viewport.height;
 
-      const task = page.render({ canvasContext: ctx, viewport } as any);
-      renderTaskRef.current = task;
+      await page.render({ canvasContext: ctx, viewport } as any).promise.catch(() => {});
 
-      try { await task.promise; }
-      catch (e: any) { if (e?.name === 'RenderingCancelledException' || isCancelled) return; }
-
-      if (isCancelled) return;
+      if (renderIdRef.current !== myId) return;
 
       const pageHeightPdf = unscaled.height;
 
@@ -374,7 +369,7 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
     };
 
     doRender();
-    return () => { isCancelled = true; };
+    return () => { renderIdRef.current++; }; // invalidate this render on unmount / re-run
   }, [pdfDoc, currentPage, fieldMap, results, acceptedIds, textIndex, searchQuery, zoomLevel]);
 
   return (
@@ -1140,19 +1135,21 @@ const PdfValidator: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Accept button */}
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <button
-                          onClick={() => toggleAccepted(r.id)}
-                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                            isAccepted
-                              ? 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
-                              : 'border-green-200 dark:border-green-800/60 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20'
-                          }`}
-                        >
-                          {isAccepted ? 'Undo Accept' : 'Mark Accepted'}
-                        </button>
-                      </div>
+                      {/* Accept button — only for FAIL / NA (not needed for passing checks) */}
+                      {(r.status !== 'PASS') && (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <button
+                            onClick={() => toggleAccepted(r.id)}
+                            className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                              isAccepted
+                                ? 'border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                                : 'border-amber-200 dark:border-amber-800/60 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20'
+                            }`}
+                          >
+                            {isAccepted ? 'Undo Accept' : 'Mark Accepted'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

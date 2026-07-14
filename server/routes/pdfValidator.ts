@@ -173,12 +173,12 @@ function searchInItems(items: TextItem[], query: string): SearchResult {
     }
   }
 
-  // 2. Sliding window across adjacent items on same page
+  // 2. Sliding window across adjacent items on same page (space-joined to match corpus)
   for (let i = 0; i < items.length; i++) {
     let combined = '';
     let j = i;
     while (j < items.length && items[j].page === items[i].page && combined.length < q.length * 4) {
-      combined += items[j].str;
+      combined += (j > i ? ' ' : '') + items[j].str;
       if (combined.toLowerCase().includes(q)) {
         const span = items.slice(i, j + 1);
         return {
@@ -1010,7 +1010,8 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
     const dataFile = files['data']?.[0];
     const testcasesFile = files['testcases']?.[0];
     const rulesFile = files['rules']?.[0];
-    const { mode = 'deterministic', provider = 'gemini', apiKey } = req.body;
+    const { mode = 'deterministic', provider = 'gemini', apiKey, includeDocAnalysis } = req.body;
+    const wantDocAnalysis = includeDocAnalysis !== 'false' && includeDocAnalysis !== false;
 
     if (!pdfFile || !dataFile || !testcasesFile) {
       res.status(400).json({ error: 'pdf, data, and testcases files are required' });
@@ -1053,7 +1054,7 @@ router.post('/validate', validateUpload, async (req: Request, res: Response) => 
     const [aiRaw, documentAnalysis] = mode === 'ai'
       ? await Promise.all([
           detectOutputIssuesWithAI(corpus, provider, apiKey),
-          analyzeDocumentQuality(corpus, provider, apiKey),
+          wantDocAnalysis ? analyzeDocumentQuality(corpus, provider, apiKey) : Promise.resolve(null),
         ])
       : [[], null];
 

@@ -355,6 +355,7 @@ const PdfValidator: React.FC = () => {
   // New state
   const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
   const [viewerPage, setViewerPage] = useState(1);
+  const [runDocAnalysis, setRunDocAnalysis] = useState(true);
 
   const provider = settings.llmProvider ?? 'gemini';
 
@@ -388,6 +389,7 @@ const PdfValidator: React.FC = () => {
       if (rulesFile) fd.append('rules', rulesFile);
       fd.append('mode', mode);
       fd.append('provider', provider);
+      fd.append('includeDocAnalysis', (mode === 'ai' && runDocAnalysis).toString());
       const apiKey = provider === 'claude' ? settings.claudeApiKey : settings.geminiApiKey;
       if (apiKey) fd.append('apiKey', apiKey);
 
@@ -546,6 +548,19 @@ const PdfValidator: React.FC = () => {
             <span className="text-xs text-slate-500 dark:text-slate-400">
               Provider: <span className="font-medium text-indigo-500">{provider}</span>
             </span>
+          )}
+          {mode === 'ai' && (
+            <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+              <div
+                onClick={() => setRunDocAnalysis(v => !v)}
+                className={`relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 transition-colors cursor-pointer ${
+                  runDocAnalysis ? 'bg-indigo-500 border-indigo-500' : 'bg-slate-200 dark:bg-slate-600 border-slate-200 dark:border-slate-600'
+                }`}
+              >
+                <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${runDocAnalysis ? 'translate-x-3' : 'translate-x-0'}`} />
+              </div>
+              Document Analysis
+            </label>
           )}
 
           {(slots.pdf || slots.data || slots.rules || slots.testcases) && (

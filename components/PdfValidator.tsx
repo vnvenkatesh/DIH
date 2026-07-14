@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import LLMWarning from './LLMWarning';
 import { useSettings } from '../contexts/SettingsContext';
@@ -188,6 +188,8 @@ interface PdfViewerPanelProps {
   onPageChange: (p: number) => void;
 }
 
+type TextHit = { page: number; x: number; y: number; w: number; h: number; str: string };
+
 const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results, acceptedIds, currentPage, onPageChange }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -195,21 +197,83 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
   const [totalPages, setTotalPages] = useState(0);
   const renderTaskRef = useRef<any>(null);
 
+  // Zoom (1.0 = fit-to-width)
+  const [zoomLevel, setZoomLevel] = useState(1.0);
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHitIdx, setSearchHitIdx] = useState(0);
+  const [textIndex, setTextIndex] = useState<TextHit[]>([]);
+
   useEffect(() => {
     (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
       'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.worker.min.mjs';
   }, []);
 
+  // Load PDF
   useEffect(() => {
     let cancelled = false;
     file.arrayBuffer().then(buf => {
       (pdfjsLib as any).getDocument({ data: buf }).promise.then((doc: any) => {
-        if (!cancelled) { setPdfDoc(doc); setTotalPages(doc.numPages); }
+        if (!cancelled) {
+          setPdfDoc(doc); setTotalPages(doc.numPages);
+          setZoomLevel(1.0); setSearchQuery(''); setSearchHitIdx(0); setTextIndex([]);
+        }
       });
     });
     return () => { cancelled = true; };
   }, [file]);
 
+  // Build text index across all pages for search
+  useEffect(() => {
+    if (!pdfDoc) { setTextIndex([]); return; }
+    let cancelled = false;
+    const build = async () => {
+      const hits: TextHit[] = [];
+      for (let p = 1; p <= pdfDoc.numPages; p++) {
+        if (cancelled) return;
+        const page = await pdfDoc.getPage(p);
+        const tc = await page.getTextContent();
+        for (const item of (tc.items as any[])) {
+          if (!item.str?.trim()) continue;
+          hits.push({
+            page: p, str: item.str,
+            x: item.transform[4], y: item.transform[5],
+            w: item.width ?? 0, h: item.height > 0 ? item.height : 10,
+          });
+        }
+      }
+      if (!cancelled) setTextIndex(hits);
+    };
+    build();
+    return () => { cancelled = true; };
+  }, [pdfDoc]);
+
+  // Search hits derived from text index
+  const searchHits = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    return textIndex.filter(h => h.str.toLowerCase().includes(q));
+  }, [textIndex, searchQuery]);
+
+  // Navigate when query changes
+  const handleSearchChange = (q: string) => {
+    setSearchQuery(q);
+    setSearchHitIdx(0);
+    if (q.trim()) {
+      const hits = textIndex.filter(h => h.str.toLowerCase().includes(q.toLowerCase()));
+      if (hits.length > 0) onPageChange(hits[0].page);
+    }
+  };
+
+  const goHit = (delta: number) => {
+    if (searchHits.length === 0) return;
+    const next = ((searchHitIdx + delta) % searchHits.length + searchHits.length) % searchHits.length;
+    setSearchHitIdx(next);
+    onPageChange(searchHits[next].page);
+  };
+
+  // Render page + all highlight layers
   useEffect(() => {
     if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
 
@@ -226,7 +290,8 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
 
       const containerW = (containerRef.current?.clientWidth ?? 800) - 32;
       const unscaled = page.getViewport({ scale: 1 });
-      const scale = Math.max(0.8, Math.min(2.5, containerW / unscaled.width));
+      const baseScale = containerW / unscaled.width;
+      const scale = Math.max(0.3, Math.min(5.0, baseScale * zoomLevel));
       const viewport = page.getViewport({ scale });
 
       const canvas = canvasRef.current!;
@@ -244,18 +309,18 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
 
       const pageHeightPdf = unscaled.height;
 
-      // Build worst status per field (excluding accepted)
+      // Worst status per field (excluding accepted)
       const fieldWorst = new Map<string, 'PASS' | 'FAIL' | 'NA'>();
-      const severityOf = (s: string) => s === 'FAIL' ? 2 : s === 'NA' ? 1 : 0;
+      const sev = (s: string) => s === 'FAIL' ? 2 : s === 'NA' ? 1 : 0;
       for (const r of results) {
         if (acceptedIds.has(r.id)) continue;
         const cur = fieldWorst.get(r.field);
-        if (!cur || severityOf(r.status) > severityOf(cur)) fieldWorst.set(r.field, r.status);
+        if (!cur || sev(r.status) > sev(cur)) fieldWorst.set(r.field, r.status);
       }
 
       ctx.save();
 
-      // FieldMap highlights (TC / FC / BF)
+      // Layer 1: FieldMap highlights (green / red / grey)
       for (const fm of fieldMap) {
         if (fm.page !== currentPage || fm.x == null || fm.y == null || fm.w == null || fm.h == null) continue;
         const status = fieldWorst.get(fm.field) ?? (fm.found ? 'PASS' : 'FAIL');
@@ -264,7 +329,6 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
         const cy = (pageHeightPdf - fm.y - fh) * scale;
         const cw = fm.w * scale;
         const ch = fh * scale;
-
         ctx.fillStyle = status === 'PASS' ? 'rgba(34,197,94,0.22)' : status === 'FAIL' ? 'rgba(239,68,68,0.28)' : 'rgba(148,163,184,0.18)';
         ctx.fillRect(cx, cy, cw, ch);
         ctx.strokeStyle = status === 'PASS' ? 'rgba(34,197,94,0.7)' : status === 'FAIL' ? 'rgba(239,68,68,0.75)' : 'rgba(148,163,184,0.5)';
@@ -272,7 +336,7 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
         ctx.strokeRect(cx, cy, cw, ch);
       }
 
-      // OID highlights (purple)
+      // Layer 2: OID highlights (purple)
       for (const r of results) {
         if (!r.id.startsWith('OID-') || acceptedIds.has(r.id)) continue;
         if (r.page !== currentPage || r.x == null || r.y == null || r.w == null || r.h == null) continue;
@@ -281,7 +345,6 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
         const cy = (pageHeightPdf - r.y - fh) * scale;
         const cw = r.w * scale;
         const ch = fh * scale;
-
         ctx.fillStyle = 'rgba(167,139,250,0.28)';
         ctx.fillRect(cx, cy, cw, ch);
         ctx.strokeStyle = 'rgba(139,92,246,0.7)';
@@ -289,42 +352,116 @@ const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({ file, fieldMap, results
         ctx.strokeRect(cx, cy, cw, ch);
       }
 
+      // Layer 3: Search highlights (yellow, on top)
+      const qLc = searchQuery.trim().toLowerCase();
+      if (qLc) {
+        for (const hit of textIndex) {
+          if (hit.page !== currentPage || !hit.str.toLowerCase().includes(qLc)) continue;
+          const fh = Math.max(hit.h, 8);
+          const cx = hit.x * scale;
+          const cy = (pageHeightPdf - hit.y - fh) * scale;
+          const cw = Math.max(hit.w * scale, 20);
+          const ch = fh * scale;
+          ctx.fillStyle = 'rgba(250,204,21,0.50)';
+          ctx.fillRect(cx, cy, cw, ch);
+          ctx.strokeStyle = 'rgba(202,138,4,0.85)';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(cx, cy, cw, ch);
+        }
+      }
+
       ctx.restore();
     };
 
     doRender();
     return () => { isCancelled = true; };
-  }, [pdfDoc, currentPage, fieldMap, results, acceptedIds]);
+  }, [pdfDoc, currentPage, fieldMap, results, acceptedIds, textIndex, searchQuery, zoomLevel]);
 
   return (
     <div className="flex flex-col h-full bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+
+      {/* Search bar */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+        <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+        <input
+          value={searchQuery}
+          onChange={e => handleSearchChange(e.target.value)}
+          placeholder="Search PDF text…"
+          className="flex-1 text-xs bg-transparent text-slate-700 dark:text-slate-300 outline-none placeholder-slate-400 dark:placeholder-slate-500"
+        />
+        {searchQuery && (
+          <>
+            <span className="text-xs text-slate-400 whitespace-nowrap flex-shrink-0">
+              {searchHits.length > 0 ? `${searchHitIdx + 1} / ${searchHits.length}` : 'No results'}
+            </span>
+            <button onClick={() => goHit(-1)} disabled={searchHits.length === 0}
+              className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors" title="Previous match">
+              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button onClick={() => goHit(1)} disabled={searchHits.length === 0}
+              className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors" title="Next match">
+              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <button onClick={() => { setSearchQuery(''); setSearchHitIdx(0); }}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm leading-none ml-0.5" title="Clear search">×</button>
+          </>
+        )}
+      </div>
+
+      {/* Canvas */}
       <div ref={containerRef} className="flex-1 overflow-auto flex justify-center p-4 bg-slate-200 dark:bg-slate-800/80">
         {pdfDoc
           ? <canvas ref={canvasRef} className="shadow-xl rounded" />
-          : <div className="flex items-center justify-center text-slate-400 text-sm">Loading PDF…</div>
+          : <div className="flex items-center justify-center text-slate-400 text-sm h-full">Loading PDF…</div>
         }
       </div>
-      <div className="flex items-center justify-center gap-3 px-4 py-2 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
-        <button onClick={() => onPageChange(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}
-          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
-          <svg className="w-4 h-4 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <span className="text-xs text-slate-600 dark:text-slate-400 min-w-[90px] text-center font-medium">
-          Page {currentPage} / {totalPages || '…'}
-        </span>
-        <button onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages}
-          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
-          <svg className="w-4 h-4 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        {/* Color key */}
-        <div className="ml-4 flex items-center gap-2.5 text-xs text-slate-400 border-l border-slate-200 dark:border-slate-600 pl-4">
-          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-400/60 border border-green-500/70"></span>Pass</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-400/60 border border-red-500/70"></span>Fail</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400/60 border border-purple-500/70"></span>OID</span>
+
+      {/* Navigation + zoom bar */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
+
+        {/* Page nav */}
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => onPageChange(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+            <svg className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-xs text-slate-600 dark:text-slate-400 min-w-[72px] text-center font-medium">
+            {currentPage} / {totalPages || '…'}
+          </span>
+          <button onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))} disabled={currentPage >= totalPages}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors">
+            <svg className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-green-400/60 border border-green-500/70"></span>Pass</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-400/60 border border-red-500/70"></span>Fail</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-purple-400/60 border border-purple-500/70"></span>OID</span>
+          {searchQuery && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-yellow-300/80 border border-yellow-400"></span>Match</span>}
+        </div>
+
+        {/* Zoom controls */}
+        <div className="flex items-center gap-0.5">
+          <button onClick={() => setZoomLevel(z => Math.max(0.25, z - 0.25))}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 text-sm font-bold transition-colors" title="Zoom out">−</button>
+          <button onClick={() => setZoomLevel(1.0)}
+            className="px-1.5 h-6 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-xs text-slate-600 dark:text-slate-400 min-w-[38px] transition-colors" title="Reset zoom">
+            {Math.round(zoomLevel * 100)}%
+          </button>
+          <button onClick={() => setZoomLevel(z => Math.min(3.0, z + 0.25))}
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 text-sm font-bold transition-colors" title="Zoom in">+</button>
         </div>
       </div>
     </div>
@@ -437,6 +574,162 @@ const PdfValidator: React.FC = () => {
       return next;
     });
   }, []);
+
+  // ── Shareable HTML Report ────────────────────────────────────────────────
+
+  const generateReport = () => {
+    if (!summary) return;
+    const now = new Date().toLocaleString();
+    const pdfName = slots.pdf?.name ?? 'Unknown';
+    const esc = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    const statusStyle = (status: string, isAcc: boolean) => {
+      if (isAcc) return 'color:#94a3b8;font-weight:600';
+      if (status === 'PASS') return 'color:#16a34a;font-weight:600';
+      if (status === 'FAIL') return 'color:#dc2626;font-weight:600';
+      return 'color:#64748b;font-weight:600';
+    };
+    const catStyle = (cat: string) => {
+      if (cat === 'Field Coverage') return 'background:#ccfbf1;color:#0f766e';
+      if (cat === 'Bug Finding') return 'background:#ffedd5;color:#c2410c';
+      if (cat === 'Output Issue') return 'background:#ede9fe;color:#7c3aed';
+      return 'background:#f1f5f9;color:#475569';
+    };
+    const idStyle = (id: string) => {
+      if (id.startsWith('OID-')) return 'color:#9333ea';
+      if (id.startsWith('BF-')) return 'color:#ea580c';
+      if (id.startsWith('FC-')) return 'color:#0d9488';
+      return 'color:#64748b';
+    };
+
+    const tableRows = results.map(r => {
+      const isAcc = acceptedIds.has(r.id);
+      const statusText = isAcc ? '✓ ACCEPTED' : r.status === 'PASS' ? '✓ PASS' : r.status === 'FAIL' ? '✗ FAIL' : '— N/A';
+      return `<tr style="${isAcc ? 'opacity:.5;' : r.status === 'FAIL' ? 'background:#fff7f7;' : ''}">
+        <td style="font-family:monospace;font-size:12px;${idStyle(r.id)}">${esc(r.id)}</td>
+        <td>${esc(r.field)}</td>
+        <td><span style="padding:2px 8px;border-radius:20px;font-size:11px;${catStyle(r.category)}">${esc(r.category)}</span></td>
+        <td style="${statusStyle(r.status, isAcc)}">${statusText}</td>
+        <td style="color:#64748b;text-align:center;white-space:nowrap">${r.page != null ? 'p' + r.page : '—'}</td>
+        <td style="color:#475569;font-size:13px">${esc(r.reason)}</td>
+      </tr>`;
+    }).join('');
+
+    const docAnalysisHtml = docAnalysis ? `
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;margin-bottom:24px">
+      <h2 style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin:0 0 16px">Document Analysis
+        <span style="margin-left:10px;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;
+          ${docAnalysis.overallQuality==='Good'?'background:#dcfce7;color:#16a34a':docAnalysis.overallQuality==='Acceptable'?'background:#fef9c3;color:#a16207':'background:#fee2e2;color:#dc2626'}">
+          ${esc(docAnalysis.overallQuality)}
+        </span>
+      </h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div>
+          <p style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin:0 0 6px">Tone</p>
+          <span style="background:#e0e7ff;color:#4338ca;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600">${esc(docAnalysis.tone)}</span>
+          <p style="font-size:13px;color:#475569;margin:8px 0 0;line-height:1.5">${esc(docAnalysis.toneNotes)}</p>
+        </div>
+        <div>
+          <p style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin:0 0 6px">Completeness — ${docAnalysis.completeness}%</p>
+          <div style="height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;margin-bottom:6px">
+            <div style="height:100%;width:${docAnalysis.completeness}%;background:${docAnalysis.completeness>=80?'#22c55e':docAnalysis.completeness>=60?'#f59e0b':'#ef4444'};border-radius:4px"></div>
+          </div>
+          <p style="font-size:13px;color:#475569;margin:0;line-height:1.5">${esc(docAnalysis.completenessNotes)}</p>
+        </div>
+        ${docAnalysis.missingBlocks.length > 0 ? `<div>
+          <p style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin:0 0 6px">Missing Blocks</p>
+          ${docAnalysis.missingBlocks.map(b=>`<p style="font-size:13px;color:#475569;margin:3px 0">⚠ ${esc(b)}</p>`).join('')}
+        </div>` : ''}
+        ${docAnalysis.suggestions.length > 0 ? `<div>
+          <p style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin:0 0 6px">Suggestions</p>
+          ${docAnalysis.suggestions.map(s=>`<p style="font-size:13px;color:#475569;margin:3px 0">ⓘ ${esc(s)}</p>`).join('')}
+        </div>` : ''}
+      </div>
+    </div>` : '';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Validation Report — ${esc(pdfName)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;color:#1e293b;background:#f8fafc;padding:32px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:#f8fafc;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:10px 12px;text-align:left;border-bottom:2px solid #e2e8f0}
+  td{padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  @media print{body{background:white;padding:16px}}
+</style>
+</head>
+<body>
+<div style="max-width:960px;margin:0 auto">
+
+  <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;border-radius:16px;padding:24px 28px;margin-bottom:24px">
+    <div style="font-size:22px;font-weight:700;margin-bottom:6px">Output Validation Report</div>
+    <div style="opacity:.8;font-size:13px;margin-bottom:14px">Generated: ${esc(now)}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px">
+      <span style="background:rgba(255,255,255,.18);padding:3px 10px;border-radius:20px">PDF: ${esc(pdfName)}</span>
+      ${slots.data?.name?`<span style="background:rgba(255,255,255,.18);padding:3px 10px;border-radius:20px">Data: ${esc(slots.data.name)}</span>`:''}
+      ${slots.testcases?.name?`<span style="background:rgba(255,255,255,.18);padding:3px 10px;border-radius:20px">Test Cases: ${esc(slots.testcases.name)}</span>`:''}
+      ${slots.rules?.name?`<span style="background:rgba(255,255,255,.18);padding:3px 10px;border-radius:20px">Rules: ${esc(slots.rules.name)}</span>`:''}
+      <span style="background:rgba(255,255,255,.18);padding:3px 10px;border-radius:20px">Mode: ${mode==='ai'?'AI-Assisted':'Deterministic'}</span>
+      ${mode==='ai'?`<span style="background:rgba(255,255,255,.18);padding:3px 10px;border-radius:20px">Provider: ${esc(provider)}</span>`:''}
+    </div>
+  </div>
+
+  <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;margin-bottom:24px">
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:28px;margin-bottom:${decisive>0?'14px':'0'}">
+      ${[['Total',summary.total,'#1e293b'],['Passed',summary.passed,'#16a34a'],['Failed',summary.failed,'#dc2626'],['N/A',summary.na,'#94a3b8'],
+         ...(acceptedIds.size>0?[['Accepted',acceptedIds.size,'#94a3b8']]:[])
+        ].map(([l,v,c])=>`<div style="text-align:center"><div style="font-size:28px;font-weight:700;color:${c}">${v}</div><div style="font-size:11px;color:#94a3b8;text-transform:uppercase">${l}</div></div>`).join('')}
+      ${decisive>0?`<div style="flex:1;min-width:160px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1;height:10px;background:#f1f5f9;border-radius:5px;overflow:hidden">
+            <div style="height:100%;width:${passRate}%;background:#22c55e;border-radius:5px"></div>
+          </div>
+          <span style="font-size:16px;font-weight:700;color:#16a34a;white-space:nowrap">${passRate}% pass</span>
+        </div>
+        ${acceptedIds.size>0?`<p style="font-size:11px;color:#94a3b8;margin-top:4px">${acceptedIds.size} accepted — excluded from pass rate</p>`:''}
+      </div>`:''}
+    </div>
+    ${summary.skipped>0?`<p style="font-size:12px;color:#94a3b8">${summary.skipped} test case${summary.skipped>1?'s':''} skipped — field not in input data</p>`:''}
+  </div>
+
+  ${docAnalysisHtml}
+
+  <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin-bottom:24px">
+    <div style="padding:14px 20px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:10px">
+      <span style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em">Validation Findings</span>
+      <span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:20px;font-size:11px">${results.length} results</span>
+      ${acceptedIds.size>0?`<span style="background:#f1f5f9;color:#94a3b8;padding:2px 8px;border-radius:20px;font-size:11px">${acceptedIds.size} accepted</span>`:''}
+    </div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>ID</th><th>Field / Section</th><th>Category</th><th>Status</th><th>Page</th><th>Reason / Detail</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table></div>
+  </div>
+
+  <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:14px 20px;display:flex;flex-wrap:wrap;gap:20px;align-items:center;font-size:12px;color:#64748b">
+    <span>TC-* &nbsp;Test Cases</span>
+    <span style="color:#0d9488">FC-* &nbsp;Field Coverage</span>
+    <span style="color:#ea580c">BF-* &nbsp;Bug Findings</span>
+    <span style="color:#9333ea">OID-* &nbsp;Output Issues</span>
+    <span style="margin-left:auto;color:#94a3b8">Document Intelligence Hub — Output Validator</span>
+  </div>
+
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `validation-report-${pdfName.replace(/\.pdf$/i, '')}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // ── Annotate ──────────────────────────────────────────────────────────────
 
@@ -749,6 +1042,14 @@ const PdfValidator: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
                   Download Issues CSV
+                </button>
+                <button onClick={generateReport} disabled={results.length === 0}
+                  className="flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-40 text-indigo-600 dark:text-indigo-400 text-xs font-medium transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                  </svg>
+                  Generate Report
                 </button>
               </div>
             </div>

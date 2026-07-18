@@ -15,10 +15,12 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'claude-3-5-sonnet-20241022': { input: 3.0,   output: 15.0 },
   'claude-3-haiku-20240307':    { input: 0.25,  output: 1.25 },
   // OpenAI — per 1M tokens
-  'gpt-4o':        { input: 2.50,  output: 10.0 },
-  'gpt-4o-mini':   { input: 0.15,  output: 0.60 },
-  'gpt-4-turbo':   { input: 10.0,  output: 30.0 },
-  'gpt-3.5-turbo': { input: 0.50,  output: 1.50 },
+  'gpt-4.1':       { input: 2.00,  output: 8.00  },
+  'gpt-4.1-mini':  { input: 0.40,  output: 1.60  },
+  'gpt-4o':        { input: 2.50,  output: 10.0  },
+  'gpt-4o-mini':   { input: 0.15,  output: 0.60  },
+  'gpt-4-turbo':   { input: 10.0,  output: 30.0  },
+  'gpt-3.5-turbo': { input: 0.50,  output: 1.50  },
 };
 
 function calcCost(model: string, inputTokens: number, outputTokens: number): number {

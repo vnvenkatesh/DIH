@@ -2,13 +2,15 @@ import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendat
 
 const AUTH_KEY = 'dih_auth';
 
+let _accelerator = 'Other';
+
 function getToken(): string {
     try { return JSON.parse(localStorage.getItem(AUTH_KEY) || '{}').token || ''; }
     catch { return ''; }
 }
 
 async function callOpenAI(model: string, messages: any[], jsonMode = false): Promise<any> {
-    const body: Record<string, any> = { model, messages };
+    const body: Record<string, any> = { model, messages, accelerator: _accelerator };
     if (jsonMode) body.response_format = { type: 'json_object' };
 
     const resp = await fetch('/v1/llm/openai', {
@@ -191,6 +193,7 @@ Priority guidance: High = mandatory fields, blocking validations. Medium = condi
 Extract EVERY rule you can identify or reasonably infer from body text, placeholders, template variables, date arithmetic, and comments. Do NOT omit rules just because they are implicit. One entry per rule per field. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
 
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
+    _accelerator = 'Business Rules';
     const result = await callOpenAI(
         'gpt-4.1-mini',
         [{ role: 'user', content: `${businessRulesPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }],
@@ -204,6 +207,7 @@ const accessibilityPrompt = `Analyse the extracted PDF text below for WCAG 2.1 L
 Rules: grade A=90-100 B=75-89 C=60-74 D=40-59 F=0-39; status=pass/fail/warning; severity+issue+recommendation only for fail/warning; severity=critical/major/minor; evaluate 8-12 WCAG 2.1 criteria; output ONLY the JSON object.`;
 
 export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<SyntheticDataResult> => {
+    _accelerator = 'Synthetic Data Generator';
     const result = await callOpenAI(
         'gpt-4.1-mini',
         [{ role: 'user', content: `${xsdToXmlPrompt}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}` }],
@@ -218,6 +222,7 @@ export const extractXPaths = async (
     xmlContent: string,
     templateName: string
 ): Promise<XPathMapping[]> => {
+    _accelerator = 'XPath Extractor';
     const result = await callOpenAI(
         'gpt-4.1',
         [{
@@ -237,6 +242,7 @@ export const generateDataMap = async (
     xsdContent: string,
     templateName: string
 ): Promise<DataMappingResult> => {
+    _accelerator = 'Data Mapping Generator';
     const result = await callOpenAI(
         'gpt-4.1',
         [{ role: 'user', content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT (HTML) ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}` }],
@@ -249,6 +255,7 @@ export const performSemanticComparison = async (
     textA: string,
     textB: string
 ): Promise<Array<{ textA: string; textB: string; reason: string; kind: 'diff' | 'same' }>> => {
+    _accelerator = 'PDF Compare';
     try {
         const result = await callOpenAI(
             'gpt-4.1-mini',
@@ -262,6 +269,7 @@ export const performSemanticComparison = async (
 };
 
 export const generateLayoutRecommendations = async (documentText: string): Promise<LayoutRecommendationResult> => {
+    _accelerator = 'Layout Recommendation';
     const result = await callOpenAI(
         'gpt-4.1-mini',
         [{ role: 'user', content: `${layoutRecommendationPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${documentText}` }],
@@ -274,6 +282,7 @@ export const scoreAccessibility = async (
     documentText: string,
     _fileName: string
 ): Promise<AccessibilityResult> => {
+    _accelerator = 'Accessibility Scorer';
     const result = await callOpenAI(
         'gpt-4.1-mini',
         [{ role: 'user', content: `${accessibilityPrompt}\n\n--- DOCUMENT TEXT ---\n\n${documentText}` }],
@@ -318,6 +327,7 @@ For each test case return:
 Return ONLY a JSON object with a single key "testCases" containing the array. No markdown.`;
 
 export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
+    _accelerator = 'Test Case Generator';
     const result = await callOpenAI(
         'gpt-4.1-mini',
         [{ role: 'user', content: `${testCasePrompt}\n\n${rulesAndHints}` }],

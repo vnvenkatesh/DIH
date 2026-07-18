@@ -46,10 +46,11 @@ export async function initDb(): Promise<void> {
       input_tokens  INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd      NUMERIC(12, 8) NOT NULL DEFAULT 0,
-      accelerator   VARCHAR(100) NOT NULL DEFAULT 'Other',
       created_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Idempotent column additions for tables that pre-date these commits
+  await pool.query(`ALTER TABLE llm_usage_logs ADD COLUMN IF NOT EXISTS accelerator VARCHAR(100) NOT NULL DEFAULT 'Other'`);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_llm_usage_logs_user_provider
     ON llm_usage_logs(user_id, provider)

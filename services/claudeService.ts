@@ -301,8 +301,8 @@ Return ONLY a JSON object with a single key "testCases" containing the array. No
 export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
     _accelerator = 'Test Case Generator';
     const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 8192,
+        model: 'claude-sonnet-4-6',
+        max_tokens: 16000,
         messages: [{ role: 'user', content: `${testCasePrompt}\n\n${rulesAndHints}` }],
     });
     return JSON.parse(cleanJson(extractText(result))) as TestCaseResult;

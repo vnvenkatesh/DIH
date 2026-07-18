@@ -148,6 +148,7 @@ router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(280_000), // 280 s — fires before Vercel's 300 s function limit
     });
 
     const data = await upstream.json() as any;
@@ -165,6 +166,10 @@ router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
 
     res.status(upstream.status).json(data);
   } catch (err: any) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      res.status(504).json({ error: { message: 'OpenAI request timed out (>280 s). Try a shorter document or switch to a faster model.' } });
+      return;
+    }
     res.status(500).json({ error: { message: err?.message ?? 'OpenAI proxy error' } });
   }
 });

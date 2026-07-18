@@ -1,11 +1,19 @@
 ﻿
 import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 const AUTH_KEY = 'dih_auth';
 
 function getToken(): string {
     try { return JSON.parse(localStorage.getItem(AUTH_KEY) || '{}').token || ''; }
     catch { return ''; }
+}
+
+function getGeminiModel(): string {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return s.geminiModel || getGeminiModel();
+    } catch { return getGeminiModel(); }
 }
 
 let _accelerator = 'Other';
@@ -153,7 +161,7 @@ export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<
     _accelerator = 'Synthetic Data Generator';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{ parts: [{ text: xsdToXmlPrompt }, { text: `\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}` }] }],
             {
                 responseMimeType: 'application/json',
@@ -193,7 +201,7 @@ export const extractXPaths = async (
     _accelerator = 'XPath Extractor';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{
                 parts: [
                     { text: `${xPathExtractorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}` },
@@ -234,7 +242,7 @@ export const generateDataMap = async (
     _accelerator = 'Data Mapping Generator';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{
                 parts: [
                     { text: dataMappingGeneratorPrompt },
@@ -282,7 +290,7 @@ export const performSemanticComparison = async (
     _accelerator = 'PDF Compare';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{
                 parts: [
                     { text: semanticComparePrompt },
@@ -339,7 +347,7 @@ export const generateLayoutRecommendations = async (documentText: string): Promi
     _accelerator = 'Layout Recommendation';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{ parts: [{ text: layoutRecommendationPrompt }, { text: `\n\n--- DOCUMENT CONTENT ---\n\n${documentText}` }] }],
             {
                 responseMimeType: 'application/json',
@@ -380,7 +388,7 @@ export const scoreAccessibility = async (
     _accelerator = 'Accessibility Scorer';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{
                 parts: [
                     { text: accessibilityPrompt },
@@ -429,7 +437,7 @@ export const extractBusinessRules = async (docText: string): Promise<BusinessRul
     _accelerator = 'Business Rules';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{ parts: [{ text: businessRulesPrompt }, { text: `\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }] }],
             {
                 responseMimeType: 'application/json',
@@ -505,7 +513,7 @@ export const generateTestCases = async (rulesAndHints: string): Promise<TestCase
     _accelerator = 'Test Case Generator';
     try {
         const result = await callGemini(
-            'gemini-2.5-flash',
+            getGeminiModel(),
             [{ parts: [{ text: testCasePrompt }, { text: `\n\n${rulesAndHints}` }] }],
             {
                 responseMimeType: 'application/json',

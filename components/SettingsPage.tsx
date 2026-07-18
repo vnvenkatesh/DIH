@@ -110,6 +110,26 @@ const PROVIDER_CONFIG: { id: LLMProvider; label: string; keyField: keyof Pick<Us
   { id: 'openai', label: 'OpenAI GPT',       keyField: 'openaiApiKey', placeholder: 'OpenAI API key (sk-...)',                      color: 'emerald'},
 ];
 
+interface ModelOption { id: string; label: string; costHint: string; }
+const MODEL_OPTIONS: Record<LLMProvider, ModelOption[]> = {
+  gemini: [
+    { id: 'gemini-2.5-flash',        label: 'Gemini 2.5 Flash',         costHint: '$0.30 / $2.50 per 1M tokens'   },
+    { id: 'gemini-2.5-pro',          label: 'Gemini 2.5 Pro',           costHint: '$1.25 / $10.00 per 1M tokens'  },
+    { id: 'gemini-3.1-pro-preview',  label: 'Gemini 3.1 Pro (Preview)', costHint: '~$1.25 / $10.00 per 1M tokens' },
+  ],
+  claude: [
+    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',  costHint: '$0.80 / $4.00 per 1M tokens'   },
+    { id: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6', costHint: '$3.00 / $15.00 per 1M tokens'  },
+    { id: 'claude-opus-4-8',           label: 'Claude Opus 4.8',   costHint: '$15.00 / $75.00 per 1M tokens' },
+  ],
+  openai: [
+    { id: 'gpt-4o-mini',  label: 'GPT-4o Mini',  costHint: '$0.15 / $0.60 per 1M tokens'  },
+    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', costHint: '$0.40 / $1.60 per 1M tokens'  },
+    { id: 'gpt-4o',       label: 'GPT-4o',       costHint: '$2.50 / $10.00 per 1M tokens' },
+    { id: 'gpt-4.1',      label: 'GPT-4.1',      costHint: '$2.00 / $8.00 per 1M tokens'  },
+  ],
+};
+
 const ACCENT: Record<string, string> = {
   blue:    'border-blue-400   bg-blue-50   dark:bg-blue-950/30   dark:border-blue-600',
   orange:  'border-orange-400 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-600',
@@ -134,6 +154,12 @@ const AiProvidersTab: React.FC<{
     claude: settings.claudeApiKey || '',
     openai: settings.openaiApiKey || '',
   });
+
+  const [models, setModels] = useState({
+    gemini: settings.geminiModel || 'gemini-2.5-flash',
+    claude: settings.claudeModel || 'claude-haiku-4-5-20251001',
+    openai: settings.openaiModel || 'gpt-4o-mini',
+  });
   const [showKey, setShowKey] = useState({ gemini: false, claude: false, openai: false });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
@@ -142,7 +168,7 @@ const AiProvidersTab: React.FC<{
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError]    = useState('');
 
-  // Keep keys in sync if settings change externally
+  // Keep keys and models in sync if settings change externally (e.g. on login hydration)
   useEffect(() => {
     setKeys({
       gemini: settings.geminiApiKey || '',
@@ -150,6 +176,14 @@ const AiProvidersTab: React.FC<{
       openai: settings.openaiApiKey || '',
     });
   }, [settings.geminiApiKey, settings.claudeApiKey, settings.openaiApiKey]);
+
+  useEffect(() => {
+    setModels({
+      gemini: settings.geminiModel || 'gemini-2.5-flash',
+      claude: settings.claudeModel || 'claude-haiku-4-5-20251001',
+      openai: settings.openaiModel || 'gpt-4o-mini',
+    });
+  }, [settings.geminiModel, settings.claudeModel, settings.openaiModel]);
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
@@ -173,6 +207,9 @@ const AiProvidersTab: React.FC<{
       geminiApiKey: keys.gemini,
       claudeApiKey: keys.claude,
       openaiApiKey: keys.openai,
+      geminiModel: models.gemini,
+      claudeModel: models.claude,
+      openaiModel: models.openai,
     };
     saveSettings(prefs);
     await updatePreferences(prefs);
@@ -204,7 +241,7 @@ const AiProvidersTab: React.FC<{
         ))}
       </div>
 
-      {/* API Key section */}
+      {/* API Key + Model section */}
       <div className={`rounded-xl border-2 p-4 transition-colors ${ACCENT[cfg.color]}`}>
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">{cfg.label} API Key</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
@@ -234,6 +271,25 @@ const AiProvidersTab: React.FC<{
           >
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
           </button>
+        </div>
+
+        {/* Model selection */}
+        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-600">
+          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5 block">Model</label>
+          <select
+            value={models[cfg.id]}
+            onChange={e => setModels(m => ({ ...m, [cfg.id]: e.target.value }))}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {MODEL_OPTIONS[cfg.id].map(opt => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}  ·  {opt.costHint}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+            Applied to all accelerators for this provider. Click Save to persist.
+          </p>
         </div>
       </div>
 

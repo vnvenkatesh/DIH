@@ -1,10 +1,18 @@
 ﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 const AUTH_KEY = 'dih_auth';
 
 function getToken(): string {
     try { return JSON.parse(localStorage.getItem(AUTH_KEY) || '{}').token || ''; }
     catch { return ''; }
+}
+
+function getClaudeModel(): string {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return s.claudeModel || getClaudeModel();
+    } catch { return getClaudeModel(); }
 }
 
 let _accelerator = 'Other';
@@ -132,7 +140,7 @@ Instructions:
 export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<SyntheticDataResult> => {
     _accelerator = 'Synthetic Data Generator';
     const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
+        model: getClaudeModel(),
         max_tokens: 8192,
         messages: [{ role: 'user', content: `${xsdToXmlPrompt}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}` }],
     });
@@ -147,7 +155,7 @@ export const extractXPaths = async (
 ): Promise<XPathMapping[]> => {
     _accelerator = 'XPath Extractor';
     const result = await callClaude({
-        model: 'claude-sonnet-4-6',
+        model: getClaudeModel(),
         max_tokens: 8192,
         messages: [{
             role: 'user',
@@ -168,7 +176,7 @@ export const generateDataMap = async (
 ): Promise<DataMappingResult> => {
     _accelerator = 'Data Mapping Generator';
     const result = await callClaude({
-        model: 'claude-sonnet-4-6',
+        model: getClaudeModel(),
         max_tokens: 8192,
         messages: [{ role: 'user', content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT (HTML) ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}` }],
     });
@@ -199,7 +207,7 @@ The entire response must be ONLY the JSON object.
 export const generateLayoutRecommendations = async (documentText: string): Promise<LayoutRecommendationResult> => {
     _accelerator = 'Layout Recommendation';
     const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
+        model: getClaudeModel(),
         max_tokens: 4096,
         messages: [{ role: 'user', content: `${layoutRecommendationPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${documentText}` }],
     });
@@ -213,7 +221,7 @@ export const performSemanticComparison = async (
     _accelerator = 'PDF Compare';
     try {
         const result = await callClaude({
-            model: 'claude-haiku-4-5-20251001',
+            model: getClaudeModel(),
             max_tokens: 4096,
             messages: [{ role: 'user', content: `${semanticComparePrompt}\n\n--- Page A ---\n\n${textA}\n\n--- Page B ---\n\n${textB}` }],
         });
@@ -256,7 +264,7 @@ Extract EVERY rule you can identify or reasonably infer from body text, placehol
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
     _accelerator = 'Business Rules';
     const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
+        model: getClaudeModel(),
         max_tokens: 8192,
         messages: [{ role: 'user', content: `${businessRulesPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }],
     });
@@ -301,7 +309,7 @@ Return ONLY a JSON object with a single key "testCases" containing the array. No
 export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
     _accelerator = 'Test Case Generator';
     const result = await callClaude({
-        model: 'claude-sonnet-4-6',
+        model: getClaudeModel(),
         max_tokens: 16000,
         messages: [{ role: 'user', content: `${testCasePrompt}\n\n${rulesAndHints}` }],
     });
@@ -327,7 +335,7 @@ export const scoreAccessibility = async (
 ): Promise<AccessibilityResult> => {
     _accelerator = 'Accessibility Scorer';
     const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
+        model: getClaudeModel(),
         max_tokens: 8192,
         messages: [{
             role: 'user',

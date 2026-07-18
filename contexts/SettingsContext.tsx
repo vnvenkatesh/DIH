@@ -9,6 +9,9 @@ export interface AppSettings {
   geminiApiKey: string;
   claudeApiKey: string;
   openaiApiKey: string;
+  geminiModel: string;
+  claudeModel: string;
+  openaiModel: string;
 }
 
 interface SettingsContextValue {
@@ -24,6 +27,9 @@ const defaultSettings: AppSettings = {
   geminiApiKey: '',
   claudeApiKey: '',
   openaiApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
+  claudeModel: 'claude-haiku-4-5-20251001',
+  openaiModel: 'gpt-4o-mini',
 };
 
 const SettingsContext = createContext<SettingsContextValue>({

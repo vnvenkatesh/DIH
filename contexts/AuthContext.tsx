@@ -8,6 +8,9 @@ export interface UserPreferences {
   geminiApiKey: string;
   claudeApiKey: string;
   openaiApiKey: string;
+  geminiModel: string;
+  claudeModel: string;
+  openaiModel: string;
 }
 
 export interface AuthUser extends UserPreferences {
@@ -56,6 +59,9 @@ function deserializeUser(raw: any): AuthUser {
     geminiApiKey: raw.gemini_api_key ?? '',
     claudeApiKey: raw.claude_api_key ?? '',
     openaiApiKey: raw.openai_api_key ?? '',
+    geminiModel: raw.gemini_model ?? 'gemini-2.5-flash',
+    claudeModel: raw.claude_model ?? 'claude-haiku-4-5-20251001',
+    openaiModel: raw.openai_model ?? 'gpt-4o-mini',
   };
 }
 
@@ -122,6 +128,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (prefs.geminiApiKey !== undefined) body.gemini_api_key = prefs.geminiApiKey;
     if (prefs.claudeApiKey !== undefined) body.claude_api_key = prefs.claudeApiKey;
     if (prefs.openaiApiKey !== undefined) body.openai_api_key = prefs.openaiApiKey;
+    if (prefs.geminiModel !== undefined) body.gemini_model = prefs.geminiModel;
+    if (prefs.claudeModel !== undefined) body.claude_model = prefs.claudeModel;
+    if (prefs.openaiModel !== undefined) body.openai_model = prefs.openaiModel;
 
     const res = await fetch('/v1/auth/preferences', {
       method: 'PUT',

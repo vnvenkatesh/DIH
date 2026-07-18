@@ -83,6 +83,9 @@ const App: React.FC = () => {
         geminiApiKey: user.geminiApiKey,
         claudeApiKey: user.claudeApiKey,
         openaiApiKey: user.openaiApiKey,
+        geminiModel: user.geminiModel,
+        claudeModel: user.claudeModel,
+        openaiModel: user.openaiModel,
       });
     }
     if (!user) hydratedUserId.current = null;

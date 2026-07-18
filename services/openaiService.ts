@@ -1,4 +1,5 @@
 import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 const AUTH_KEY = 'dih_auth';
 
@@ -7,6 +8,13 @@ let _accelerator = 'Other';
 function getToken(): string {
     try { return JSON.parse(localStorage.getItem(AUTH_KEY) || '{}').token || ''; }
     catch { return ''; }
+}
+
+function getOpenAIModel(): string {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return s.openaiModel || 'gpt-4o-mini';
+    } catch { return 'gpt-4o-mini'; }
 }
 
 async function callOpenAI(model: string, messages: any[], jsonMode = false): Promise<any> {
@@ -195,7 +203,7 @@ Extract EVERY rule you can identify or reasonably infer from body text, placehol
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
     _accelerator = 'Business Rules';
     const result = await callOpenAI(
-        'gpt-4.1-mini',
+        getOpenAIModel(),
         [{ role: 'user', content: `${businessRulesPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${docText}` }],
         true
     );
@@ -209,7 +217,7 @@ Rules: grade A=90-100 B=75-89 C=60-74 D=40-59 F=0-39; status=pass/fail/warning; 
 export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<SyntheticDataResult> => {
     _accelerator = 'Synthetic Data Generator';
     const result = await callOpenAI(
-        'gpt-4.1-mini',
+        getOpenAIModel(),
         [{ role: 'user', content: `${xsdToXmlPrompt}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}` }],
         true
     );
@@ -224,7 +232,7 @@ export const extractXPaths = async (
 ): Promise<XPathMapping[]> => {
     _accelerator = 'XPath Extractor';
     const result = await callOpenAI(
-        'gpt-4.1',
+        getOpenAIModel(),
         [{
             role: 'user',
             content: [
@@ -244,7 +252,7 @@ export const generateDataMap = async (
 ): Promise<DataMappingResult> => {
     _accelerator = 'Data Mapping Generator';
     const result = await callOpenAI(
-        'gpt-4.1',
+        getOpenAIModel(),
         [{ role: 'user', content: `${dataMappingGeneratorPrompt}\n\n--- TEMPLATE NAME ---\n\n${templateName}\n\n--- WORD DOCUMENT CONTENT (HTML) ---\n\n${docxContent}\n\n--- XSD CONTENT ---\n\n${xsdContent}` }],
         true
     );
@@ -258,7 +266,7 @@ export const performSemanticComparison = async (
     _accelerator = 'PDF Compare';
     try {
         const result = await callOpenAI(
-            'gpt-4.1-mini',
+            getOpenAIModel(),
             [{ role: 'user', content: `${semanticComparePrompt}\n\n--- Page A ---\n\n${textA}\n\n--- Page B ---\n\n${textB}` }]
         );
         return JSON.parse(cleanJsonArray(extractText(result)));
@@ -271,7 +279,7 @@ export const performSemanticComparison = async (
 export const generateLayoutRecommendations = async (documentText: string): Promise<LayoutRecommendationResult> => {
     _accelerator = 'Layout Recommendation';
     const result = await callOpenAI(
-        'gpt-4.1-mini',
+        getOpenAIModel(),
         [{ role: 'user', content: `${layoutRecommendationPrompt}\n\n--- DOCUMENT CONTENT ---\n\n${documentText}` }],
         true
     );
@@ -284,7 +292,7 @@ export const scoreAccessibility = async (
 ): Promise<AccessibilityResult> => {
     _accelerator = 'Accessibility Scorer';
     const result = await callOpenAI(
-        'gpt-4.1-mini',
+        getOpenAIModel(),
         [{ role: 'user', content: `${accessibilityPrompt}\n\n--- DOCUMENT TEXT ---\n\n${documentText}` }],
         true
     );
@@ -329,7 +337,7 @@ Return ONLY a JSON object with a single key "testCases" containing the array. No
 export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
     _accelerator = 'Test Case Generator';
     const result = await callOpenAI(
-        'gpt-4.1-mini',
+        getOpenAIModel(),
         [{ role: 'user', content: `${testCasePrompt}\n\n${rulesAndHints}` }],
         true
     );

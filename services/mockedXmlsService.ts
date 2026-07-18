@@ -21,6 +21,20 @@ function getProvider(): 'claude' | 'gemini' {
     }
 }
 
+function getGeminiModel(): string {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return s.geminiModel || 'gemini-2.5-flash';
+    } catch { return 'gemini-2.5-flash'; }
+}
+
+function getClaudeModel(): string {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return s.claudeModel || 'claude-haiku-4-5-20251001';
+    } catch { return 'claude-haiku-4-5-20251001'; }
+}
+
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
 const MOCKED_XMLS_PROMPT = `
@@ -134,7 +148,7 @@ const BUNDLE_SCHEMA = {
 
 async function viaGemini(xsdContent: string, testCasesText: string): Promise<MockedXmlsResult> {
     const result = await callGemini(
-        'gemini-3.1-pro-preview',
+        getGeminiModel(),
         [{
             parts: [
                 { text: MOCKED_XMLS_PROMPT },
@@ -149,7 +163,7 @@ async function viaGemini(xsdContent: string, testCasesText: string): Promise<Moc
 
 async function viaClaude(xsdContent: string, testCasesText: string): Promise<MockedXmlsResult> {
     const result = await callClaude({
-        model: 'claude-sonnet-4-6',
+        model: getClaudeModel(),
         max_tokens: 16000,
         messages: [{
             role: 'user',

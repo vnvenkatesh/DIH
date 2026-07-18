@@ -16,6 +16,9 @@ function toClientUser(row: any) {
     gemini_api_key: row.gemini_api_key ?? '',
     claude_api_key: row.claude_api_key ?? '',
     openai_api_key: row.openai_api_key ?? '',
+    gemini_model: row.gemini_model ?? 'gemini-2.5-flash',
+    claude_model: row.claude_model ?? 'claude-haiku-4-5-20251001',
+    openai_model: row.openai_model ?? 'gpt-4o-mini',
   };
 }
 
@@ -80,7 +83,7 @@ router.get('/me', requireAuth as any, async (req: AuthRequest, res) => {
 
 router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { theme, llm_provider, gemini_api_key, claude_api_key, openai_api_key } = req.body ?? {};
+    const { theme, llm_provider, gemini_api_key, claude_api_key, openai_api_key, gemini_model, claude_model, openai_model } = req.body ?? {};
     await pool.query(
       `UPDATE users
          SET theme          = COALESCE($1, theme),
@@ -88,9 +91,12 @@ router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => 
              gemini_api_key = COALESCE($3, gemini_api_key),
              claude_api_key = COALESCE($4, claude_api_key),
              openai_api_key = COALESCE($5, openai_api_key),
+             gemini_model   = COALESCE($6, gemini_model),
+             claude_model   = COALESCE($7, claude_model),
+             openai_model   = COALESCE($8, openai_model),
              updated_at     = NOW()
-       WHERE id = $6`,
-      [theme ?? null, llm_provider ?? null, gemini_api_key ?? null, claude_api_key ?? null, openai_api_key ?? null, req.user!.id]
+       WHERE id = $9`,
+      [theme ?? null, llm_provider ?? null, gemini_api_key ?? null, claude_api_key ?? null, openai_api_key ?? null, gemini_model ?? null, claude_model ?? null, openai_model ?? null, req.user!.id]
     );
     const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
     res.json({ user: toClientUser(rows[0]) });

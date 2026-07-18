@@ -7,11 +7,14 @@ function getToken(): string {
     catch { return ''; }
 }
 
+let _accelerator = 'Other';
+
 async function callClaude(payload: { model: string; max_tokens: number; messages: any[] }, extraHeaders: Record<string, string> = {}): Promise<any> {
     const body: Record<string, any> = {
         model: payload.model,
         max_tokens: payload.max_tokens,
         messages: payload.messages,
+        accelerator: _accelerator,
     };
     if (extraHeaders['anthropic-beta']) body.beta = extraHeaders['anthropic-beta'];
 
@@ -127,6 +130,7 @@ Instructions:
 `;
 
 export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<SyntheticDataResult> => {
+    _accelerator = 'Synthetic Data Generator';
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 8192,
@@ -141,6 +145,7 @@ export const extractXPaths = async (
     xmlContent: string,
     templateName: string
 ): Promise<XPathMapping[]> => {
+    _accelerator = 'XPath Extractor';
     const result = await callClaude({
         model: 'claude-sonnet-4-6',
         max_tokens: 8192,
@@ -161,6 +166,7 @@ export const generateDataMap = async (
     xsdContent: string,
     templateName: string
 ): Promise<DataMappingResult> => {
+    _accelerator = 'Data Mapping Generator';
     const result = await callClaude({
         model: 'claude-sonnet-4-6',
         max_tokens: 8192,
@@ -191,6 +197,7 @@ The entire response must be ONLY the JSON object.
 `;
 
 export const generateLayoutRecommendations = async (documentText: string): Promise<LayoutRecommendationResult> => {
+    _accelerator = 'Layout Recommendation';
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 4096,
@@ -203,6 +210,7 @@ export const performSemanticComparison = async (
     textA: string,
     textB: string
 ): Promise<Array<{ textA: string; textB: string; reason: string; kind: 'diff' | 'same' }>> => {
+    _accelerator = 'PDF Compare';
     try {
         const result = await callClaude({
             model: 'claude-haiku-4-5-20251001',
@@ -246,6 +254,7 @@ Priority guidance: High = mandatory fields, blocking validations. Medium = condi
 Extract EVERY rule you can identify or reasonably infer from body text, placeholders, template variables, date arithmetic, and comments. Do NOT omit rules just because they are implicit. One entry per rule per field. Return ONLY a JSON object with a single key "rules" containing the array. No markdown.`;
 
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
+    _accelerator = 'Business Rules';
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 8192,
@@ -290,6 +299,7 @@ For each test case return:
 Return ONLY a JSON object with a single key "testCases" containing the array. No markdown.`;
 
 export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
+    _accelerator = 'Test Case Generator';
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 8192,
@@ -315,6 +325,7 @@ export const scoreAccessibility = async (
     documentText: string,
     _fileName: string
 ): Promise<AccessibilityResult> => {
+    _accelerator = 'Accessibility Scorer';
     const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 8192,

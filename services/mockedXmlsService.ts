@@ -49,7 +49,7 @@ async function callGemini(model: string, contents: object[], generationConfig: o
     const resp = await fetch('/v1/llm/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ model, contents, generationConfig }),
+        body: JSON.stringify({ model, contents, generationConfig, accelerator: 'Synthetic Data Generator' }),
     });
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));
@@ -70,7 +70,7 @@ async function callClaude(payload: { model: string; max_tokens: number; messages
     const resp = await fetch('/v1/llm/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, accelerator: 'Synthetic Data Generator' }),
     });
     if (!resp.ok) {
         const err = await resp.json().catch(() => ({}));

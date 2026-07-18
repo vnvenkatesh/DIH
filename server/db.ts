@@ -46,6 +46,7 @@ export async function initDb(): Promise<void> {
       input_tokens  INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
       cost_usd      NUMERIC(12, 8) NOT NULL DEFAULT 0,
+      accelerator   VARCHAR(100) NOT NULL DEFAULT 'Other',
       created_at    TIMESTAMPTZ DEFAULT NOW()
     )
   `);

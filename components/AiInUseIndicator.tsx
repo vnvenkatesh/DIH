@@ -50,7 +50,8 @@ const AiInUseIndicator: React.FC = () => {
     setOpen(false);
   };
 
-  const current = settings.llmProvider;
+  const current    = settings.llmProvider;
+  const currentKey = hasKey(current);
 
   return (
     <div ref={ref} className="relative">
@@ -60,9 +61,23 @@ const AiInUseIndicator: React.FC = () => {
         aria-label="Switch AI provider"
       >
         <span className="text-xs font-medium text-slate-400 dark:text-slate-500 select-none">AI In Use:</span>
-        <span className={`text-sm font-semibold ${PROVIDER_COLORS[current]}`}>
-          {PROVIDER_LABELS[current]}
-        </span>
+
+        {currentKey ? (
+          <span className={`text-sm font-semibold ${PROVIDER_COLORS[current]}`}>
+            {PROVIDER_LABELS[current]}
+          </span>
+        ) : (
+          <span
+            className="flex items-center gap-1 text-sm font-semibold text-amber-500 dark:text-amber-400"
+            title="No API key configured for this provider. Set one in Settings → AI Providers."
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 5zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" clipRule="evenodd" />
+            </svg>
+            No Key
+          </span>
+        )}
+
         <svg
           className={`w-3 h-3 text-slate-400 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}

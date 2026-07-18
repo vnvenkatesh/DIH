@@ -49,7 +49,7 @@ router.get('/stats', requireAuth as any, async (req: AuthRequest, res) => {
 // ── Gemini proxy ─────────────────────────────────────────────────────────────
 router.post('/gemini', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { model, contents, generationConfig } = req.body;
+    const { model, contents, generationConfig, accelerator } = req.body;
 
     const { rows } = await pool.query('SELECT gemini_api_key FROM users WHERE id=$1', [req.user!.id]);
     const apiKey = rows[0]?.gemini_api_key || process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -71,7 +71,7 @@ router.post('/gemini', requireAuth as any, async (req: AuthRequest, res) => {
     if (upstream.ok) {
       const inputTokens  = data.usageMetadata?.promptTokenCount     ?? 0;
       const outputTokens = data.usageMetadata?.candidatesTokenCount ?? 0;
-      logUsage(req.user!.id, 'gemini', model, inputTokens, outputTokens);
+      logUsage(req.user!.id, 'gemini', model, inputTokens, outputTokens, accelerator ?? 'Other');
     }
 
     res.status(upstream.status).json(data);
@@ -83,7 +83,7 @@ router.post('/gemini', requireAuth as any, async (req: AuthRequest, res) => {
 // ── Claude proxy ──────────────────────────────────────────────────────────────
 router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { model, max_tokens, messages, beta } = req.body;
+    const { model, max_tokens, messages, beta, accelerator } = req.body;
 
     const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [req.user!.id]);
     const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
@@ -116,7 +116,7 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
     if (upstream.ok) {
       const inputTokens  = data.usage?.input_tokens  ?? 0;
       const outputTokens = data.usage?.output_tokens ?? 0;
-      logUsage(req.user!.id, 'claude', model, inputTokens, outputTokens);
+      logUsage(req.user!.id, 'claude', model, inputTokens, outputTokens, accelerator ?? 'Other');
     }
 
     res.status(upstream.status).json(data);
@@ -128,7 +128,7 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
 // ── OpenAI proxy ──────────────────────────────────────────────────────────────
 router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { model, messages, response_format } = req.body;
+    const { model, messages, response_format, accelerator } = req.body;
 
     const { rows } = await pool.query('SELECT openai_api_key FROM users WHERE id=$1', [req.user!.id]);
     const apiKey = rows[0]?.openai_api_key || process.env.OPENAI_API_KEY;
@@ -160,7 +160,7 @@ router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
     if (upstream.ok) {
       const inputTokens  = data.usage?.prompt_tokens     ?? 0;
       const outputTokens = data.usage?.completion_tokens ?? 0;
-      logUsage(req.user!.id, 'openai', model, inputTokens, outputTokens);
+      logUsage(req.user!.id, 'openai', model, inputTokens, outputTokens, accelerator ?? 'Other');
     }
 
     res.status(upstream.status).json(data);

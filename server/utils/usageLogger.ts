@@ -32,10 +32,11 @@ export function logUsage(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  accelerator = 'Other',
 ): void {
   const cost = calcCost(model, inputTokens, outputTokens);
   pool.query(
-    'INSERT INTO llm_usage_logs (user_id, provider, model, input_tokens, output_tokens, cost_usd) VALUES ($1,$2,$3,$4,$5,$6)',
-    [userId, provider, model, inputTokens, outputTokens, cost],
+    'INSERT INTO llm_usage_logs (user_id, provider, model, input_tokens, output_tokens, cost_usd, accelerator) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [userId, provider, model, inputTokens, outputTokens, cost, accelerator],
   ).catch(err => console.error('[usage log error]', err));
 }

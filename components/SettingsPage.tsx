@@ -506,7 +506,7 @@ const SettingsPage: React.FC = () => {
   const visibleTabs = tabs.filter(t => !t.adminOnly || user?.role === 'Admin');
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Settings</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Preferences are saved to your account and applied on every login.</p>

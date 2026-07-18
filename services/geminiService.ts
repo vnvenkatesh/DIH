@@ -8,11 +8,13 @@ function getToken(): string {
     catch { return ''; }
 }
 
+let _accelerator = 'Other';
+
 async function callGemini(model: string, contents: object[], generationConfig: object): Promise<any> {
     const resp = await fetch('/v1/llm/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ model, contents, generationConfig }),
+        body: JSON.stringify({ model, contents, generationConfig, accelerator: _accelerator }),
     });
 
     if (!resp.ok) {
@@ -148,6 +150,7 @@ Instructions:
 `;
 
 export const generateSyntheticDataFromXsd = async (xsdContent: string): Promise<SyntheticDataResult> => {
+    _accelerator = 'Synthetic Data Generator';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -187,6 +190,7 @@ export const extractXPaths = async (
     xmlContent: string,
     templateName: string
 ): Promise<XPathMapping[]> => {
+    _accelerator = 'XPath Extractor';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -227,6 +231,7 @@ export const generateDataMap = async (
     xsdContent: string,
     templateName: string
 ): Promise<DataMappingResult> => {
+    _accelerator = 'Data Mapping Generator';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -274,6 +279,7 @@ export const performSemanticComparison = async (
     textA: string,
     textB: string
 ): Promise<Array<{ textA: string; textB: string; reason: string; kind: 'diff' | 'same' }>> => {
+    _accelerator = 'PDF Compare';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -330,6 +336,7 @@ The entire response must be ONLY the JSON object.
 `;
 
 export const generateLayoutRecommendations = async (documentText: string): Promise<LayoutRecommendationResult> => {
+    _accelerator = 'Layout Recommendation';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -370,6 +377,7 @@ export const scoreAccessibility = async (
     documentText: string,
     _fileName: string
 ): Promise<AccessibilityResult> => {
+    _accelerator = 'Accessibility Scorer';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -418,6 +426,7 @@ Priority guidance: High = mandatory fields, blocking validations. Medium = condi
 Extract EVERY rule you can identify or reasonably infer from body text, placeholders, template variables, date arithmetic, and comments. Do NOT omit rules just because they are implicit. One entry per rule per field. Return ONLY valid JSON — no markdown.`;
 
 export const extractBusinessRules = async (docText: string): Promise<BusinessRulesResult> => {
+    _accelerator = 'Business Rules';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',
@@ -493,6 +502,7 @@ For each test case return:
 Return ONLY valid JSON — no markdown, no explanation.`;
 
 export const generateTestCases = async (rulesAndHints: string): Promise<TestCaseResult> => {
+    _accelerator = 'Test Case Generator';
     try {
         const result = await callGemini(
             'gemini-2.5-flash',

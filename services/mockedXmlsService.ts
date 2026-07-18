@@ -134,7 +134,7 @@ const BUNDLE_SCHEMA = {
 
 async function viaGemini(xsdContent: string, testCasesText: string): Promise<MockedXmlsResult> {
     const result = await callGemini(
-        'gemini-2.5-pro',
+        'gemini-3.1-pro-preview',
         [{
             parts: [
                 { text: MOCKED_XMLS_PROMPT },

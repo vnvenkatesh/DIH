@@ -61,6 +61,7 @@ import {
   performSemanticComparison,
 } from '../services/llmService';
 import { generateMockedXmlsFromTestCases } from '../services/mockedXmlsService';
+import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 import type { BusinessRule, TestCase, MockedXmlBundle, DataMapping, XPathMapping } from '../types';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -243,9 +244,72 @@ const FLOWS: FlowDef[] = [
   },
 ];
 
+// ── Bundle generation helpers (Flow-specific, provider-aware) ─────────────────
+
+function getFlowProvider(): 'gemini' | 'claude' | 'openai' {
+  try {
+    const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+    if (s.llmProvider === 'claude') return 'claude';
+    if (s.llmProvider === 'openai') return 'openai';
+    return 'gemini';
+  } catch { return 'gemini'; }
+}
+
+function getFlowToken(): string {
+  try { return JSON.parse(localStorage.getItem('dih_auth') || '{}').token || ''; }
+  catch { return ''; }
+}
+
+const BUNDLE_GEN_PROMPT = `
+You are an expert XML data architect and QA engineer.
+Given an XSD schema and a list of test cases, generate a minimal set of mocked XML documents that together cover ALL listed test cases. Every XML must strictly conform to the XSD.
+
+Grouping strategy:
+1. Happy-path tests for different fields may share one XML — set each field value to its valid input.
+2. Conditional TRUE-branch and FALSE-branch tests must each have their own XML (field values differ between them).
+3. Boundary/edge-case tests need separate XMLs when field values conflict with other groups.
+4. Format tests (correct vs incorrect formatting) need separate XMLs when the format itself differs.
+5. Aim for 3–8 XML bundles total; never create one bundle per test case unless truly unavoidable.
+6. Every test case ID must appear in exactly one bundle's testCaseIds array — no test case left uncovered.
+
+For each bundle populate XML fields with values that satisfy the "Input Data" of the assigned test cases.
+
+Return ONLY a JSON object (no markdown, no explanation) with a single key "xmlBundles". Each entry must have:
+- "testCaseIds": array of test case ID strings (e.g. ["TC-001", "TC-013"])
+- "description": one concise sentence describing the scenario this XML covers
+- "xmlContent": complete, valid, well-formed XML string conforming to the XSD
+`;
+
+async function generateBundlesForFlow(xsdContent: string, testCasesText: string): Promise<{ xmlBundles: MockedXmlBundle[] }> {
+  const provider = getFlowProvider();
+  if (provider !== 'openai') {
+    return generateMockedXmlsFromTestCases(xsdContent, testCasesText) as Promise<{ xmlBundles: MockedXmlBundle[] }>;
+  }
+  // OpenAI path — direct call to the proxy with json_object response format
+  const prompt = `${BUNDLE_GEN_PROMPT}\n\n--- XML SCHEMA (XSD) ---\n\n${xsdContent}\n\n--- TEST CASES ---\n\n${testCasesText}`;
+  const resp = await fetch('/v1/llm/openai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getFlowToken()}` },
+    body: JSON.stringify({
+      model: 'gpt-4.1',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      accelerator: 'Template Testing Pipeline',
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as any)?.error?.message || (err as any)?.error || `OpenAI API error ${resp.status}`);
+  }
+  const data = await resp.json();
+  const text: string = data?.choices?.[0]?.message?.content ?? '';
+  if (!text) throw new Error('OpenAI returned an empty response. Please try again.');
+  const parsed = JSON.parse(text);
+  if (!parsed.xmlBundles) throw new Error('OpenAI response missing xmlBundles key.');
+  return parsed as { xmlBundles: MockedXmlBundle[] };
+}
+
 // ── Flow Runners (execution logic — add step logic here) ──────────────────────
-// NOTE: generateMockedXmlsFromTestCases (bundle gen) only supports Gemini/Claude.
-// If the user has OpenAI selected it falls back to Gemini automatically.
 
 const FLOW_RUNNERS: Record<string, Record<string, StepRunner>> = {
   'template-testing': {
@@ -265,7 +329,7 @@ const FLOW_RUNNERS: Record<string, Record<string, StepRunner>> = {
       const xsdFile = shared.xsdFile as File;
       const xsdContent = await xsdFile.text();
       const testCases  = shared.testCases as TestCase[];
-      const { xmlBundles } = await generateMockedXmlsFromTestCases(xsdContent, serializeTestCasesForBundles(testCases));
+      const { xmlBundles } = await generateBundlesForFlow(xsdContent, serializeTestCasesForBundles(testCases));
       return { xmlBundles };
     },
     'output-validator': async (shared) => {

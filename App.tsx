@@ -27,6 +27,7 @@ import TestCaseGenerator from './components/TestCaseGenerator';
 import TestCaseIcon from './components/icons/TestCaseIcon';
 import GhostDraftGenerator from './components/GhostDraftGenerator';
 import PdfValidator from './components/PdfValidator';
+import Flow from './components/Flow';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
 import AiInUseIndicator from './components/AiInUseIndicator';
@@ -35,7 +36,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
+type Tool = 'home' | 'flow' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -58,6 +59,7 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const ACCELERATOR_TOOLS: Tool[] = [
+  'flow',
   'rationalizer', 'pdfCompare', 'pdfVisualCompare', 'dataMappingGenerator',
   'businessRulesExtractor', 'testCaseGenerator', 'syntheticDataGenerator', 'pdfValidator',
   'ghostDraftGenerator', 'layoutRecommendation', 'accessibilityScorer', 'xpathExtractor',
@@ -136,6 +138,16 @@ const App: React.FC = () => {
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
     { tool: 'accessibilityScorer', label: 'Accessibility Check', description: 'Score PDF accessibility compliance', icon: <AccessibilityIcon className="w-5 h-5" /> },
     { tool: 'xpathExtractor', label: 'XPath Extractor', description: 'Extract data to XML XPaths', icon: <CodeBracketIcon className="w-5 h-5" /> },
+    {
+      tool: 'flow',
+      label: 'Flows',
+      description: 'Chained multi-accelerator pipelines',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5h16.5m-16.5 0a2.25 2.25 0 0 1-2.25-2.25V7.5A2.25 2.25 0 0 1 3.75 5.25h16.5A2.25 2.25 0 0 1 22.5 7.5v3.75a2.25 2.25 0 0 1-2.25 2.25m-16.5 0h16.5m-16.5 4.5h16.5a2.25 2.25 0 0 0 2.25-2.25v-3.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v3.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+        </svg>
+      ),
+    },
     { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
   ];
 
@@ -255,6 +267,9 @@ const App: React.FC = () => {
 
           <div className={activeTool === 'home' ? '' : 'hidden'}>
             <Home onNavigate={(tool) => setActiveTool(tool as Tool)} />
+          </div>
+          <div className={activeTool === 'flow' ? '' : 'hidden'}>
+            <Flow />
           </div>
           <div className={activeTool === 'rationalizer' ? '' : 'hidden'}>
             <Rationalizer onCompareRequest={handleCompareRequest} />

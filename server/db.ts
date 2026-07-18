@@ -37,6 +37,23 @@ export async function initDb(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_api_key TEXT DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS openai_api_key TEXT DEFAULT ''`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS llm_usage_logs (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider      VARCHAR(20) NOT NULL,
+      model         VARCHAR(100) NOT NULL,
+      input_tokens  INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd      NUMERIC(12, 8) NOT NULL DEFAULT 0,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_llm_usage_logs_user_provider
+    ON llm_usage_logs(user_id, provider)
+  `);
+
   console.log('[db] initDb: schema ready');
 
   const { rowCount } = await pool.query("SELECT id FROM users WHERE role = 'Admin' LIMIT 1");

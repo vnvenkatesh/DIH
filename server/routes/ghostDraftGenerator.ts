@@ -4,6 +4,7 @@ import mammoth from 'mammoth';
 import { randomUUID } from 'crypto';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
 import pool from '../db.js';
+import { logUsage } from '../utils/usageLogger.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -1158,6 +1159,10 @@ async function callLLMRaw(
       }),
     });
     const data = await res.json() as any;
+    logUsage(userId, 'gemini', 'gemini-2.5-flash',
+      data?.usageMetadata?.promptTokenCount     ?? 0,
+      data?.usageMetadata?.candidatesTokenCount ?? 0,
+    );
     return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   }
 
@@ -1180,6 +1185,10 @@ async function callLLMRaw(
       }),
     });
     const data = await res.json() as any;
+    logUsage(userId, 'claude', 'claude-haiku-4-5-20251001',
+      data?.usage?.input_tokens  ?? 0,
+      data?.usage?.output_tokens ?? 0,
+    );
     return data?.content?.[0]?.text ?? '';
   }
 
@@ -1205,6 +1214,10 @@ async function callLLMRaw(
       }),
     });
     const data = await res.json() as any;
+    logUsage(userId, 'openai', 'gpt-4o-mini',
+      data?.usage?.prompt_tokens     ?? 0,
+      data?.usage?.completion_tokens ?? 0,
+    );
     return data?.choices?.[0]?.message?.content ?? '';
   }
 

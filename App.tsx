@@ -29,6 +29,7 @@ import GhostDraftGenerator from './components/GhostDraftGenerator';
 import PdfValidator from './components/PdfValidator';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
+import AiInUseIndicator from './components/AiInUseIndicator';
 import HelpPage from './components/HelpPage';
 import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
@@ -214,8 +215,9 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* ── Fixed top-right user menu ── */}
-      <div className="fixed top-3 right-4 z-40">
+      {/* ── Fixed top-right controls ── */}
+      <div className="fixed top-3 right-4 z-40 flex items-center gap-2">
+        <AiInUseIndicator />
         <UserMenu
           user={user}
           onSettings={() => setActiveTool('settings')}

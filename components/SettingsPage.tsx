@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useSettings, Theme, LLMProvider } from '../contexts/SettingsContext';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useSettings, LLMProvider } from '../contexts/SettingsContext';
 import { useAuth, AuthUser, UserPreferences } from '../contexts/AuthContext';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ const AppearanceTab: React.FC<{
 }> = ({ updatePreferences }) => {
   const { settings, saveSettings } = useSettings();
 
-  const handleThemeChange = async (theme: Theme) => {
+  const handleThemeChange = async (theme: 'light' | 'dark') => {
     saveSettings({ theme });
     await updatePreferences({ theme });
   };
@@ -37,7 +37,7 @@ const AppearanceTab: React.FC<{
           Your theme preference is saved to your account and applied on every login.
         </p>
         <div className="flex gap-3">
-          {(['light', 'dark'] as Theme[]).map((t) => (
+          {(['light', 'dark'] as const).map((t) => (
             <label
               key={t}
               className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${
@@ -46,14 +46,7 @@ const AppearanceTab: React.FC<{
                   : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-500'
               }`}
             >
-              <input
-                type="radio"
-                name="theme"
-                value={t}
-                checked={settings.theme === t}
-                onChange={() => handleThemeChange(t)}
-                className="sr-only"
-              />
+              <input type="radio" name="theme" value={t} checked={settings.theme === t} onChange={() => handleThemeChange(t)} className="sr-only" />
               <span className="font-medium capitalize">{t}</span>
             </label>
           ))}
@@ -63,128 +56,271 @@ const AppearanceTab: React.FC<{
   );
 };
 
-// ── LLM Provider Tab ───────────────────────────────────────────────────────
+// ── Usage stats types ──────────────────────────────────────────────────────
 
-const LLMProviderTab: React.FC<{
+interface ProviderSummary {
+  provider: string;
+  total_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: string;
+}
+
+interface RecentLog {
+  id: number;
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: string;
+  created_at: string;
+}
+
+interface UsageStats {
+  summary: ProviderSummary[];
+  recent: RecentLog[];
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatCost(raw: string | number): string {
+  const n = typeof raw === 'string' ? parseFloat(raw) : raw;
+  if (isNaN(n)) return '$0.00';
+  if (n < 0.001) return `<$0.001`;
+  return `$${n.toFixed(4)}`;
+}
+
+function timeAgo(iso: string): string {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60)    return `${Math.round(diff)}s ago`;
+  if (diff < 3600)  return `${Math.round(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+  return `${Math.round(diff / 86400)}d ago`;
+}
+
+// ── AI Providers Tab ───────────────────────────────────────────────────────
+
+const PROVIDER_CONFIG: { id: LLMProvider; label: string; keyField: keyof Pick<UserPreferences, 'geminiApiKey' | 'claudeApiKey' | 'openaiApiKey'>; placeholder: string; color: string }[] = [
+  { id: 'gemini', label: 'Google Gemini',    keyField: 'geminiApiKey', placeholder: 'Gemini API key (leave blank to use env key)', color: 'blue'   },
+  { id: 'claude', label: 'Anthropic Claude', keyField: 'claudeApiKey', placeholder: 'Claude API key (sk-ant-...)',                  color: 'orange' },
+  { id: 'openai', label: 'OpenAI GPT',       keyField: 'openaiApiKey', placeholder: 'OpenAI API key (sk-...)',                      color: 'emerald'},
+];
+
+const ACCENT: Record<string, string> = {
+  blue:    'border-blue-400   bg-blue-50   dark:bg-blue-950/30   dark:border-blue-600',
+  orange:  'border-orange-400 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-600',
+  emerald: 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-600',
+};
+
+const BADGE: Record<string, string> = {
+  blue:    'bg-blue-100    dark:bg-blue-900/40   text-blue-700    dark:text-blue-300',
+  orange:  'bg-orange-100  dark:bg-orange-900/40  text-orange-700  dark:text-orange-300',
+  emerald: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
+};
+
+const AiProvidersTab: React.FC<{
   updatePreferences: (p: Partial<UserPreferences>) => Promise<void>;
-}> = ({ updatePreferences }) => {
+  token: string;
+}> = ({ updatePreferences, token }) => {
   const { settings, saveSettings } = useSettings();
-  const [draftProvider, setDraftProvider] = useState<LLMProvider>(settings.llmProvider);
-  const [draftGeminiKey, setDraftGeminiKey] = useState(settings.geminiApiKey || '');
-  const [draftClaudeKey, setDraftClaudeKey] = useState(settings.claudeApiKey);
-  const [draftOpenAIKey, setDraftOpenAIKey] = useState(settings.openaiApiKey || '');
-  const [showGeminiKey, setShowGeminiKey] = useState(false);
-  const [showClaudeKey, setShowClaudeKey] = useState(false);
-  const [showOpenAIKey, setShowOpenAIKey] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<LLMProvider>('gemini');
+
+  const [keys, setKeys] = useState({
+    gemini: settings.geminiApiKey || '',
+    claude: settings.claudeApiKey || '',
+    openai: settings.openaiApiKey || '',
+  });
+  const [showKey, setShowKey] = useState({ gemini: false, claude: false, openai: false });
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
 
-  // Keep draft in sync if settings change externally (e.g. on login)
+  const [stats, setStats]         = useState<UsageStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError]    = useState('');
+
+  // Keep keys in sync if settings change externally
   useEffect(() => {
-    setDraftProvider(settings.llmProvider);
-    setDraftGeminiKey(settings.geminiApiKey || '');
-    setDraftClaudeKey(settings.claudeApiKey);
-    setDraftOpenAIKey(settings.openaiApiKey || '');
-  }, [settings.llmProvider, settings.geminiApiKey, settings.claudeApiKey, settings.openaiApiKey]);
+    setKeys({
+      gemini: settings.geminiApiKey || '',
+      claude: settings.claudeApiKey || '',
+      openai: settings.openaiApiKey || '',
+    });
+  }, [settings.geminiApiKey, settings.claudeApiKey, settings.openaiApiKey]);
 
-  const handleSave = async () => {
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true);
+    setStatsError('');
+    try {
+      const res = await fetch('/v1/llm/stats', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed to load usage stats');
+      setStats(await res.json());
+    } catch (e: any) {
+      setStatsError(e.message);
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  const handleSaveKey = async () => {
     setSaving(true);
     const prefs: Partial<UserPreferences> = {
-      llmProvider: draftProvider,
-      geminiApiKey: draftGeminiKey,
-      claudeApiKey: draftClaudeKey,
-      openaiApiKey: draftOpenAIKey,
+      geminiApiKey: keys.gemini,
+      claudeApiKey: keys.claude,
+      openaiApiKey: keys.openai,
     };
-    saveSettings({ llmProvider: draftProvider, geminiApiKey: draftGeminiKey, claudeApiKey: draftClaudeKey, openaiApiKey: draftOpenAIKey });
+    saveSettings(prefs);
     await updatePreferences(prefs);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const providerSummary = stats?.summary.find(s => s.provider === activeProvider);
+  const providerRecent  = stats?.recent.filter(r => r.provider === activeProvider) ?? [];
+  const cfg = PROVIDER_CONFIG.find(p => p.id === activeProvider)!;
+
   return (
-    <div className="max-w-lg space-y-6">
-      <div>
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">LLM Provider</h3>
+    <div className="max-w-2xl space-y-5">
+      {/* Provider sub-tabs */}
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+        {PROVIDER_CONFIG.map(({ id, label, color }) => (
+          <button
+            key={id}
+            onClick={() => setActiveProvider(id)}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors -mb-px ${
+              activeProvider === id
+                ? `border-current ${BADGE[color]} border-b-2`
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* API Key section */}
+      <div className={`rounded-xl border-2 p-4 transition-colors ${ACCENT[cfg.color]}`}>
+        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">{cfg.label} API Key</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-          Your API key is stored securely in your account and used by all accelerators.
+          Stored securely in your account. Shared across all accelerators.
         </p>
-        <div className="space-y-3">
-          {/* Gemini */}
-          <div className={`p-3 rounded-lg border-2 transition-all ${draftProvider === 'gemini' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-600'}`}>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="radio" name="llm" value="gemini" checked={draftProvider === 'gemini'} onChange={() => setDraftProvider('gemini')} className="w-4 h-4 accent-indigo-600" />
-              <span className="font-medium text-slate-700 dark:text-slate-200">Google Gemini</span>
-            </label>
-            {draftProvider === 'gemini' && (
-              <div className="relative mt-2">
-                <input
-                  type={showGeminiKey ? 'text' : 'password'}
-                  value={draftGeminiKey}
-                  onChange={(e) => setDraftGeminiKey(e.target.value)}
-                  placeholder="Gemini API key (leave blank to use env key)"
-                  className="w-full pr-10 px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <button type="button" onClick={() => setShowGeminiKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                  {showGeminiKey ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                </button>
-              </div>
-            )}
+        <div className="flex gap-2 items-center">
+          <div className="relative flex-1">
+            <input
+              type={showKey[cfg.id] ? 'text' : 'password'}
+              value={keys[cfg.id]}
+              onChange={e => setKeys(k => ({ ...k, [cfg.id]: e.target.value }))}
+              placeholder={cfg.placeholder}
+              className="w-full pr-10 px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(s => ({ ...s, [cfg.id]: !s[cfg.id] }))}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              {showKey[cfg.id] ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+            </button>
           </div>
-
-          {/* Claude */}
-          <div className={`p-3 rounded-lg border-2 transition-all ${draftProvider === 'claude' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-600'}`}>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="radio" name="llm" value="claude" checked={draftProvider === 'claude'} onChange={() => setDraftProvider('claude')} className="w-4 h-4 accent-indigo-600" />
-              <span className="font-medium text-slate-700 dark:text-slate-200">Anthropic Claude</span>
-            </label>
-            {draftProvider === 'claude' && (
-              <div className="relative mt-2">
-                <input
-                  type={showClaudeKey ? 'text' : 'password'}
-                  value={draftClaudeKey}
-                  onChange={(e) => setDraftClaudeKey(e.target.value)}
-                  placeholder="Claude API key (sk-ant-...)"
-                  className="w-full pr-10 px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <button type="button" onClick={() => setShowClaudeKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                  {showClaudeKey ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* OpenAI */}
-          <div className={`p-3 rounded-lg border-2 transition-all ${draftProvider === 'openai' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30' : 'border-slate-200 dark:border-slate-600'}`}>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="radio" name="llm" value="openai" checked={draftProvider === 'openai'} onChange={() => setDraftProvider('openai')} className="w-4 h-4 accent-indigo-600" />
-              <span className="font-medium text-slate-700 dark:text-slate-200">OpenAI GPT</span>
-            </label>
-            {draftProvider === 'openai' && (
-              <div className="relative mt-2">
-                <input
-                  type={showOpenAIKey ? 'text' : 'password'}
-                  value={draftOpenAIKey}
-                  onChange={(e) => setDraftOpenAIKey(e.target.value)}
-                  placeholder="OpenAI API key (sk-...)"
-                  className="w-full pr-10 px-3 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <button type="button" onClick={() => setShowOpenAIKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                  {showOpenAIKey ? <EyeSlashIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={handleSaveKey}
+            disabled={saving}
+            className={`px-4 py-2 rounded-lg font-semibold text-sm text-white transition-all disabled:opacity-60 flex-shrink-0 ${saved ? 'bg-green-500' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+          >
+            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
+          </button>
         </div>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className={`px-5 py-2.5 rounded-lg font-semibold text-sm text-white transition-all duration-200 disabled:opacity-60 ${saved ? 'bg-green-500' : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800'}`}
-      >
-        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
-      </button>
+      {/* Usage Stats section */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Usage Statistics</h3>
+          <button
+            onClick={fetchStats}
+            disabled={statsLoading}
+            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
+          >
+            {statsLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+
+        {statsError && (
+          <div className="px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400 mb-3">
+            {statsError}
+          </div>
+        )}
+
+        {statsLoading && !stats ? (
+          <div className="flex items-center gap-2 py-6 text-slate-500 dark:text-slate-400 text-sm">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Loading stats…
+          </div>
+        ) : (
+          <>
+            {/* Summary tiles */}
+            <div className="grid grid-cols-4 gap-3 mb-4">
+              {[
+                { label: 'Total Calls',    value: providerSummary ? String(providerSummary.total_calls) : '0' },
+                { label: 'Input Tokens',   value: providerSummary ? formatTokens(providerSummary.total_input_tokens)  : '0' },
+                { label: 'Output Tokens',  value: providerSummary ? formatTokens(providerSummary.total_output_tokens) : '0' },
+                { label: '~Cost',          value: providerSummary ? formatCost(providerSummary.total_cost_usd) : '$0.00' },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-3 border border-slate-200 dark:border-slate-700 text-center">
+                  <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{value}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Recent transactions */}
+            <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+              Recent Activity
+            </h4>
+
+            {providerRecent.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">
+                No activity recorded yet for {cfg.label}.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      {['Model', 'Input', 'Output', '~Cost', 'When'].map(h => (
+                        <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {providerRecent.slice(0, 10).map(row => (
+                      <tr key={row.id} className="bg-white dark:bg-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                        <td className="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 max-w-[140px] truncate" title={row.model}>{row.model}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatTokens(row.input_tokens)}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatTokens(row.output_tokens)}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatCost(row.cost_usd)}</td>
+                        <td className="px-3 py-2 text-slate-400 dark:text-slate-500 whitespace-nowrap">{timeAgo(row.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+              * Costs are approximate based on published pricing and may differ from actual charges.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 };
@@ -199,9 +335,9 @@ interface DBUser {
 }
 
 const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentUser, token }) => {
-  const [users, setUsers] = useState<DBUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [users, setUsers]       = useState<DBUser[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<DBUser | null>(null);
   const [form, setForm] = useState({ username: '', password: '', role: 'AppUser' as 'Admin' | 'AppUser' });
@@ -222,7 +358,7 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
 
   useEffect(() => { fetchUsers(); }, []);
 
-  const openAdd = () => { setEditTarget(null); setForm({ username: '', password: '', role: 'AppUser' }); setFormError(''); setShowModal(true); };
+  const openAdd  = () => { setEditTarget(null); setForm({ username: '', password: '', role: 'AppUser' }); setFormError(''); setShowModal(true); };
   const openEdit = (u: DBUser) => { setEditTarget(u); setForm({ username: u.username, password: '', role: u.role }); setFormError(''); setShowModal(true); };
 
   const handleSave = async () => {
@@ -233,8 +369,8 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
       const body: any = { username: form.username.trim(), role: form.role };
       if (form.password) body.password = form.password;
       const res = editTarget
-        ? await fetch(`/v1/users/${editTarget.id}`, { method: 'PUT', headers: authHeader, body: JSON.stringify(body) })
-        : await fetch('/v1/users', { method: 'POST', headers: authHeader, body: JSON.stringify(body) });
+        ? await fetch(`/v1/users/${editTarget.id}`, { method: 'PUT',    headers: authHeader, body: JSON.stringify(body) })
+        : await fetch('/v1/users',                    { method: 'POST',   headers: authHeader, body: JSON.stringify(body) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed'); }
       setShowModal(false);
       await fetchUsers();
@@ -355,16 +491,16 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
 
 // ── Settings Page ──────────────────────────────────────────────────────────
 
-type SettingsTab = 'appearance' | 'llm' | 'users';
+type SettingsTab = 'appearance' | 'ai' | 'users';
 
 const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
 
   const tabs: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
-    { id: 'appearance', label: 'Appearance' },
-    { id: 'llm', label: 'LLM Provider' },
-    { id: 'users', label: 'Users', adminOnly: true },
+    { id: 'appearance', label: 'Appearance'          },
+    { id: 'ai',         label: 'AI Providers'        },
+    { id: 'users',      label: 'Users', adminOnly: true },
   ];
 
   const visibleTabs = tabs.filter(t => !t.adminOnly || user?.role === 'Admin');
@@ -393,7 +529,9 @@ const SettingsPage: React.FC = () => {
       </div>
 
       {activeTab === 'appearance' && <AppearanceTab updatePreferences={updatePreferences} />}
-      {activeTab === 'llm' && <LLMProviderTab updatePreferences={updatePreferences} />}
+      {activeTab === 'ai' && token && (
+        <AiProvidersTab updatePreferences={updatePreferences} token={token} />
+      )}
       {activeTab === 'users' && user?.role === 'Admin' && token && (
         <UsersTab currentUser={user} token={token} />
       )}

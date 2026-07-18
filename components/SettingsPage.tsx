@@ -495,12 +495,12 @@ type SettingsTab = 'appearance' | 'ai' | 'users';
 
 const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
 
   const tabs: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
-    { id: 'appearance', label: 'Appearance'          },
     { id: 'ai',         label: 'AI Providers'        },
     { id: 'users',      label: 'Users', adminOnly: true },
+    { id: 'appearance', label: 'Appearance'          },
   ];
 
   const visibleTabs = tabs.filter(t => !t.adminOnly || user?.role === 'Admin');

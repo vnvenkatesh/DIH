@@ -148,7 +148,6 @@ const App: React.FC = () => {
         </svg>
       ),
     },
-    { tool: 'apiDocs', label: 'APIs', description: 'REST API reference docs', icon: <ServerIcon className="w-5 h-5" /> },
   ];
 
   const activeItem = navItems.find(item => item.tool === activeTool) ?? null;
@@ -233,6 +232,7 @@ const App: React.FC = () => {
         <UserMenu
           user={user}
           onSettings={() => setActiveTool('settings')}
+          onApiDocs={() => setActiveTool('apiDocs')}
           onHelp={() => setActiveTool('help')}
           onLogout={logout}
         />

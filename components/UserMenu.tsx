@@ -4,11 +4,12 @@ import { AuthUser } from '../contexts/AuthContext';
 interface UserMenuProps {
   user: AuthUser;
   onSettings: () => void;
+  onApiDocs: () => void;
   onHelp: () => void;
   onLogout: () => void;
 }
 
-const UserMenu: React.FC<UserMenuProps> = ({ user, onSettings, onHelp, onLogout }) => {
+const UserMenu: React.FC<UserMenuProps> = ({ user, onSettings, onApiDocs, onHelp, onLogout }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -66,6 +67,16 @@ const UserMenu: React.FC<UserMenuProps> = ({ user, onSettings, onHelp, onLogout 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
               </svg>
               Settings
+            </button>
+
+            <button
+              onClick={() => { setOpen(false); onApiDocs(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-left"
+            >
+              <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 8.25h15m-16.5 7.5h15m-1.8-13.5-3.9 19.5m-2.1-19.5-3.9 19.5" />
+              </svg>
+              API Docs
             </button>
 
             <button

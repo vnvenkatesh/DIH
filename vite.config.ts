@@ -12,6 +12,8 @@ export default defineConfig(({ mode }) => {
           '/v1': {
             target: 'http://localhost:3001',
             changeOrigin: true,
+            timeout: 120000,      // 2 min socket timeout — OpenAI can be slow
+            proxyTimeout: 120000, // 2 min upstream response timeout
           },
           '/api/gemini': {
             target: 'https://generativelanguage.googleapis.com',

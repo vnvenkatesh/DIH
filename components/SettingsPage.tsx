@@ -160,6 +160,7 @@ const AiProvidersTab: React.FC<{
     claude: settings.claudeModel || 'claude-haiku-4-5-20251001',
     openai: settings.openaiModel || 'gpt-6-luna',
   });
+  const [claudeEffort, setClaudeEffort] = useState<'high' | 'medium' | 'low'>(settings.claudeEffort || 'medium');
   const [showKey, setShowKey] = useState({ gemini: false, claude: false, openai: false });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
@@ -184,6 +185,10 @@ const AiProvidersTab: React.FC<{
       openai: settings.openaiModel || 'gpt-4o-mini',
     });
   }, [settings.geminiModel, settings.claudeModel, settings.openaiModel]);
+
+  useEffect(() => {
+    setClaudeEffort(settings.claudeEffort || 'medium');
+  }, [settings.claudeEffort]);
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
@@ -210,6 +215,7 @@ const AiProvidersTab: React.FC<{
       geminiModel: models.gemini,
       claudeModel: models.claude,
       openaiModel: models.openai,
+      claudeEffort,
     };
     saveSettings(prefs);
     await updatePreferences(prefs);
@@ -291,6 +297,34 @@ const AiProvidersTab: React.FC<{
             Applied to all accelerators for this provider. Click Save to persist.
           </p>
         </div>
+
+        {/* Effort (Claude only) */}
+        {activeProvider === 'claude' && (
+          <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-600">
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5 block">Inference Effort</label>
+            <div className="flex gap-2">
+              {(['low', 'medium', 'high'] as const).map(level => (
+                <label
+                  key={level}
+                  className={`flex-1 flex flex-col items-center gap-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                    claudeEffort === level
+                      ? 'border-orange-400 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-300'
+                      : 'border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-500'
+                  }`}
+                >
+                  <input type="radio" name="claudeEffort" value={level} checked={claudeEffort === level} onChange={() => setClaudeEffort(level)} className="sr-only" />
+                  <span className="text-sm font-semibold capitalize">{level}</span>
+                  <span className="text-xs opacity-75">
+                    {level === 'low' ? 'Fast, less reasoning' : level === 'medium' ? 'Balanced' : 'Deep reasoning'}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+              Controls thinking depth. Applies to Sonnet 5.5, Opus 5.5, and Fable 5.1 only.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Usage Stats section */}

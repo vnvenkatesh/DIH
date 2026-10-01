@@ -15,6 +15,20 @@ function getClaudeModel(): string {
     } catch { return 'claude-haiku-4-5-20251001'; }
 }
 
+function getClaudeEffort(): 'high' | 'medium' | 'low' {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+        return s.claudeEffort || 'medium';
+    } catch { return 'medium'; }
+}
+
+// Models that support the effort parameter (adaptive thinking)
+const EFFORT_SUPPORTED_MODELS = new Set([
+    'claude-sonnet-5-5',
+    'claude-opus-5-5',
+    'claude-fable-5-1',
+]);
+
 let _accelerator = 'Other';
 
 async function callClaude(payload: { model: string; max_tokens: number; messages: any[] }, extraHeaders: Record<string, string> = {}): Promise<any> {
@@ -25,6 +39,7 @@ async function callClaude(payload: { model: string; max_tokens: number; messages
         accelerator: _accelerator,
     };
     if (extraHeaders['anthropic-beta']) body.beta = extraHeaders['anthropic-beta'];
+    if (EFFORT_SUPPORTED_MODELS.has(payload.model)) body.effort = getClaudeEffort();
 
     const resp = await fetch('/v1/llm/claude', {
         method: 'POST',

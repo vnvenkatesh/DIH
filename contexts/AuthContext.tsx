@@ -11,6 +11,7 @@ export interface UserPreferences {
   geminiModel: string;
   claudeModel: string;
   openaiModel: string;
+  claudeEffort: 'high' | 'medium' | 'low';
 }
 
 export interface AuthUser extends UserPreferences {
@@ -62,6 +63,7 @@ function deserializeUser(raw: any): AuthUser {
     geminiModel: raw.gemini_model ?? 'gemini-2.5-flash',
     claudeModel: raw.claude_model ?? 'claude-haiku-4-5-20251001',
     openaiModel: raw.openai_model ?? 'gpt-4o-mini',
+    claudeEffort: raw.claude_effort ?? 'medium',
   };
 }
 
@@ -131,6 +133,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (prefs.geminiModel !== undefined) body.gemini_model = prefs.geminiModel;
     if (prefs.claudeModel !== undefined) body.claude_model = prefs.claudeModel;
     if (prefs.openaiModel !== undefined) body.openai_model = prefs.openaiModel;
+    if (prefs.claudeEffort !== undefined) body.claude_effort = prefs.claudeEffort;
 
     const res = await fetch('/v1/auth/preferences', {
       method: 'PUT',

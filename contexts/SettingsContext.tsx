@@ -12,6 +12,7 @@ export interface AppSettings {
   geminiModel: string;
   claudeModel: string;
   openaiModel: string;
+  claudeEffort: 'high' | 'medium' | 'low';
 }
 
 interface SettingsContextValue {
@@ -30,6 +31,7 @@ const defaultSettings: AppSettings = {
   geminiModel: 'gemini-2.5-flash',
   claudeModel: 'claude-haiku-4-5-20251001',
   openaiModel: 'gpt-4o-mini',
+  claudeEffort: 'medium',
 };
 
 const SettingsContext = createContext<SettingsContextValue>({

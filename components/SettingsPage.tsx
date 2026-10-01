@@ -104,10 +104,11 @@ function timeAgo(iso: string): string {
 
 // ── AI Providers Tab ───────────────────────────────────────────────────────
 
-const PROVIDER_CONFIG: { id: LLMProvider; label: string; keyField: keyof Pick<UserPreferences, 'geminiApiKey' | 'claudeApiKey' | 'openaiApiKey'>; placeholder: string; color: string }[] = [
+const PROVIDER_CONFIG: { id: LLMProvider; label: string; keyField: keyof Pick<UserPreferences, 'geminiApiKey' | 'claudeApiKey' | 'openaiApiKey' | 'grokApiKey'>; placeholder: string; color: string }[] = [
   { id: 'gemini', label: 'Google Gemini',    keyField: 'geminiApiKey', placeholder: 'Gemini API key (leave blank to use env key)', color: 'blue'   },
   { id: 'claude', label: 'Anthropic Claude', keyField: 'claudeApiKey', placeholder: 'Claude API key (sk-ant-...)',                  color: 'orange' },
   { id: 'openai', label: 'OpenAI GPT',       keyField: 'openaiApiKey', placeholder: 'OpenAI API key (sk-...)',                      color: 'emerald'},
+  { id: 'grok',   label: 'xAI Grok',         keyField: 'grokApiKey',   placeholder: 'xAI API key (xai-...)',                        color: 'purple' },
 ];
 
 interface ModelOption { id: string; label: string; costHint: string; }
@@ -128,18 +129,25 @@ const MODEL_OPTIONS: Record<LLMProvider, ModelOption[]> = {
     { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', costHint: '$2.00 / $10.00 per 1M tokens' },
     { id: 'gpt-6-astra', label: 'GPT-6 Astra', costHint: '$10.00 / $50.00 per 1M tokens'},
   ],
+  grok: [
+    { id: 'grok-4.3',       label: 'Grok 4.3',       costHint: '$1.25 / $2.50 per 1M tokens' },
+    { id: 'grok-4.7',       label: 'Grok 4.7',        costHint: '$2.00 / $6.00 per 1M tokens'  },
+    { id: 'grok-build-0.1', label: 'Grok Build 0.1',  costHint: '$1.00 / $2.00 per 1M tokens'  },
+  ],
 };
 
 const ACCENT: Record<string, string> = {
   blue:    'border-blue-400   bg-blue-50   dark:bg-blue-950/30   dark:border-blue-600',
   orange:  'border-orange-400 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-600',
   emerald: 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-600',
+  purple:  'border-purple-400 bg-purple-50 dark:bg-purple-950/30 dark:border-purple-600',
 };
 
 const BADGE: Record<string, string> = {
   blue:    'bg-blue-100    dark:bg-blue-900/40   text-blue-700    dark:text-blue-300',
   orange:  'bg-orange-100  dark:bg-orange-900/40  text-orange-700  dark:text-orange-300',
   emerald: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
+  purple:  'bg-purple-100  dark:bg-purple-900/40  text-purple-700  dark:text-purple-300',
 };
 
 const AiProvidersTab: React.FC<{
@@ -153,15 +161,17 @@ const AiProvidersTab: React.FC<{
     gemini: settings.geminiApiKey || '',
     claude: settings.claudeApiKey || '',
     openai: settings.openaiApiKey || '',
+    grok:   settings.grokApiKey   || '',
   });
 
   const [models, setModels] = useState({
     gemini: settings.geminiModel || 'gemini-3.8-flash',
     claude: settings.claudeModel || 'claude-haiku-4-5-20251001',
     openai: settings.openaiModel || 'gpt-6-luna',
+    grok:   settings.grokModel   || 'grok-4.3',
   });
   const [claudeEffort, setClaudeEffort] = useState<'high' | 'medium' | 'low'>(settings.claudeEffort || 'medium');
-  const [showKey, setShowKey] = useState({ gemini: false, claude: false, openai: false });
+  const [showKey, setShowKey] = useState({ gemini: false, claude: false, openai: false, grok: false });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
 
@@ -175,16 +185,18 @@ const AiProvidersTab: React.FC<{
       gemini: settings.geminiApiKey || '',
       claude: settings.claudeApiKey || '',
       openai: settings.openaiApiKey || '',
+      grok:   settings.grokApiKey   || '',
     });
-  }, [settings.geminiApiKey, settings.claudeApiKey, settings.openaiApiKey]);
+  }, [settings.geminiApiKey, settings.claudeApiKey, settings.openaiApiKey, settings.grokApiKey]);
 
   useEffect(() => {
     setModels({
       gemini: settings.geminiModel || 'gemini-2.5-flash',
       claude: settings.claudeModel || 'claude-haiku-4-5-20251001',
       openai: settings.openaiModel || 'gpt-4o-mini',
+      grok:   settings.grokModel   || 'grok-4.3',
     });
-  }, [settings.geminiModel, settings.claudeModel, settings.openaiModel]);
+  }, [settings.geminiModel, settings.claudeModel, settings.openaiModel, settings.grokModel]);
 
   useEffect(() => {
     setClaudeEffort(settings.claudeEffort || 'medium');
@@ -212,9 +224,11 @@ const AiProvidersTab: React.FC<{
       geminiApiKey: keys.gemini,
       claudeApiKey: keys.claude,
       openaiApiKey: keys.openai,
-      geminiModel: models.gemini,
-      claudeModel: models.claude,
-      openaiModel: models.openai,
+      grokApiKey:   keys.grok,
+      geminiModel:  models.gemini,
+      claudeModel:  models.claude,
+      openaiModel:  models.openai,
+      grokModel:    models.grok,
       claudeEffort,
     };
     saveSettings(prefs);

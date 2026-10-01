@@ -12,6 +12,8 @@ export interface UserPreferences {
   claudeModel: string;
   openaiModel: string;
   claudeEffort: 'high' | 'medium' | 'low';
+  grokApiKey: string;
+  grokModel: string;
 }
 
 export interface AuthUser extends UserPreferences {
@@ -64,6 +66,8 @@ function deserializeUser(raw: any): AuthUser {
     claudeModel: raw.claude_model ?? 'claude-haiku-4-5-20251001',
     openaiModel: raw.openai_model ?? 'gpt-4o-mini',
     claudeEffort: raw.claude_effort ?? 'medium',
+    grokApiKey: raw.grok_api_key ?? '',
+    grokModel: raw.grok_model ?? 'grok-4.3',
   };
 }
 
@@ -134,6 +138,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (prefs.claudeModel !== undefined) body.claude_model = prefs.claudeModel;
     if (prefs.openaiModel !== undefined) body.openai_model = prefs.openaiModel;
     if (prefs.claudeEffort !== undefined) body.claude_effort = prefs.claudeEffort;
+    if (prefs.grokApiKey   !== undefined) body.grok_api_key  = prefs.grokApiKey;
+    if (prefs.grokModel    !== undefined) body.grok_model    = prefs.grokModel;
 
     const res = await fetch('/v1/auth/preferences', {
       method: 'PUT',

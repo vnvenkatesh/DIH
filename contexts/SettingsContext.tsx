@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type Theme = 'light' | 'dark';
-export type LLMProvider = 'gemini' | 'claude' | 'openai';
+export type LLMProvider = 'gemini' | 'claude' | 'openai' | 'grok';
 
 export interface AppSettings {
   theme: Theme;
@@ -13,6 +13,8 @@ export interface AppSettings {
   claudeModel: string;
   openaiModel: string;
   claudeEffort: 'high' | 'medium' | 'low';
+  grokApiKey: string;
+  grokModel: string;
 }
 
 interface SettingsContextValue {
@@ -32,6 +34,8 @@ const defaultSettings: AppSettings = {
   claudeModel: 'claude-haiku-4-5-20251001',
   openaiModel: 'gpt-4o-mini',
   claudeEffort: 'medium',
+  grokApiKey: '',
+  grokModel: 'grok-4.3',
 };
 
 const SettingsContext = createContext<SettingsContextValue>({

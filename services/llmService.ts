@@ -1,14 +1,16 @@
 import * as gemini from './geminiService';
 import * as claude from './claudeService';
 import * as openai from './openaiService';
+import * as grok from './grokService';
 import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
-function getProvider(): 'claude' | 'gemini' | 'openai' {
+function getProvider(): 'claude' | 'gemini' | 'openai' | 'grok' {
     try {
         const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
         if (s.llmProvider === 'claude') return 'claude';
         if (s.llmProvider === 'openai') return 'openai';
+        if (s.llmProvider === 'grok')   return 'grok';
         return 'gemini';
     } catch {
         return 'gemini';
@@ -19,6 +21,7 @@ export const generateSyntheticDataFromXsd = (xsdContent: string): Promise<Synthe
     const p = getProvider();
     if (p === 'claude') return claude.generateSyntheticDataFromXsd(xsdContent);
     if (p === 'openai') return openai.generateSyntheticDataFromXsd(xsdContent);
+    if (p === 'grok')   return grok.generateSyntheticDataFromXsd(xsdContent);
     return gemini.generateSyntheticDataFromXsd(xsdContent);
 };
 
@@ -31,6 +34,7 @@ export const extractXPaths = (
     const p = getProvider();
     if (p === 'claude') return claude.extractXPaths(pdfBase64, pdfMimeType, xmlContent, templateName);
     if (p === 'openai') return openai.extractXPaths(pdfBase64, pdfMimeType, xmlContent, templateName);
+    if (p === 'grok')   return grok.extractXPaths();
     return gemini.extractXPaths(pdfBase64, pdfMimeType, xmlContent, templateName);
 };
 
@@ -42,6 +46,7 @@ export const generateDataMap = (
     const p = getProvider();
     if (p === 'claude') return claude.generateDataMap(docxContent, xsdContent, templateName);
     if (p === 'openai') return openai.generateDataMap(docxContent, xsdContent, templateName);
+    if (p === 'grok')   return grok.generateDataMap(docxContent, xsdContent, templateName);
     return gemini.generateDataMap(docxContent, xsdContent, templateName);
 };
 
@@ -52,6 +57,7 @@ export const performSemanticComparison = (
     const p = getProvider();
     if (p === 'claude') return claude.performSemanticComparison(textA, textB);
     if (p === 'openai') return openai.performSemanticComparison(textA, textB);
+    if (p === 'grok')   return grok.performSemanticComparison(textA, textB);
     return gemini.performSemanticComparison(textA, textB);
 };
 
@@ -59,6 +65,7 @@ export const generateLayoutRecommendations = (documentText: string): Promise<Lay
     const p = getProvider();
     if (p === 'claude') return claude.generateLayoutRecommendations(documentText);
     if (p === 'openai') return openai.generateLayoutRecommendations(documentText);
+    if (p === 'grok')   return grok.generateLayoutRecommendations(documentText);
     return gemini.generateLayoutRecommendations(documentText);
 };
 
@@ -69,6 +76,7 @@ export const scoreAccessibility = (
     const p = getProvider();
     if (p === 'claude') return claude.scoreAccessibility(documentText, fileName);
     if (p === 'openai') return openai.scoreAccessibility(documentText, fileName);
+    if (p === 'grok')   return grok.scoreAccessibility(documentText, fileName);
     return gemini.scoreAccessibility(documentText, fileName);
 };
 
@@ -76,6 +84,7 @@ export const extractBusinessRules = (docText: string): Promise<BusinessRulesResu
     const p = getProvider();
     if (p === 'claude') return claude.extractBusinessRules(docText);
     if (p === 'openai') return openai.extractBusinessRules(docText);
+    if (p === 'grok')   return grok.extractBusinessRules(docText);
     return gemini.extractBusinessRules(docText);
 };
 
@@ -83,6 +92,7 @@ export const generateTestCases = (rulesAndHints: string): Promise<TestCaseResult
     const p = getProvider();
     if (p === 'claude') return claude.generateTestCases(rulesAndHints);
     if (p === 'openai') return openai.generateTestCases(rulesAndHints);
+    if (p === 'grok')   return grok.generateTestCases(rulesAndHints);
     return gemini.generateTestCases(rulesAndHints);
 };
 

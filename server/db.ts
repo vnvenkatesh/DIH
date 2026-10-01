@@ -40,6 +40,8 @@ export async function initDb(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_model VARCHAR(100) DEFAULT 'claude-haiku-4-5-20251001'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS openai_model VARCHAR(100) DEFAULT 'gpt-4o-mini'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_effort VARCHAR(10) DEFAULT 'medium'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS grok_api_key TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS grok_model VARCHAR(100) DEFAULT 'grok-4.3'`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS llm_usage_logs (

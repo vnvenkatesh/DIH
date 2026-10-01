@@ -6,18 +6,21 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   gemini: 'Gemini',
   claude: 'Claude',
   openai: 'OpenAI',
+  grok: 'Grok',
 };
 
 const PROVIDER_COLORS: Record<LLMProvider, string> = {
   gemini: 'text-blue-600 dark:text-blue-400',
   claude: 'text-orange-600 dark:text-orange-400',
   openai: 'text-emerald-600 dark:text-emerald-400',
+  grok: 'text-purple-600 dark:text-purple-400',
 };
 
 const PROVIDER_DESCRIPTIONS: Record<LLMProvider, string> = {
   gemini: 'Google Gemini',
   claude: 'Anthropic Claude',
   openai: 'OpenAI GPT',
+  grok: 'xAI Grok',
 };
 
 const AiInUseIndicator: React.FC = () => {
@@ -38,6 +41,7 @@ const AiInUseIndicator: React.FC = () => {
   const hasKey = (provider: LLMProvider): boolean => {
     if (provider === 'gemini') return !!settings.geminiApiKey;
     if (provider === 'claude') return !!settings.claudeApiKey;
+    if (provider === 'grok')   return !!settings.grokApiKey;
     return !!settings.openaiApiKey;
   };
 
@@ -92,7 +96,7 @@ const AiInUseIndicator: React.FC = () => {
             Switch AI Provider
           </p>
 
-          {(['gemini', 'claude', 'openai'] as LLMProvider[]).map((p) => {
+          {(['gemini', 'claude', 'openai', 'grok'] as LLMProvider[]).map((p) => {
             const isActive   = p === current;
             const isLoading  = switching === p;
             const noKey      = !hasKey(p);

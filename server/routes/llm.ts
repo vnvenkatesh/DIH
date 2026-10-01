@@ -8,6 +8,7 @@ const router = express.Router();
 const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
 const CLAUDE_API   = 'https://api.anthropic.com/v1/messages';
 const OPENAI_API   = 'https://api.openai.com/v1/chat/completions';
+const GROK_API     = 'https://api.x.ai/v1/chat/completions';
 
 // ── Usage stats ───────────────────────────────────────────────────────────────
 router.get('/stats', requireAuth as any, async (req: AuthRequest, res) => {
@@ -174,6 +175,55 @@ router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
       return;
     }
     res.status(500).json({ error: { message: err?.message ?? 'OpenAI proxy error' } });
+  }
+});
+
+// ── Grok proxy ────────────────────────────────────────────────────────────────
+router.post('/grok', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const { model, messages, response_format, accelerator } = req.body;
+
+    const { rows } = await pool.query('SELECT grok_api_key FROM users WHERE id=$1', [req.user!.id]);
+    const apiKey = rows[0]?.grok_api_key || process.env.GROK_API_KEY || process.env.XAI_API_KEY;
+
+    if (!apiKey) {
+      res.status(400).json({ error: { message: 'Grok API key not configured. Go to Settings → AI Providers.' } });
+      return;
+    }
+
+    const body: Record<string, any> = { model, messages };
+    if (response_format) body.response_format = response_format;
+
+    const upstream = await fetch(GROK_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(280_000),
+    });
+
+    const data = await upstream.json() as any;
+
+    if (upstream.status === 401) {
+      res.status(400).json({ error: { message: 'Grok API key is invalid. Please update it in Settings → AI Providers.' } });
+      return;
+    }
+
+    if (upstream.ok) {
+      const inputTokens  = data.usage?.prompt_tokens     ?? 0;
+      const outputTokens = data.usage?.completion_tokens ?? 0;
+      logUsage(req.user!.id, 'grok', model, inputTokens, outputTokens, accelerator ?? 'Other');
+    }
+
+    res.status(upstream.status).json(data);
+  } catch (err: any) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      res.status(504).json({ error: { message: 'Grok request timed out (>280 s). Try a shorter document or switch to a faster model.' } });
+      return;
+    }
+    res.status(500).json({ error: { message: err?.message ?? 'Grok proxy error' } });
   }
 });
 

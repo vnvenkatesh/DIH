@@ -28,6 +28,10 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'gpt-6-luna':     { input: 0.10,  output: 0.50  },
   'gpt-6.1-sol':    { input: 2.00,  output: 10.0  },
   'gpt-6-astra':    { input: 10.0,  output: 50.0  },
+  // xAI Grok — per 1M tokens
+  'grok-4.7':          { input: 2.00,  output: 6.00  },
+  'grok-4.3':          { input: 1.25,  output: 2.50  },
+  'grok-build-0.1':    { input: 1.00,  output: 2.00  },
   // OpenAI legacy
   'gpt-4.1':        { input: 2.00,  output: 8.00  },
   'gpt-4.1-mini':   { input: 0.40,  output: 1.60  },

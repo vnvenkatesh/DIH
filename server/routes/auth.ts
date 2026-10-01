@@ -20,6 +20,8 @@ function toClientUser(row: any) {
     claude_model: row.claude_model ?? 'claude-haiku-4-5-20251001',
     openai_model: row.openai_model ?? 'gpt-4o-mini',
     claude_effort: row.claude_effort ?? 'medium',
+    grok_api_key: row.grok_api_key ?? '',
+    grok_model: row.grok_model ?? 'grok-4.3',
   };
 }
 
@@ -84,7 +86,7 @@ router.get('/me', requireAuth as any, async (req: AuthRequest, res) => {
 
 router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { theme, llm_provider, gemini_api_key, claude_api_key, openai_api_key, gemini_model, claude_model, openai_model, claude_effort } = req.body ?? {};
+    const { theme, llm_provider, gemini_api_key, claude_api_key, openai_api_key, gemini_model, claude_model, openai_model, claude_effort, grok_api_key, grok_model } = req.body ?? {};
     await pool.query(
       `UPDATE users
          SET theme          = COALESCE($1, theme),
@@ -96,9 +98,11 @@ router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => 
              claude_model   = COALESCE($7, claude_model),
              openai_model   = COALESCE($8, openai_model),
              claude_effort  = COALESCE($9, claude_effort),
+             grok_api_key   = COALESCE($10, grok_api_key),
+             grok_model     = COALESCE($11, grok_model),
              updated_at     = NOW()
-       WHERE id = $10`,
-      [theme ?? null, llm_provider ?? null, gemini_api_key ?? null, claude_api_key ?? null, openai_api_key ?? null, gemini_model ?? null, claude_model ?? null, openai_model ?? null, claude_effort ?? null, req.user!.id]
+       WHERE id = $12`,
+      [theme ?? null, llm_provider ?? null, gemini_api_key ?? null, claude_api_key ?? null, openai_api_key ?? null, gemini_model ?? null, claude_model ?? null, openai_model ?? null, claude_effort ?? null, grok_api_key ?? null, grok_model ?? null, req.user!.id]
     );
     const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
     res.json({ user: toClientUser(rows[0]) });

@@ -59,19 +59,19 @@ const FaqItem: React.FC<{ q: string; a: React.ReactNode }> = ({ q, a }) => {
 const HelpPage: React.FC = () => {
     const workflows = [
         {
-            steps: ['Business Rules', 'Test Case Generator', 'Synthetic Data Generation', 'Output Validator'],
+            steps: ['Business Rules', 'Test Cases', 'Test Data', 'Output Validator'],
             label: 'Full QA Pipeline',
             color: 'text-indigo-600 dark:text-indigo-400',
             dot: 'bg-indigo-500',
         },
         {
-            steps: ['Data Mapping Generator', 'XPath Extractor', 'GhostDraft Generator'],
+            steps: ['Dynamic Fields', 'XPath Extractor', 'GhostDraft Template Build'],
             label: 'Field Mapping → GhostDraft Document',
             color: 'text-violet-600 dark:text-violet-400',
             dot: 'bg-violet-500',
         },
         {
-            steps: ['Synthetic Data Generation', 'Output Validator'],
+            steps: ['Test Data', 'Output Validator'],
             label: 'Data-Driven Output Validation',
             color: 'text-cyan-600 dark:text-cyan-400',
             dot: 'bg-cyan-500',
@@ -105,18 +105,18 @@ const HelpPage: React.FC = () => {
         },
         {
             q: 'How do the accelerators connect with each other?',
-            a: 'Several accelerators are designed to chain together. The full QA pipeline is: Business Rules (from a BRD) → Test Case Generator (rules CSV) → Synthetic Data Generation (XSD + test cases CSV) → Output Validator (generated PDF + input data + test cases CSV). For schema work: Data Mapping Generator → XPath Extractor → GhostDraft Generator.',
+            a: 'Several accelerators are designed to chain together. The full QA pipeline is: Business Rules (from a BRD) → Test Cases (rules CSV) → Test Data (XSD + test cases CSV) → Output Validator (generated PDF + input data + test cases CSV). For schema work: Dynamic Fields → XPath Extractor → GhostDraft Template Build.',
         },
         {
             q: 'What file types are supported?',
             a: (
                 <ul className="space-y-1 list-disc list-inside">
                     <li><strong>PDF</strong> — all accelerators that accept documents</li>
-                    <li><strong>DOCX</strong> — Data Mapping Generator, Layout Recommendation</li>
-                    <li><strong>XSD</strong> — Data Mapping Generator, XPath Extractor, Synthetic Data Generation, GhostDraft Generator</li>
+                    <li><strong>DOCX</strong> — Dynamic Fields, Layout Recommendation</li>
+                    <li><strong>XSD</strong> — Dynamic Fields, XPath Extractor, Test Data, GhostDraft Template Build</li>
                     <li><strong>XML / JSON</strong> — XPath Extractor, Output Validator (input data)</li>
-                    <li><strong>CSV</strong> — Test Case Generator (business rules input), Synthetic Data Generation (test cases input), Output Validator (test cases input)</li>
-                    <li><strong>.gd</strong> — GhostDraft Generator (template + optional reference)</li>
+                    <li><strong>CSV</strong> — Test Cases (business rules input), Test Data (test cases input), Output Validator (test cases input)</li>
+                    <li><strong>.gd</strong> — GhostDraft Template Build (template + optional reference)</li>
                 </ul>
             ),
         },

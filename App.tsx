@@ -45,6 +45,15 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
+interface NavGroup {
+  type: 'group';
+  label: string;
+  icon: React.ReactNode;
+  children: NavItem[];
+}
+
+type NavEntry = NavItem | NavGroup;
+
 const GearIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
@@ -70,6 +79,7 @@ const App: React.FC = () => {
   const { saveSettings } = useSettings();
   const [activeTool, setActiveTool] = useState<Tool>('home');
   const [filesToCompare, setFilesToCompare] = useState<[File, File] | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['Build Automation']));
 
   // Hydrate SettingsContext (and localStorage) from the user's DB preferences on login.
   // This ensures services that read from localStorage pick up the right keys.
@@ -100,7 +110,12 @@ const App: React.FC = () => {
     setFilesToCompare(null);
   };
 
-  const navItems: NavItem[] = [
+  // UI label → tool key lookup (for reference)
+  // 'Dynamic Fields'          → dataMappingGenerator
+  // 'Test Cases'              → testCaseGenerator
+  // 'Test Data'               → syntheticDataGenerator
+  // 'GhostDraft Template Build' → ghostDraftGenerator (under Build Automation)
+  const navEntries: NavEntry[] = [
     { tool: 'cluster', label: 'Cluster', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
     { tool: 'pdfCompare', label: 'PDF AI Compare', description: 'AI-powered semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
     {
@@ -114,10 +129,32 @@ const App: React.FC = () => {
         </svg>
       ),
     },
-    { tool: 'dataMappingGenerator', label: 'Data Mapping Generator', description: 'Map fields to XSD schema', icon: <LinkIcon className="w-5 h-5" /> },
+    { tool: 'dataMappingGenerator', label: 'Dynamic Fields', description: 'Map fields to XSD schema', icon: <LinkIcon className="w-5 h-5" /> },
     { tool: 'businessRulesExtractor', label: 'Business Rules', description: 'Extract rules from form specs', icon: <ClipboardRulesIcon className="w-5 h-5" /> },
-    { tool: 'testCaseGenerator', label: 'Test Case Generator', description: 'Generate test suite from rules CSV', icon: <TestCaseIcon className="w-5 h-5" /> },
-    { tool: 'syntheticDataGenerator', label: 'Synthetic Data Generation', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
+    {
+      type: 'group' as const,
+      label: 'Build Automation',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75a4.5 4.5 0 01-4.884 4.484c-1.076-.091-2.264.071-2.95.904l-7.152 8.684a2.548 2.548 0 11-3.586-3.586l8.684-7.152c.833-.686.995-1.874.904-2.95a4.5 4.5 0 016.336-4.486l-3.276 3.276a3.004 3.004 0 002.25 2.25l3.276-3.276c.256.565.398 1.192.398 1.852z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4.867 19.125h.008v.008h-.008v-.008z" />
+        </svg>
+      ),
+      children: [
+        {
+          tool: 'ghostDraftGenerator' as Tool,
+          label: 'GhostDraft Template Build',
+          description: 'Generate .gd document + sample XML',
+          icon: (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C8.13 2 5 5.13 5 9v8l2-2 2 2 2-2 2 2 2-2 2 2V9c0-3.87-3.13-7-7-7z" />
+            </svg>
+          ),
+        },
+      ],
+    },
+    { tool: 'testCaseGenerator', label: 'Test Cases', description: 'Generate test suite from rules CSV', icon: <TestCaseIcon className="w-5 h-5" /> },
+    { tool: 'syntheticDataGenerator', label: 'Test Data', description: 'Generate data from XSD', icon: <DocumentTextIcon className="w-5 h-5" /> },
     {
       tool: 'pdfValidator',
       label: 'Output Validator',
@@ -125,16 +162,6 @@ const App: React.FC = () => {
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-        </svg>
-      ),
-    },
-    {
-      tool: 'ghostDraftGenerator',
-      label: 'GhostDraft Generator',
-      description: 'Generate .gd document + sample XML',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 2C8.13 2 5 5.13 5 9v8l2-2 2 2 2-2 2 2 2-2 2 2V9c0-3.87-3.13-7-7-7z" />
         </svg>
       ),
     },
@@ -153,7 +180,18 @@ const App: React.FC = () => {
     },
   ];
 
-  const activeItem = navItems.find(item => item.tool === activeTool) ?? null;
+  const activeItem: NavItem | null = (() => {
+    for (const entry of navEntries) {
+      if ('type' in entry && entry.type === 'group') {
+        const found = (entry as NavGroup).children.find(c => c.tool === activeTool);
+        if (found) return found;
+      } else {
+        const item = entry as NavItem;
+        if (item.tool === activeTool) return item;
+      }
+    }
+    return null;
+  })();
 
   if (isLoading) {
     return (
@@ -199,28 +237,84 @@ const App: React.FC = () => {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map(({ tool, label, description, icon }) => (
-            <button
-              key={tool}
-              onClick={() => setActiveTool(tool)}
-              className={`w-full flex items-start gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
-                activeTool === tool
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-              }`}
-              aria-current={activeTool === tool ? 'page' : undefined}
-            >
-              <span className={`mt-0.5 flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
-                {icon}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-medium leading-tight">{label}</span>
-                <span className={`block text-xs mt-0.5 leading-tight transition-colors ${activeTool === tool ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-400'}`}>
-                  {description}
+          {navEntries.map((entry, idx) => {
+            if ('type' in entry && (entry as NavGroup).type === 'group') {
+              const group = entry as NavGroup;
+              const childTools = group.children.map(c => c.tool);
+              const isExpanded = expandedGroups.has(group.label) || childTools.includes(activeTool);
+              return (
+                <div key={`group-${group.label}`}>
+                  <button
+                    onClick={() => setExpandedGroups(prev => {
+                      const next = new Set(prev);
+                      if (next.has(group.label)) next.delete(group.label); else next.add(group.label);
+                      return next;
+                    })}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group text-slate-400 hover:bg-slate-800 hover:text-white"
+                  >
+                    <span className="mt-0.5 flex-shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors">
+                      {group.icon}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium leading-tight">{group.label}</span>
+                    </span>
+                    <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-0.5 ml-2 pl-2 border-l-2 border-slate-700 space-y-0.5">
+                      {group.children.map(({ tool, label, description, icon }) => (
+                        <button
+                          key={tool}
+                          onClick={() => setActiveTool(tool)}
+                          className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 group ${
+                            activeTool === tool
+                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
+                              : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                          }`}
+                          aria-current={activeTool === tool ? 'page' : undefined}
+                        >
+                          <span className={`mt-0.5 flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                            {icon}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium leading-tight">{label}</span>
+                            <span className={`block text-xs mt-0.5 leading-tight transition-colors ${activeTool === tool ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-400'}`}>
+                              {description}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            const { tool, label, description, icon } = entry as NavItem;
+            return (
+              <button
+                key={tool}
+                onClick={() => setActiveTool(tool)}
+                className={`w-full flex items-start gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
+                  activeTool === tool
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
+                aria-current={activeTool === tool ? 'page' : undefined}
+              >
+                <span className={`mt-0.5 flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                  {icon}
                 </span>
-              </span>
-            </button>
-          ))}
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium leading-tight">{label}</span>
+                  <span className={`block text-xs mt-0.5 leading-tight transition-colors ${activeTool === tool ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-400'}`}>
+                    {description}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </nav>
 
         {/* Sidebar Footer — branding only */}

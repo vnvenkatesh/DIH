@@ -55,7 +55,7 @@ const accelerators = [
   {
     id: 'dataMappingGenerator',
     Icon: LinkIcon,
-    name: 'Data Mapping Generator',
+    name: 'Dynamic Fields',
     tagline: 'From Word doc to XSD mapping in seconds',
     description:
       'Upload a Word document and an XSD schema — AI identifies every data field and maps it to the correct schema path, then generates a ready-to-use XML output populated with sample values.',
@@ -75,7 +75,7 @@ const accelerators = [
   {
     id: 'testCaseGenerator',
     Icon: TestCaseIcon,
-    name: 'Test Case Generator',
+    name: 'Test Cases',
     tagline: 'Rules in, full test suite out',
     description:
       'Upload a Business Rules CSV and receive a complete test suite covering all six categories — happy path, mandatory violations, boundary values, conditional branches, format violations, and calculation checks. Add domain hints to generate additional edge-case tests.',
@@ -85,7 +85,7 @@ const accelerators = [
   {
     id: 'syntheticDataGenerator',
     Icon: DocumentTextIcon,
-    name: 'Synthetic Data Generation',
+    name: 'Test Data',
     tagline: 'Realistic test data from any XSD',
     description:
       'Provide an XSD schema and AI generates contextually accurate synthetic data. Optionally upload a Test Cases CSV — AI then groups the test cases and produces a set of valid XML bundles, each tagged with the test case IDs it covers.',
@@ -115,7 +115,7 @@ const accelerators = [
         <circle cx="15" cy="9" r="1" fill="currentColor" stroke="none" />
       </svg>
     ),
-    name: 'GhostDraft Generator',
+    name: 'GhostDraft Template Build',
     tagline: 'Word doc to .gd in one click',
     description:
       'Upload a Word document, XPath mapping CSV (from XPath Extractor), and XSD schema to generate a GhostDraft Native (.gd) document with embedded fill point bindings plus a pre-populated sample XML ready for immediate testing in GhostDraft Studio.',

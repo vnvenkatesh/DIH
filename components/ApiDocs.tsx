@@ -127,7 +127,7 @@ Content-Type: application/json
     id: 'data-mapping',
     method: 'POST',
     path: '/data-mapping',
-    title: 'Data Mapping Generator',
+    title: 'Dynamic Fields',
     shortDescription: 'Map Word document fields to XSD schema paths and generate XML',
     description:
       'Extracts fields from a Word document (.docx) and maps each one to the most semantically appropriate XSD element or attribute path. Returns the full mapping table plus a ready-to-use XML document populated with sample values derived from the source document.',
@@ -225,7 +225,7 @@ Content-Type: application/json
     id: 'synthetic-data',
     method: 'POST',
     path: '/synthetic-data',
-    title: 'Synthetic Data Generation',
+    title: 'Test Data',
     shortDescription: 'Generate realistic synthetic data from an XSD schema',
     description:
       'Reads an XSD schema and uses AI to infer contextually appropriate synthetic data values for every field. Returns both a structured field list with sample values and a fully populated XML document that is valid against the provided schema.',

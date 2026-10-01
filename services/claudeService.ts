@@ -11,8 +11,8 @@ function getToken(): string {
 function getClaudeModel(): string {
     try {
         const s = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
-        return s.claudeModel || getClaudeModel();
-    } catch { return getClaudeModel(); }
+        return s.claudeModel || 'claude-haiku-4-5-20251001';
+    } catch { return 'claude-haiku-4-5-20251001'; }
 }
 
 let _accelerator = 'Other';
@@ -40,9 +40,10 @@ async function callClaude(payload: { model: string; max_tokens: number; messages
 }
 
 function extractText(response: any): string {
-    const block = response?.content?.[0];
-    if (!block || block.type !== 'text') throw new Error('Unexpected Claude response format.');
-    return block.text.trim();
+    const blocks: any[] = response?.content ?? [];
+    const textBlock = blocks.find((b: any) => b.type === 'text');
+    if (!textBlock) throw new Error('Unexpected Claude response format.');
+    return textBlock.text.trim();
 }
 
 const xsdToXmlPrompt = `

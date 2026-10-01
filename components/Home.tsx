@@ -23,9 +23,9 @@ interface HomeProps {
 
 const accelerators = [
   {
-    id: 'rationalizer',
+    id: 'cluster',
     Icon: Squares2X2Icon,
-    name: 'Rationalizer',
+    name: 'Cluster',
     tagline: 'Cut through document redundancy',
     description:
       'Upload a collection of PDFs and let AI automatically cluster duplicates and near-duplicates. What used to take days of manual side-by-side review is reduced to a single click.',
@@ -215,7 +215,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           </p>
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => onNavigate('rationalizer')}
+              onClick={() => onNavigate('cluster')}
               className="px-5 py-2.5 bg-white text-indigo-700 font-bold text-sm rounded-lg hover:bg-indigo-50 transition-colors shadow"
             >
               Get Started
@@ -359,7 +359,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           <div className="absolute left-5 top-5 bottom-5 w-px bg-indigo-200 dark:bg-indigo-800 hidden md:block" />
           <div className="space-y-4">
             {[
-              { phase: 'Discovery', tools: ['Rationalizer'], detail: 'Rapidly assess and rationalise an existing template library. Identify redundant documents before migrating them to the new platform.' },
+              { phase: 'Discovery', tools: ['Cluster'], detail: 'Rapidly assess and cluster an existing template library. Identify redundant documents before migrating them to the new platform.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
               { phase: 'Build & Test', tools: ['Test Case Generator', 'Synthetic Data Generation', 'GhostDraft Generator'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Generator to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },

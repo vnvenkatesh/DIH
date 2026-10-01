@@ -26,10 +26,10 @@ interface ApiEndpoint {
 
 const APIS: ApiEndpoint[] = [
   {
-    id: 'rationalizer',
+    id: 'cluster',
     method: 'POST',
-    path: '/rationalizer',
-    title: 'Rationalizer',
+    path: '/cluster',
+    title: 'Cluster',
     shortDescription: 'Group similar PDFs by content or semantic similarity',
     description:
       'Accepts a collection of PDF documents and groups them by either exact hash-based matching or AI-powered semantic similarity clustering. Returns groups of documents that are redundant or closely related, along with a similarity score for each group.',
@@ -46,8 +46,8 @@ const APIS: ApiEndpoint[] = [
       { name: 'groups[].documents[].filename', type: 'string', required: true, description: 'Original filename of the PDF.' },
       { name: 'groups[].documents[].pageCount', type: 'number', required: true, description: 'Number of pages in the document.' },
     ],
-    curlExample: `curl -X POST "${BASE_URL}/rationalizer" -F "files=@policy_v1.pdf" -F "files=@policy_v2.pdf" -F "files=@invoice_template.pdf" -F "mode=semantic" -F "similarityThreshold=85"`,
-    requestExample: `POST ${BASE_URL}/rationalizer
+    curlExample: `curl -X POST "${BASE_URL}/cluster" -F "files=@policy_v1.pdf" -F "files=@policy_v2.pdf" -F "files=@invoice_template.pdf" -F "mode=semantic" -F "similarityThreshold=85"`,
+    requestExample: `POST ${BASE_URL}/cluster
 Content-Type: multipart/form-data
 
 files                = @policy_v1.pdf

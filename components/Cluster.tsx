@@ -2,11 +2,11 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { DocumentGroup, ProcessedDocument, ClauseMatch } from '../types';
-import { embedContentBatch } from '../services/rationalizerEmbedService';
+import { embedContentBatch } from '../services/clusterEmbedService';
 import ToggleSwitch from './ToggleSwitch';
 import { Squares2X2Icon } from './icons/Squares2X2Icon';
 
-interface RationalizerProps {
+interface ClusterProps {
     onCompareRequest: (files: [File, File]) => void;
 }
 
@@ -523,7 +523,7 @@ const ClauseCard: React.FC<{ match: ClauseMatch }> = ({ match }) => {
 
 const LARGE_BATCH_THRESHOLD = 20;
 
-const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
+const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
     const [files, setFiles] = useState<File[]>([]);
     const [groupingMode, setGroupingMode] = useState<'exact' | 'semantic'>('semantic');
     const [similarityThreshold, setSimilarityThreshold] = useState<number>(80);
@@ -594,7 +594,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
 
     const handleProcess = useCallback(async () => {
         if (files.length < 2) {
-            setError('Please select at least two PDF files to rationalize.');
+            setError('Please select at least two PDF files to cluster.');
             return;
         }
 
@@ -714,8 +714,8 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
             setGroupSummaries(summaries);
             setActiveTab('groups');
         } catch (err: any) {
-            console.error('Rationalization error:', err);
-            setError(`Rationalization failed: ${err.message || 'An unexpected error occurred'}. Please check your files and try again.`);
+            console.error('Cluster error:', err);
+            setError(`Clustering failed: ${err.message || 'An unexpected error occurred'}. Please check your files and try again.`);
         } finally {
             setIsLoading(false);
             setLoadingMessage('');
@@ -749,7 +749,7 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
             <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
                     <Squares2X2Icon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-                    Rationalizer
+                    Cluster
                 </h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400">
                     Group a collection of PDFs by similarity and surface repeated clauses across documents.
@@ -1005,4 +1005,4 @@ const Rationalizer: React.FC<RationalizerProps> = ({ onCompareRequest }) => {
     );
 };
 
-export default Rationalizer;
+export default Cluster;

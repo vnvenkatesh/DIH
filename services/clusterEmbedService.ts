@@ -1,13 +1,13 @@
-// Rationalizer-specific embedding service.
+// Cluster-specific embedding service.
 //
 // Uses the Gemini text-embedding-004 model (real semantic embeddings) via the
-// server-side /v1/rationalizer/embed proxy. Falls back to a local keyword-hash
+// server-side /v1/cluster/embed proxy. Falls back to a local keyword-hash
 // approach (identical to the original geminiService.embedContentBatch) when the
-// API key is absent or the API call fails — so the Rationalizer continues to
+// API key is absent or the API call fails — so the Cluster continues to
 // work offline or without a configured key, just with lower-quality grouping.
 //
 // REVERT: To go back to keyword-hash-only behaviour, change the import in
-// Rationalizer.tsx from '../services/rationalizerEmbedService' back to
+// Cluster.tsx from '../services/clusterEmbedService' back to
 // '../services/llmService'.
 
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
@@ -48,12 +48,12 @@ export async function embedContentBatch(textChunks: string[]): Promise<number[][
     const apiKey = getGeminiApiKey();
 
     if (!apiKey) {
-        console.warn('[Rationalizer] No Gemini API key configured — using keyword-hash fallback for embeddings.');
+        console.warn('[Cluster] No Gemini API key configured — using keyword-hash fallback for embeddings.');
         return textChunks.map(chunk => keywordEmbedFallback(chunk));
     }
 
     try {
-        const response = await fetch('/v1/rationalizer/embed', {
+        const response = await fetch('/v1/cluster/embed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ texts: textChunks, apiKey }),
@@ -70,10 +70,10 @@ export async function embedContentBatch(textChunks: string[]): Promise<number[][
             throw new Error('Unexpected embedding response shape from server');
         }
 
-        console.info('[Rationalizer] Using real Gemini semantic embeddings (text-embedding-004).');
+        console.info('[Cluster] Using real Gemini semantic embeddings (text-embedding-004).');
         return data.embeddings;
     } catch (err) {
-        console.warn('[Rationalizer] Semantic embedding API failed — falling back to keyword hash:', err);
+        console.warn('[Cluster] Semantic embedding API failed — falling back to keyword hash:', err);
         return textChunks.map(chunk => keywordEmbedFallback(chunk));
     }
 }

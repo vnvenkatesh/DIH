@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// POST /v1/rationalizer
+// POST /v1/cluster
 //
 // Accepts multiple PDF uploads and groups them by exact content hash or by
-// semantic (keyword-embedding) similarity, mirroring the browser Rationalizer.
+// semantic (keyword-embedding) similarity, mirroring the browser Cluster.
 // ---------------------------------------------------------------------------
 
 import { Router, Request, Response } from 'express';
@@ -208,7 +208,7 @@ async function handler(req: Request, res: Response): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// POST /v1/rationalizer/embed
+// POST /v1/cluster/embed
 //
 // Accepts a JSON body { texts: string[], apiKey: string } and returns
 // { embeddings: number[][] } using Gemini text-embedding-004.

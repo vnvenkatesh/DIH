@@ -5,7 +5,7 @@ import XPathExtractor from './components/XPathExtractor';
 import DataMappingGenerator from './components/DataMappingGenerator';
 import PdfCompare from './components/PdfCompare';
 import PdfVisualCompare from './components/PdfVisualCompare';
-import Rationalizer from './components/Rationalizer';
+import Cluster from './components/Cluster';
 import { Squares2X2Icon } from './components/icons/Squares2X2Icon';
 import { ArrowsRightLeftIcon } from './components/icons/ArrowsRightLeftIcon';
 import { LinkIcon } from './components/icons/LinkIcon';
@@ -36,7 +36,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'flow' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'rationalizer' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
+type Tool = 'home' | 'flow' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -60,7 +60,7 @@ const LogoutIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const ACCELERATOR_TOOLS: Tool[] = [
   'flow',
-  'rationalizer', 'pdfCompare', 'pdfVisualCompare', 'dataMappingGenerator',
+  'cluster', 'pdfCompare', 'pdfVisualCompare', 'dataMappingGenerator',
   'businessRulesExtractor', 'testCaseGenerator', 'syntheticDataGenerator', 'pdfValidator',
   'ghostDraftGenerator', 'layoutRecommendation', 'accessibilityScorer', 'xpathExtractor',
 ];
@@ -101,7 +101,7 @@ const App: React.FC = () => {
   };
 
   const navItems: NavItem[] = [
-    { tool: 'rationalizer', label: 'Rationalizer', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
+    { tool: 'cluster', label: 'Cluster', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
     { tool: 'pdfCompare', label: 'PDF AI Compare', description: 'AI-powered semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
     {
       tool: 'pdfVisualCompare',
@@ -274,8 +274,8 @@ const App: React.FC = () => {
           <div className={activeTool === 'flow' ? '' : 'hidden'}>
             <Flow />
           </div>
-          <div className={activeTool === 'rationalizer' ? '' : 'hidden'}>
-            <Rationalizer onCompareRequest={handleCompareRequest} />
+          <div className={activeTool === 'cluster' ? '' : 'hidden'}>
+            <Cluster onCompareRequest={handleCompareRequest} />
           </div>
           <div className={activeTool === 'pdfCompare' ? '' : 'hidden'}>
             <PdfCompare initialFiles={filesToCompare} onInitialFilesConsumed={handleCompareFilesConsumed} />

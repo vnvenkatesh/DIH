@@ -113,20 +113,20 @@ const PROVIDER_CONFIG: { id: LLMProvider; label: string; keyField: keyof Pick<Us
 interface ModelOption { id: string; label: string; costHint: string; }
 const MODEL_OPTIONS: Record<LLMProvider, ModelOption[]> = {
   gemini: [
-    { id: 'gemini-2.5-flash',        label: 'Gemini 2.5 Flash',         costHint: '$0.30 / $2.50 per 1M tokens'   },
-    { id: 'gemini-2.5-pro',          label: 'Gemini 2.5 Pro',           costHint: '$1.25 / $10.00 per 1M tokens'  },
-    { id: 'gemini-3.1-pro-preview',  label: 'Gemini 3.1 Pro (Preview)', costHint: '~$1.25 / $10.00 per 1M tokens' },
+    { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', costHint: '$0.30 / $2.50 per 1M tokens' },
+    { id: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash',      costHint: '$0.75 / $3.75 per 1M tokens' },
+    { id: 'gemini-3.8-flash',      label: 'Gemini 3.8 Flash',      costHint: '$0.75 / $3.75 per 1M tokens' },
   ],
   claude: [
-    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',  costHint: '$0.80 / $4.00 per 1M tokens'   },
-    { id: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6', costHint: '$3.00 / $15.00 per 1M tokens'  },
-    { id: 'claude-opus-4-8',           label: 'Claude Opus 4.8',   costHint: '$15.00 / $75.00 per 1M tokens' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',  costHint: '$1.00 / $5.00 per 1M tokens'  },
+    { id: 'claude-sonnet-5-5',         label: 'Claude Sonnet 5.5', costHint: '$2.00 / $10.00 per 1M tokens' },
+    { id: 'claude-opus-5-5',           label: 'Claude Opus 5.5',   costHint: '$4.00 / $20.00 per 1M tokens' },
+    { id: 'claude-fable-5-1',          label: 'Claude Fable 5.1',  costHint: '$10.00 / $50.00 per 1M tokens'},
   ],
   openai: [
-    { id: 'gpt-4o-mini',  label: 'GPT-4o Mini',  costHint: '$0.15 / $0.60 per 1M tokens'  },
-    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', costHint: '$0.40 / $1.60 per 1M tokens'  },
-    { id: 'gpt-4o',       label: 'GPT-4o',       costHint: '$2.50 / $10.00 per 1M tokens' },
-    { id: 'gpt-4.1',      label: 'GPT-4.1',      costHint: '$2.00 / $8.00 per 1M tokens'  },
+    { id: 'gpt-6-luna',  label: 'GPT-6 Luna',  costHint: '$0.10 / $0.50 per 1M tokens'  },
+    { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', costHint: '$2.00 / $10.00 per 1M tokens' },
+    { id: 'gpt-6-astra', label: 'GPT-6 Astra', costHint: '$10.00 / $50.00 per 1M tokens'},
   ],
 };
 
@@ -156,9 +156,9 @@ const AiProvidersTab: React.FC<{
   });
 
   const [models, setModels] = useState({
-    gemini: settings.geminiModel || 'gemini-2.5-flash',
+    gemini: settings.geminiModel || 'gemini-3.8-flash',
     claude: settings.claudeModel || 'claude-haiku-4-5-20251001',
-    openai: settings.openaiModel || 'gpt-4o-mini',
+    openai: settings.openaiModel || 'gpt-6-luna',
   });
   const [showKey, setShowKey] = useState({ gemini: false, claude: false, openai: false });
   const [saving, setSaving] = useState(false);

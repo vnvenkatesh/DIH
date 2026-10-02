@@ -184,6 +184,7 @@ type SavedProfile = {
     url: string;
     query: UiEntry[];
     headers: UiEntry[];
+    formEntries: UiEntry[];
     authMode: AuthMode;
     bearerToken: string;
     basicUsername: string;
@@ -285,6 +286,7 @@ function reducer(state: State, action: Action): State {
                 url: p.url,
                 query: p.query.length > 0 ? p.query : [newEntry()],
                 headers: p.headers.length > 0 ? p.headers : [newEntry()],
+                formEntries: (p.formEntries?.length ?? 0) > 0 ? p.formEntries : [newEntry(true)],
                 authMode: p.authMode,
                 bearerToken: p.bearerToken,
                 basicUsername: p.basicUsername,
@@ -405,6 +407,7 @@ const FetchDoc: React.FC = () => {
     });
     const [showProfiles, setShowProfiles] = useState(false);
     const [saveName, setSaveName] = useState('');
+    const [loadedProfileId, setLoadedProfileId] = useState<string | null>(null);
     const profilesRef = useRef<HTMLDivElement>(null);
 
     const persistProfiles = useCallback((updated: SavedProfile[]) => {
@@ -412,33 +415,48 @@ const FetchDoc: React.FC = () => {
         try { localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(updated)); } catch { }
     }, []);
 
+    const currentProfileSnapshot = useCallback((): Omit<SavedProfile, 'id' | 'name' | 'savedAt'> => ({
+        method: state.method,
+        url: state.url,
+        query: state.query,
+        headers: state.headers,
+        formEntries: state.formEntries,
+        authMode: state.authMode,
+        bearerToken: state.bearerToken,
+        basicUsername: state.basicUsername,
+        basicPassword: state.basicPassword,
+        bodyMode: state.bodyMode,
+        jsonBody: state.jsonBody,
+        rawBody: state.rawBody,
+        rawContentType: state.rawContentType,
+    }), [state]);
+
     const saveProfile = useCallback(() => {
         if (!state.url) return;
         const name = saveName.trim() || `${state.method} ${state.url.slice(0, 50)}`;
-        const profile: SavedProfile = {
+        const newProfile: SavedProfile = {
             id: crypto.randomUUID(),
             name,
             savedAt: new Date().toISOString(),
-            method: state.method,
-            url: state.url,
-            query: state.query,
-            headers: state.headers,
-            authMode: state.authMode,
-            bearerToken: state.bearerToken,
-            basicUsername: state.basicUsername,
-            basicPassword: state.basicPassword,
-            bodyMode: state.bodyMode,
-            jsonBody: state.jsonBody,
-            rawBody: state.rawBody,
-            rawContentType: state.rawContentType,
+            ...currentProfileSnapshot(),
         };
-        persistProfiles([profile, ...profiles]);
+        persistProfiles([newProfile, ...profiles]);
         setSaveName('');
-    }, [state, saveName, profiles, persistProfiles]);
+        setLoadedProfileId(newProfile.id);
+    }, [state.url, saveName, profiles, persistProfiles, currentProfileSnapshot]);
+
+    const updateProfile = useCallback((id: string) => {
+        const existing = profiles.find(p => p.id === id);
+        if (!existing) return;
+        persistProfiles(profiles.map(p =>
+            p.id === id ? { ...existing, savedAt: new Date().toISOString(), ...currentProfileSnapshot() } : p
+        ));
+    }, [profiles, persistProfiles, currentProfileSnapshot]);
 
     const deleteProfile = useCallback((id: string) => {
         persistProfiles(profiles.filter(p => p.id !== id));
-    }, [profiles, persistProfiles]);
+        if (loadedProfileId === id) setLoadedProfileId(null);
+    }, [profiles, persistProfiles, loadedProfileId]);
 
     // Close profiles popover on outside click
     useEffect(() => {
@@ -648,34 +666,66 @@ const FetchDoc: React.FC = () => {
                                     <p className="text-xs text-slate-400 dark:text-slate-500 italic py-1">No saved profiles yet.</p>
                                 ) : (
                                     <div className="max-h-52 overflow-y-auto flex flex-col divide-y divide-slate-100 dark:divide-slate-700">
-                                        {profiles.map(p => (
-                                            <div key={p.id} className="flex items-center gap-2 py-1.5">
-                                                <span className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${p.method === 'GET' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'}`}>
-                                                    {p.method}
-                                                </span>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs text-slate-700 dark:text-slate-300 truncate font-medium" title={p.name}>{p.name}</p>
-                                                    <p className="text-xs text-slate-400 dark:text-slate-500 truncate font-mono" title={p.url}>{p.url}</p>
+                                        {profiles.map(p => {
+                                            const isLoaded = loadedProfileId === p.id;
+                                            return (
+                                                <div key={p.id} className={`flex items-center gap-2 py-1.5 ${isLoaded ? 'bg-indigo-50 dark:bg-indigo-900/20 -mx-1 px-1 rounded' : ''}`}>
+                                                    <span className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${p.method === 'GET' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'}`}>
+                                                        {p.method}
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs text-slate-700 dark:text-slate-300 truncate font-medium" title={p.name}>
+                                                            {isLoaded && <span className="text-indigo-500 dark:text-indigo-400 mr-1">●</span>}
+                                                            {p.name}
+                                                        </p>
+                                                        <p className="text-xs text-slate-400 dark:text-slate-500 truncate font-mono" title={p.url}>{p.url}</p>
+                                                    </div>
+                                                    {isLoaded ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { updateProfile(p.id); setShowProfiles(false); }}
+                                                            className="flex-shrink-0 text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
+                                                            title="Overwrite this profile with current form settings"
+                                                        >
+                                                            Update
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { dispatch({ type: 'load-profile', profile: p }); setLoadedProfileId(p.id); setShowProfiles(false); }}
+                                                            className="flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                                        >
+                                                            Load
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => deleteProfile(p.id)}
+                                                        className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                                        title="Delete profile"
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
                                                 </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => { dispatch({ type: 'load-profile', profile: p }); setShowProfiles(false); }}
-                                                    className="flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
-                                                >
-                                                    Load
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => deleteProfile(p.id)}
-                                                    className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                                                    title="Delete profile"
-                                                >
-                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                {loadedProfileId && (
+                                    <div className="border-t border-slate-200 dark:border-slate-700 pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => { updateProfile(loadedProfileId); setShowProfiles(false); }}
+                                            disabled={!state.url}
+                                            className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded transition-colors"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                            </svg>
+                                            Update "{profiles.find(p => p.id === loadedProfileId)?.name ?? 'Profile'}"
+                                        </button>
                                     </div>
                                 )}
                                 <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex gap-1.5 items-center">
@@ -692,7 +742,7 @@ const FetchDoc: React.FC = () => {
                                         disabled={!state.url}
                                         className="flex-shrink-0 px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded transition-colors"
                                     >
-                                        Save
+                                        Save New
                                     </button>
                                 </div>
                             </div>

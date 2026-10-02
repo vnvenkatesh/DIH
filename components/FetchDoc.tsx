@@ -1,6 +1,152 @@
 import React, { useReducer, useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
+// ── RDI conversion utilities ───────────────────────────────────────────────
+// Supports RDI (Raw Data Interface) print-stream data used across CCM platforms
+// including OpenText Exstream, SAP, and others. Two output modes:
+//   • Flat XML  — generic, schema-free; every D-record → <FIELD>value</FIELD>
+//   • Spool XML — structured SPOOL/FORM/HEADER/PAGE shape for batch RDI files
+
+function rdiIsLikelyContent(text: string): boolean {
+    if (!text) return false;
+    const bounded = text.length > 2_000_000 ? text.slice(0, 2_000_000) : text;
+    const trimmed = bounded.trim();
+    if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && (() => { try { JSON.parse(trimmed); return true; } catch { return false; } })()) return false;
+    if (/^\s*(<\?xml|<)/.test(trimmed)) return false;
+    const dataLines = bounded.match(/^D[A-Z][A-Z0-9_]*\s/gm);
+    if ((dataLines?.length ?? 0) < 3) return false;
+    if (/^CRDI-CONTROL %%LINES-(?:BEGIN|END)\s+\S+/m.test(bounded)) return true;
+    const signals = [
+        /^H[^\r\n]+/m.test(bounded),
+        /^CCODEPAGE\s+\S+\s+LANGUAGE\s+\S+\s*$/m.test(bounded),
+        /^CPAGENAME\s+\S+\s*$/m.test(bounded),
+    ].filter(Boolean).length;
+    return signals >= 2;
+}
+
+function rdiXmlEsc(v: string): string { return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function rdiAttrEsc(v: string): string { return rdiXmlEsc(v).replace(/"/g, '&quot;'); }
+function rdiSanitizeTag(n: string): string { const c = n.replace(/[^A-Za-z0-9_.-]/g, '_'); return /^[A-Za-z_]/.test(c) ? c : `_${c}`; }
+
+type RdiFlatNode =
+    | { kind: 'field'; name: string; value: string }
+    | { kind: 'block'; name: string; args: string[]; fields: RdiFlatNode[] }
+    | { kind: 'raw'; tag: string; content: string };
+
+function rdiConvertToFlatXml(raw: string): { xml: string; warnings: string[] } {
+    const withoutBom = raw.replace(/^﻿/, '');
+    const lines = withoutBom.split(/\r*\n/);
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    const topLevel: RdiFlatNode[] = [];
+    const blockStack: { kind: 'block'; name: string; args: string[]; fields: RdiFlatNode[] }[] = [];
+    const warnings: string[] = [];
+    const current = (): RdiFlatNode[] => blockStack.length > 0 ? blockStack[blockStack.length - 1].fields : topLevel;
+    const closeBlock = (endName: string) => {
+        const frame = blockStack.pop();
+        if (!frame) { warnings.push(`%%LINES-END '${endName}' has no matching BEGIN; ignoring.`); return; }
+        if (frame.name !== endName) warnings.push(`Block end '${endName}' mismatches begin '${frame.name}'; using begin name.`);
+        if (frame.fields.length > 0) current().push(frame);
+    };
+    for (const line of lines) {
+        if (!line) continue;
+        const t = line[0];
+        if (t === 'H') { current().push({ kind: 'raw', tag: 'rdiHeaderRecord', content: line.trimEnd() }); continue; }
+        if (t === 'S') { current().push({ kind: 'raw', tag: 'rdiPrintMaskRecord', content: line.trimEnd() }); continue; }
+        if (t === 'C') {
+            const bm = /^CRDI-CONTROL %%LINES-BEGIN\s+(\S+)(.*)$/.exec(line);
+            if (bm) { blockStack.push({ kind: 'block', name: bm[1], args: bm[2].trim().split(/\s+/).filter(Boolean), fields: [] }); continue; }
+            const em = /^CRDI-CONTROL %%LINES-END\s+(\S+)/.exec(line);
+            if (em) { closeBlock(em[1]); continue; }
+            const cm = /^CCODEPAGE\s+(\S+)\s+LANGUAGE\s+(\S+)/.exec(line);
+            if (cm) { current().push({ kind: 'field', name: 'RDI_CODEPAGE', value: cm[1] }, { kind: 'field', name: 'RDI_LANGUAGE', value: cm[2] }); continue; }
+            const pm = /^CPAGENAME\s+(\S+)/.exec(line);
+            if (pm) { current().push({ kind: 'field', name: 'RDI_PAGENAME', value: pm[1] }); continue; }
+            current().push({ kind: 'raw', tag: 'unrecognizedControlRecord', content: line }); continue;
+        }
+        if (t === 'D') {
+            const dm = /^D([A-Z][A-Z0-9_]*)\s(.*)$/.exec(line);
+            if (dm) current().push({ kind: 'field', name: dm[1], value: dm[2].trim() });
+            else current().push({ kind: 'raw', tag: 'unrecognizedDataRecord', content: line });
+            continue;
+        }
+        current().push({ kind: 'raw', tag: 'unrecognizedRecord', content: line });
+    }
+    while (blockStack.length > 0) {
+        const f = blockStack[blockStack.length - 1];
+        warnings.push(`Block '${f.name}' not closed before EOF; emitting collected fields.`);
+        closeBlock(f.name);
+    }
+    function ser(node: RdiFlatNode, ind: string): string {
+        if (node.kind === 'field') return `${ind}<${rdiSanitizeTag(node.name)}>${rdiXmlEsc(node.value)}</${rdiSanitizeTag(node.name)}>`;
+        if (node.kind === 'raw') return `${ind}<${rdiSanitizeTag(node.tag)}>${rdiXmlEsc(node.content)}</${rdiSanitizeTag(node.tag)}>`;
+        const tag = rdiSanitizeTag(node.name);
+        const attrs = node.args.length > 0 ? ` args="${rdiAttrEsc(node.args.join(' '))}"` : '';
+        if (node.fields.length === 0) return `${ind}<${tag}${attrs} />`;
+        return `${ind}<${tag}${attrs}>\n${node.fields.map(c => ser(c, `${ind}  `)).join('\n')}\n${ind}</${tag}>`;
+    }
+    const body = topLevel.map(n => ser(n, '  ')).join('\n');
+    const xml = body ? `<?xml version="1.0" encoding="UTF-8"?>\n<rdiDocument>\n${body}\n</rdiDocument>\n`
+                     : `<?xml version="1.0" encoding="UTF-8"?>\n<rdiDocument />\n`;
+    return { xml, warnings };
+}
+
+function rdiConvertToSpoolXml(raw: string): string {
+    type Leaf = { kind: 'leaf'; tag: string; attrs?: Record<string, string>; text: string };
+    type Container = { kind: 'container'; tag: string; attrs?: Record<string, string>; children: SpoolN[] };
+    type SpoolN = Leaf | Container;
+    const HBOUNDS: [string, number, number][] = [
+        ['RDI_VERSION', 1, 7], ['CLIENT', 7, 10], ['DOCUMENT_NUMBER', 10, 20],
+        ['LANGUAGE', 20, 21], ['FORM_NAME', 21, 37], ['DEVICE_TYPE', 37, 44],
+        ['HOST_NAME', 44, 109], ['BATCH_MODE', 109, 110],
+    ];
+    const FORM_NAME_IDX = HBOUNDS.findIndex(([t]) => t === 'FORM_NAME');
+    function renderAttrs(attrs?: Record<string, string>) {
+        if (!attrs) return '';
+        return Object.entries(attrs).map(([k, v]) => ` ${k}="${rdiAttrEsc(v)}"`).join('');
+    }
+    function renderN(n: SpoolN): string {
+        const a = renderAttrs(n.attrs);
+        if (n.kind === 'leaf') return n.text === '' ? `<${n.tag}${a}/>` : `<${n.tag}${a}>${rdiXmlEsc(n.text)}</${n.tag}>`;
+        if ((n as Container).children.length === 0) return `<${n.tag}${a}/>`;
+        return `<${n.tag}${a}>\n${(n as Container).children.map(renderN).join('\n')}\n</${n.tag}>`;
+    }
+    const spoolChildren: SpoolN[] = [];
+    let form: Container | null = null;
+    let page: Container | null = null;
+    let block: { name: string; fields: Leaf[] } | null = null;
+    const closeBlock = () => {
+        if (block && page) {
+            page.children.push(block.fields.length === 0
+                ? { kind: 'leaf', tag: block.name, text: '' }
+                : { kind: 'container', tag: block.name, children: block.fields });
+        }
+        block = null;
+    };
+    const closeForm = () => { closeBlock(); if (form) spoolChildren.push(form); form = null; page = null; };
+    for (const rawLine of raw.replace(/^﻿/, '').split('\n')) {
+        const line = rawLine.replace(/\r+$/, '');
+        if (!line) continue;
+        if (line.startsWith('H')) {
+            closeForm();
+            const [, s, e] = HBOUNDS[FORM_NAME_IDX];
+            form = { kind: 'container', tag: 'FORM', attrs: { NAME: line.slice(s, e).trim() }, children: [] };
+            const hChildren: SpoolN[] = HBOUNDS.map(([tag, st, en]) => ({ kind: 'leaf', tag, text: line.slice(st, en).trim() } as Leaf));
+            hChildren.push({ kind: 'leaf', tag: 'ITCPO_RAW', text: line.slice(110) });
+            form.children.push({ kind: 'container', tag: 'HEADER', children: hChildren });
+            continue;
+        }
+        if (!form) continue;
+        if (line.startsWith('S')) { form.children.push({ kind: 'leaf', tag: 'SORT', text: line.slice(1).trim() }); continue; }
+        if (line.startsWith('CRDI-CONTROL %%LINES-BEGIN')) { const m = /^CRDI-CONTROL %%LINES-BEGIN\s+(\S+)/.exec(line); block = { name: m ? m[1] : 'UNKNOWN', fields: [] }; continue; }
+        if (line.startsWith('CRDI-CONTROL %%LINES-END')) { closeBlock(); continue; }
+        if (line.startsWith('CCODEPAGE')) { const m = /^CCODEPAGE\s+(\S+)\s+LANGUAGE\s+(\S+)/.exec(line); if (m) form.children.push({ kind: 'leaf', tag: 'CODEPAGE', attrs: { lang: m[2] }, text: m[1] }); continue; }
+        if (line.startsWith('CPAGENAME')) { const m = /^CPAGENAME\s+(\S+)/.exec(line); const pg: Container = { kind: 'container', tag: 'PAGE', attrs: { name: m ? m[1] : '' }, children: [] }; form.children.push(pg); page = pg; continue; }
+        if (line.startsWith('D') && block) { const m = /^(\S+)\s(.*)$/.exec(line.slice(1)); if (m) block.fields.push({ kind: 'leaf', tag: m[1], text: m[2] }); continue; }
+    }
+    closeForm();
+    return `<?xml version="1.0" encoding="UTF-8"?>${renderN({ kind: 'container', tag: 'SPOOL', children: spoolChildren })}`;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 type UiEntry = { id: string; enabled: boolean; key: string; value: string };
 type AuthMode = 'none' | 'bearer' | 'basic';
@@ -24,6 +170,8 @@ type State = {
     rawBody: string;
     rawContentType: string;
     validationError?: string;
+    rdiDismissedFor?: string;
+    rdiConversionWarnings?: string[];
 };
 
 type Action =
@@ -41,7 +189,10 @@ type Action =
     | { type: 'set-validation-error'; value?: string }
     | { type: 'entry-update'; collection: 'query' | 'headers' | 'formEntries'; id: string; patch: Partial<UiEntry> }
     | { type: 'entry-add'; collection: 'query' | 'headers' | 'formEntries' }
-    | { type: 'entry-remove'; collection: 'query' | 'headers' | 'formEntries'; id: string };
+    | { type: 'entry-remove'; collection: 'query' | 'headers' | 'formEntries'; id: string }
+    | { type: 'apply-rdi-flat' }
+    | { type: 'apply-rdi-spool' }
+    | { type: 'dismiss-rdi-prompt' };
 
 function newEntry(enabled = false): UiEntry {
     return { id: crypto.randomUUID(), enabled, key: '', value: '' };
@@ -95,6 +246,16 @@ function reducer(state: State, action: Action): State {
                 [action.collection]: filtered.length > 0 ? filtered : [newEntry()],
             };
         }
+        case 'apply-rdi-flat': {
+            const { xml, warnings } = rdiConvertToFlatXml(state.rawBody);
+            return { ...state, rawBody: xml, rawContentType: state.rawContentType === 'text/plain' ? 'application/xml' : state.rawContentType, rdiDismissedFor: xml, rdiConversionWarnings: warnings };
+        }
+        case 'apply-rdi-spool': {
+            const xml = rdiConvertToSpoolXml(state.rawBody);
+            return { ...state, rawBody: xml, rawContentType: state.rawContentType === 'text/plain' ? 'application/xml' : state.rawContentType, rdiDismissedFor: xml, rdiConversionWarnings: [] };
+        }
+        case 'dismiss-rdi-prompt':
+            return { ...state, rdiDismissedFor: state.rawBody };
         default: return state;
     }
 }
@@ -309,6 +470,12 @@ const FetchDoc: React.FC = () => {
         pdfObjectUrlRef.current = url;
         return url;
     }, [response]);
+
+    const showRdiBanner = React.useMemo(() => {
+        if (state.bodyMode !== 'raw') return false;
+        if (state.rawBody === state.rdiDismissedFor) return false;
+        return rdiIsLikelyContent(state.rawBody);
+    }, [state.bodyMode, state.rawBody, state.rdiDismissedFor]);
 
     const tabs: { id: RequestTab; label: string }[] = [
         { id: 'params', label: 'Params' },
@@ -532,6 +699,10 @@ const FetchDoc: React.FC = () => {
                                                 spellCheck={false}
                                             />
                                         </div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className={labelCls}>Body</label>
+                                            <span className="text-xs text-slate-400 dark:text-slate-500">RDI data is auto-detected</span>
+                                        </div>
                                         <textarea
                                             rows={10}
                                             value={state.rawBody}
@@ -539,6 +710,44 @@ const FetchDoc: React.FC = () => {
                                             className="w-full px-3 py-2 text-xs font-mono rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-400 resize-y"
                                             spellCheck={false}
                                         />
+                                        {showRdiBanner && (
+                                            <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3">
+                                                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
+                                                    RDI print-stream data detected
+                                                </p>
+                                                <p className="text-xs text-amber-600 dark:text-amber-300 mb-3">
+                                                    Used by OpenText Exstream, SAP, and other CCM platforms. Convert to XML before sending?
+                                                </p>
+                                                <div className="flex gap-2 flex-wrap">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => dispatch({ type: 'apply-rdi-flat' })}
+                                                        className="px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-colors"
+                                                    >
+                                                        Flat XML
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => dispatch({ type: 'apply-rdi-spool' })}
+                                                        className="px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-colors"
+                                                    >
+                                                        Spool XML
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => dispatch({ type: 'dismiss-rdi-prompt' })}
+                                                        className="px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-700 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-600 rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors"
+                                                    >
+                                                        Dismiss
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {!showRdiBanner && state.rdiConversionWarnings && state.rdiConversionWarnings.length > 0 && (
+                                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                                                RDI conversion completed with {state.rdiConversionWarnings.length} warning{state.rdiConversionWarnings.length === 1 ? '' : 's'}: {state.rdiConversionWarnings.join(' ')}
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                                 {state.bodyMode === 'form-urlencoded' && (

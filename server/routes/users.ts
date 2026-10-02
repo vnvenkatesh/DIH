@@ -10,6 +10,12 @@ type ManagerContext =
   | { appAdmin: true }
   | { appAdmin: false; companyId: number; companyName: string };
 
+function getCompanyId(ctx: ManagerContext): number | null {
+  if (ctx.appAdmin === true) return null;
+  const c = ctx as { appAdmin: false; companyId: number; companyName: string };
+  return c.companyId;
+}
+
 /**
  * Resolves who can manage users:
  *   - App Admin  (role = 'Admin')         → sees/manages all users
@@ -42,7 +48,7 @@ router.get('/', requireAuth as any, async (req: AuthRequest, res) => {
                         FROM users u LEFT JOIN companies c ON u.company_id = c.id`;
     const { rows } = ctx.appAdmin
       ? await pool.query(`${baseSelect} ORDER BY u.created_at ASC`)
-      : await pool.query(`${baseSelect} WHERE u.company_id = $1 ORDER BY u.created_at ASC`, [ctx.companyId]);
+      : await pool.query(`${baseSelect} WHERE u.company_id = $1 ORDER BY u.created_at ASC`, [getCompanyId(ctx)]);
     res.json(rows);
   } catch (err) {
     console.error('[users/list]', err);
@@ -66,7 +72,7 @@ router.post('/', requireAuth as any, async (req: AuthRequest, res) => {
       res.status(400).json({ error: 'Invalid role' });
       return;
     }
-    const effectiveCompanyId: number | null = ctx.appAdmin ? (company_id ?? null) : ctx.companyId;
+    const effectiveCompanyId: number | null = ctx.appAdmin ? (company_id ?? null) : getCompanyId(ctx);
 
     const passwordHash = await hash(password, 10);
     const { rows } = await pool.query(
@@ -94,7 +100,7 @@ router.put('/:id', requireAuth as any, async (req: AuthRequest, res) => {
     // Company admins may only edit users within their own company
     if (!ctx.appAdmin) {
       const { rows: target } = await pool.query('SELECT company_id, role FROM users WHERE id=$1', [req.params.id]);
-      if (!target[0] || target[0].company_id !== ctx.companyId) {
+      if (!target[0] || target[0].company_id !== getCompanyId(ctx)) {
         res.status(403).json({ error: 'You can only manage users in your company' });
         return;
       }
@@ -145,7 +151,7 @@ router.delete('/:id', requireAuth as any, async (req: AuthRequest, res) => {
     }
     if (!ctx.appAdmin) {
       const { rows: target } = await pool.query('SELECT company_id, role FROM users WHERE id=$1', [req.params.id]);
-      if (!target[0] || target[0].company_id !== ctx.companyId) {
+      if (!target[0] || target[0].company_id !== getCompanyId(ctx)) {
         res.status(403).json({ error: 'You can only delete users in your company' });
         return;
       }

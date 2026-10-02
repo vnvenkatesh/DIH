@@ -14,6 +14,7 @@ import exactCompareApiRouter from './routes/exactCompareApi.js';
 import pdfExactCompareRouter from './routes/pdfExactCompare.js';
 import ghostDraftGeneratorRouter from './routes/ghostDraftGenerator.js';
 import pdfValidatorRouter from './routes/pdfValidator.js';
+import fetchDocRouter from './routes/fetchDoc.js';
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use('/v1/api', exactCompareApiRouter);
 app.use('/v1/pdf-exact-compare', pdfExactCompareRouter);
 app.use('/v1/ghostdraft-generator', ghostDraftGeneratorRouter);
 app.use('/v1/pdf-validator', pdfValidatorRouter);
+app.use('/v1/fetch-doc', fetchDocRouter);
 
 app.get('/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

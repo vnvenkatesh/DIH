@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import FileUploader from './FileUploader';
+import React, { useState, useCallback, useRef } from 'react';
 import * as llmService from '../services/llmService';
 import { TemplateAnalysisResult, RegulationCheck } from '../types';
 
@@ -81,6 +80,53 @@ function SentimentBadge({ s }: { s: string }) {
 
 interface FileStatus { file: File; status: 'pending' | 'processing' | 'done' | 'error'; error?: string; }
 type TabId = 'overview' | 'completeness' | 'regulations' | 'sentiment';
+
+// ── Inline multi-file drop zone (FileUploader only supports single file) ───
+const MultiFileDropZone: React.FC<{ onFilesChange: (files: File[]) => void }> = ({ onFilesChange }) => {
+    const [isDragging, setIsDragging] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    const accept = '.pdf,.doc,.docx';
+    const validExts = ['.pdf', '.doc', '.docx'];
+    const filterValid = (list: FileList) =>
+        Array.from(list).filter(f => validExts.some(ext => f.name.toLowerCase().endsWith(ext)));
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const valid = filterValid(e.dataTransfer.files);
+        if (valid.length) onFilesChange(valid);
+    }, [onFilesChange]);
+
+    return (
+        <label
+            className={`flex flex-col items-center justify-center w-full p-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                isDragging
+                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30'
+                    : 'border-slate-300 dark:border-slate-600 hover:border-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-700'
+            }`}
+            onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+        >
+            <svg className="w-8 h-8 text-slate-400 dark:text-slate-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m.75 12 3 3m0 0 3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+                <span className="font-semibold text-indigo-600 dark:text-indigo-400">Click to upload</span> or drag and drop
+            </p>
+            <p className="text-xs text-slate-400 mt-1">PDF, DOC, DOCX — multiple files supported</p>
+            <input
+                ref={inputRef}
+                type="file"
+                className="hidden"
+                accept={accept}
+                multiple
+                onChange={e => { if (e.target.files?.length) onFilesChange(filterValid(e.target.files)); }}
+            />
+        </label>
+    );
+};
 
 const ResultCard: React.FC<{ result: TemplateAnalysisResult }> = ({ result }) => {
     const [tab, setTab] = useState<TabId>('overview');
@@ -327,12 +373,7 @@ const TemplateAnalyser: React.FC = () => {
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                     Upload one or more PDFs or Word documents. Each document is analysed independently for type, industry, completeness, regulatory compliance, and sentiment.
                 </p>
-                <FileUploader
-                    onFilesChange={handleFilesChange}
-                    accept=".pdf,.doc,.docx"
-                    label="Drop PDFs or Word documents here"
-                    multiple={true}
-                />
+                <MultiFileDropZone onFilesChange={handleFilesChange} />
                 {files.length > 0 && (
                     <div className="mt-3 space-y-1">
                         {fileStatuses.map((fs, i) => (

@@ -184,7 +184,7 @@ const accelerators = [
     id: 'fetchDoc',
     Icon: GlobeIcon,
     name: 'FetchDoc',
-    tagline: 'Lightweight HTTP API client',
+    tagline: 'Lightweight HTTP API client · No AI',
     description:
       'A built-in HTTP client for testing and exploring REST APIs directly within the platform. Compose requests, inspect responses, and use returned documents as inputs for other accelerators — all without leaving the tool.',
     benefit: 'Retrieve live documents and data without switching to an external client',
@@ -277,10 +277,10 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '14', label: 'Accelerators', sub: '13 AI-powered, 1 AI-free' },
-          { value: '3', label: 'AI Providers', sub: 'Gemini · Claude · OpenAI' },
+          { value: '14', label: 'Accelerators', sub: '12 AI-powered, 2 AI-free' },
+          { value: '4', label: 'AI Providers', sub: 'Gemini · Claude · OpenAI · Grok' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
-          { value: '100%', label: 'Your storage', sub: 'S3 or Azure Blob' },
+          { value: '3', label: 'Storage options', sub: 'None · S3 · Azure Blob' },
         ].map(({ value, label, sub }) => (
           <div key={label} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-5 text-center shadow-sm">
             <p className="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400 leading-none">{value}</p>
@@ -436,8 +436,8 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Cluster', 'Template Analyser'], detail: 'Rapidly assess and cluster an existing template library to identify duplicates and near-duplicates. Use Template Analyser to extract metadata, regulatory requirements, tone, and sentiment from each document before migration.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Dynamic Fields', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },
-              { phase: 'QA & Review', tools: ['Output Validator', 'PDF AI Compare', 'PDF Visual Compare'], detail: 'Close the loop with Output Validator: upload the rendered PDF, input XML/JSON, and test cases CSV to automatically validate every field, conditional rule, and format check — with a colour-coded annotated PDF as evidence. Use Visual Compare for a fast, AI-free structural and pixel diff between iterations; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
+              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build', 'FetchDoc'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings. Use FetchDoc to retrieve live data payloads or call downstream APIs during build and integration testing.' },
+              { phase: 'QA & Review', tools: ['Output Validator', 'PDF AI Compare', 'PDF Visual Compare', 'FetchDoc'], detail: 'Close the loop with Output Validator: upload the rendered PDF, input XML/JSON, and test cases CSV to automatically validate every field, conditional rule, and format check — with a colour-coded annotated PDF as evidence. Use Visual Compare for a fast, AI-free structural and pixel diff between iterations; switch to AI Compare when you need to catch intent shifts that wording alone hides. Use FetchDoc to fetch rendered output directly from an API endpoint for immediate validation.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },
             ].map(({ phase, tools, detail }) => (

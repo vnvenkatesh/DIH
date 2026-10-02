@@ -26,6 +26,9 @@ function toClientUser(row: any) {
     company_role: row.company_role ?? null,
     company_name: row.company_name ?? null,
     uses_company_keys: row.uses_company_keys ?? false,
+    has_storage: Boolean(row.storage_provider),
+    storage_provider: row.storage_provider ?? null,
+    company_has_storage: Boolean(row.company_storage_provider),
   };
 }
 
@@ -47,7 +50,7 @@ router.post('/login', async (req, res) => {
 
     console.log('[auth/login] querying user...');
     const params: any[] = [username];
-    let query = `SELECT u.*, c.name AS company_name
+    let query = `SELECT u.*, c.name AS company_name, c.storage_provider AS company_storage_provider
                  FROM users u
                  LEFT JOIN companies c ON u.company_id = c.id
                  WHERE LOWER(u.username) = LOWER($1)`;
@@ -87,7 +90,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT u.*, c.name AS company_name FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1`,
+      `SELECT u.*, c.name AS company_name, c.storage_provider AS company_storage_provider FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1`,
       [req.user!.id]
     );
     if (!rows[0]) { res.status(404).json({ error: 'User not found' }); return; }
@@ -99,25 +102,54 @@ router.get('/me', requireAuth as any, async (req: AuthRequest, res) => {
 
 router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { theme, llm_provider, gemini_api_key, claude_api_key, openai_api_key, gemini_model, claude_model, openai_model, claude_effort, grok_api_key, grok_model } = req.body ?? {};
-    await pool.query(
-      `UPDATE users
-         SET theme          = COALESCE($1, theme),
-             llm_provider   = COALESCE($2, llm_provider),
-             gemini_api_key = COALESCE($3, gemini_api_key),
-             claude_api_key = COALESCE($4, claude_api_key),
-             openai_api_key = COALESCE($5, openai_api_key),
-             gemini_model   = COALESCE($6, gemini_model),
-             claude_model   = COALESCE($7, claude_model),
-             openai_model   = COALESCE($8, openai_model),
-             claude_effort  = COALESCE($9, claude_effort),
-             grok_api_key   = COALESCE($10, grok_api_key),
-             grok_model     = COALESCE($11, grok_model),
-             updated_at     = NOW()
-       WHERE id = $12`,
-      [theme ?? null, llm_provider ?? null, gemini_api_key ?? null, claude_api_key ?? null, openai_api_key ?? null, gemini_model ?? null, claude_model ?? null, openai_model ?? null, claude_effort ?? null, grok_api_key ?? null, grok_model ?? null, req.user!.id]
+    const {
+      theme, llm_provider, gemini_api_key, claude_api_key, openai_api_key,
+      gemini_model, claude_model, openai_model, claude_effort, grok_api_key, grok_model,
+      storage_provider, storage_bucket, storage_region,
+      storage_access_key, storage_secret_key, storage_azure_connection,
+    } = req.body ?? {};
+
+    const setClauses: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    const add = (col: string, val: any) => {
+      if (val === undefined) return;
+      setClauses.push(`${col} = $${idx++}`);
+      params.push(val);
+    };
+
+    add('theme', theme);
+    add('llm_provider', llm_provider);
+    add('gemini_api_key', gemini_api_key);
+    add('claude_api_key', claude_api_key);
+    add('openai_api_key', openai_api_key);
+    add('gemini_model', gemini_model);
+    add('claude_model', claude_model);
+    add('openai_model', openai_model);
+    add('claude_effort', claude_effort);
+    add('grok_api_key', grok_api_key);
+    add('grok_model', grok_model);
+    if (storage_provider !== undefined) add('storage_provider', storage_provider || null);
+    add('storage_bucket', storage_bucket);
+    add('storage_region', storage_region);
+    if (storage_access_key?.trim()) add('storage_access_key', storage_access_key.trim());
+    if (storage_secret_key?.trim()) add('storage_secret_key', storage_secret_key.trim());
+    if (storage_azure_connection?.trim()) add('storage_azure_connection', storage_azure_connection.trim());
+
+    if (setClauses.length > 0) {
+      params.push(req.user!.id);
+      await pool.query(
+        `UPDATE users SET ${setClauses.join(', ')}, updated_at = NOW() WHERE id = $${idx}`,
+        params
+      );
+    }
+
+    const { rows } = await pool.query(
+      `SELECT u.*, c.name AS company_name, c.storage_provider AS company_storage_provider
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1`,
+      [req.user!.id]
     );
-    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
     res.json({ user: toClientUser(rows[0]) });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? 'Internal server error' });

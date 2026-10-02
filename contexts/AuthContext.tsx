@@ -24,6 +24,9 @@ export interface AuthUser extends UserPreferences {
   companyRole: 'admin' | 'member' | null;
   companyName: string | null;
   usesCompanyKeys: boolean;
+  hasStorage: boolean;
+  companyHasStorage: boolean;
+  storageProvider: string | null;
 }
 
 interface AuthContextValue {
@@ -32,6 +35,7 @@ interface AuthContextValue {
   login: (username: string, password: string, company?: string) => Promise<void>;
   logout: () => void;
   updatePreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
+  refreshUser: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -43,6 +47,7 @@ const AuthContext = createContext<AuthContextValue>({
   login: async (_u, _p, _c?) => {},
   logout: () => {},
   updatePreferences: async () => {},
+  refreshUser: async () => {},
   isLoading: true,
 });
 
@@ -76,6 +81,9 @@ function deserializeUser(raw: any): AuthUser {
     companyRole: raw.company_role ?? null,
     companyName: raw.company_name ?? null,
     usesCompanyKeys: raw.uses_company_keys ?? false,
+    hasStorage: raw.has_storage ?? false,
+    companyHasStorage: raw.company_has_storage ?? false,
+    storageProvider: raw.storage_provider ?? null,
   };
 }
 
@@ -134,6 +142,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
+  const refreshUser = async (): Promise<void> => {
+    if (!token) return;
+    try {
+      const res = await fetch('/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const { user: rawUser } = await res.json();
+      const u = deserializeUser(rawUser);
+      setUser(u);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ user: u, token }));
+    } catch { /* ignore */ }
+  };
+
   const updatePreferences = async (prefs: Partial<UserPreferences>): Promise<void> => {
     if (!token) return;
     const body: Record<string, string> = {};
@@ -163,7 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, updatePreferences, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, updatePreferences, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

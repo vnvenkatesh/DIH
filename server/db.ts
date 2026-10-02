@@ -42,6 +42,12 @@ export async function initDb(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_effort VARCHAR(10) DEFAULT 'medium'`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS grok_api_key TEXT DEFAULT ''`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS grok_model VARCHAR(100) DEFAULT 'grok-4.3'`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_provider VARCHAR(10) DEFAULT NULL`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_bucket VARCHAR(500) DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_region VARCHAR(100) DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_access_key TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_secret_key TEXT DEFAULT ''`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_azure_connection TEXT DEFAULT ''`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS llm_usage_logs (

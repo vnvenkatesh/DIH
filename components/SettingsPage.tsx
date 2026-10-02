@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSettings, LLMProvider } from '../contexts/SettingsContext';
 import { useAuth, AuthUser, UserPreferences } from '../contexts/AuthContext';
 import CompanySettings from './CompanySettings';
+import StorageSettings from './StorageSettings';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
 
@@ -622,10 +623,10 @@ const SettingsPage: React.FC = () => {
   const canManageUsers = isAppAdmin || isCompanyAdmin;
 
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
-    { id: 'ai',         label: 'AI Providers',                     show: true },
-    { id: 'company',    label: isGeneralUser ? 'Storage' : 'Company', show: !isGeneralUser || isAppAdmin },
-    { id: 'users',      label: 'Users',                            show: canManageUsers },
-    { id: 'appearance', label: 'Appearance',                       show: true },
+    { id: 'ai',         label: 'AI Providers',                        show: true },
+    { id: 'company',    label: isGeneralUser ? 'Storage' : 'Company', show: (isGeneralUser || isCompanyAdmin) && !isAppAdmin },
+    { id: 'users',      label: 'Users',                               show: canManageUsers },
+    { id: 'appearance', label: 'Appearance',                          show: true },
   ];
 
   const visibleTabs = tabs.filter(t => t.show);
@@ -661,7 +662,7 @@ const SettingsPage: React.FC = () => {
         <UsersTab currentUser={user!} token={token} isAppAdmin={isAppAdmin} />
       )}
       {activeTab === 'company' && (
-        <CompanySettings />
+        isGeneralUser ? <StorageSettings /> : <CompanySettings />
       )}
     </div>
   );

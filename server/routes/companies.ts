@@ -20,6 +20,32 @@ function toClientCompany(row: any) {
   };
 }
 
+// GET /v1/companies — App Admin: list all companies with member counts
+router.get('/', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    if (req.user!.role !== 'Admin') { res.status(403).json({ error: 'Admin only' }); return; }
+    const { rows } = await pool.query(`
+      SELECT c.*, COUNT(u.id)::int AS member_count
+      FROM companies c
+      LEFT JOIN users u ON u.company_id = c.id
+      GROUP BY c.id
+      ORDER BY c.name
+    `);
+    res.json({
+      companies: rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        storageProvider: r.storage_provider ?? null,
+        hasStorage: Boolean(r.storage_provider),
+        memberCount: r.member_count,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /v1/companies/mine — get the current user's company
 router.get('/mine', requireAuth as any, async (req: AuthRequest, res) => {
   try {
@@ -71,11 +97,53 @@ router.post('/', requireAuth as any, async (req: AuthRequest, res) => {
       'INSERT INTO companies (name) VALUES ($1) RETURNING *',
       [name.trim()]
     );
-    await pool.query(
-      'UPDATE users SET company_id = $1, company_role = $2, uses_company_keys = false WHERE id = $3',
-      [rows[0].id, 'admin', req.user!.id]
-    );
+    // Don't move App Admins — they stay in AdminCo
+    if (req.user!.role !== 'Admin') {
+      await pool.query(
+        'UPDATE users SET company_id = $1, company_role = $2, uses_company_keys = false WHERE id = $3',
+        [rows[0].id, 'admin', req.user!.id]
+      );
+    }
     res.status(201).json({ company: toClientCompany(rows[0]) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/companies/:id — App Admin: rename a company
+router.patch('/:id', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    if (req.user!.role !== 'Admin') { res.status(403).json({ error: 'Admin only' }); return; }
+    const companyId = parseInt(req.params.id);
+    const { name } = req.body;
+    if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
+
+    const { rows } = await pool.query(
+      'UPDATE companies SET name = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [name.trim(), companyId]
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Company not found' }); return; }
+    res.json({ company: toClientCompany(rows[0]) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/companies/:id — App Admin: delete company (guard AdminCo/General)
+router.delete('/:id', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    if (req.user!.role !== 'Admin') { res.status(403).json({ error: 'Admin only' }); return; }
+    const companyId = parseInt(req.params.id);
+
+    const { rows } = await pool.query('SELECT name FROM companies WHERE id = $1', [companyId]);
+    if (!rows[0]) { res.status(404).json({ error: 'Company not found' }); return; }
+    const { name } = rows[0];
+    if (name === 'AdminCo' || name === 'General') {
+      res.status(400).json({ error: `Cannot delete the "${name}" company` }); return;
+    }
+
+    await pool.query('DELETE FROM companies WHERE id = $1', [companyId]);
+    res.status(204).end();
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

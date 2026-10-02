@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSettings, LLMProvider } from '../contexts/SettingsContext';
 import { useAuth, AuthUser, UserPreferences } from '../contexts/AuthContext';
+import CompanySettings from './CompanySettings';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
 
@@ -595,19 +596,23 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
 
 // ── Settings Page ──────────────────────────────────────────────────────────
 
-type SettingsTab = 'appearance' | 'ai' | 'users';
+type SettingsTab = 'appearance' | 'ai' | 'users' | 'company';
 
 const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
 
-  const tabs: { id: SettingsTab; label: string; adminOnly?: boolean }[] = [
-    { id: 'ai',         label: 'AI Providers'        },
+  const tabs: { id: SettingsTab; label: string; adminOnly?: boolean; showWhen?: boolean }[] = [
+    { id: 'ai',         label: 'AI Providers' },
+    { id: 'company',    label: 'Company', showWhen: true },
     { id: 'users',      label: 'Users', adminOnly: true },
-    { id: 'appearance', label: 'Appearance'          },
+    { id: 'appearance', label: 'Appearance' },
   ];
 
-  const visibleTabs = tabs.filter(t => !t.adminOnly || user?.role === 'Admin');
+  const visibleTabs = tabs.filter(t => {
+    if (t.adminOnly && user?.role !== 'Admin') return false;
+    return true;
+  });
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -638,6 +643,9 @@ const SettingsPage: React.FC = () => {
       )}
       {activeTab === 'users' && user?.role === 'Admin' && token && (
         <UsersTab currentUser={user} token={token} />
+      )}
+      {activeTab === 'company' && (
+        <CompanySettings />
       )}
     </div>
   );

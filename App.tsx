@@ -30,6 +30,8 @@ import GhostDraftGenerator from './components/GhostDraftGenerator';
 import PdfValidator from './components/PdfValidator';
 import Flow from './components/Flow';
 import FetchDoc from './components/FetchDoc';
+import Projects from './components/Projects';
+import ProjectWorkspace from './components/ProjectWorkspace';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
 import AiInUseIndicator from './components/AiInUseIndicator';
@@ -38,7 +40,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
+type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -76,12 +78,16 @@ const ACCELERATOR_TOOLS: Tool[] = [
   'ghostDraftGenerator', 'layoutRecommendation', 'accessibilityScorer', 'templateAnalyser', 'xpathExtractor',
 ];
 
+// Tools that should NOT show the LLM warning banner
+const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs'];
+
 const App: React.FC = () => {
   const { user, logout, isLoading } = useAuth();
   const { saveSettings } = useSettings();
   const [activeTool, setActiveTool] = useState<Tool>('home');
   const [filesToCompare, setFilesToCompare] = useState<[File, File] | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
 
   // Hydrate SettingsContext (and localStorage) from the user's DB preferences on login.
   // This ensures services that read from localStorage pick up the right keys.
@@ -118,6 +124,16 @@ const App: React.FC = () => {
   // 'Test Data'               → syntheticDataGenerator
   // 'GhostDraft Template Build' → ghostDraftGenerator (under Build Automation)
   const navEntries: NavEntry[] = [
+    {
+      tool: 'projects',
+      label: 'Projects',
+      description: 'Persistent workspaces for CCM lifecycle',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+      ),
+    },
     { tool: 'cluster', label: 'Cluster', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
     { tool: 'pdfCompare', label: 'PDF AI Compare', description: 'AI-powered semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
     {
@@ -391,13 +407,24 @@ const App: React.FC = () => {
 
         {/* Tool Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
-          {/* LLM warning — shown for all accelerator tools when no key is configured */}
-          {ACCELERATOR_TOOLS.includes(activeTool) && (
+          {/* LLM warning — shown for accelerator tools when no key is configured */}
+          {!NO_LLM_TOOLS.includes(activeTool) && (
             <LLMWarning onGoToSettings={() => setActiveTool('settings')} />
           )}
 
           <div className={activeTool === 'home' ? '' : 'hidden'}>
             <Home onNavigate={(tool) => setActiveTool(tool as Tool)} />
+          </div>
+          <div className={activeTool === 'projects' ? '' : 'hidden'}>
+            <Projects onOpenProject={(id) => { setActiveProjectId(id); setActiveTool('projectWorkspace'); }} />
+          </div>
+          <div className={activeTool === 'projectWorkspace' ? '' : 'hidden'}>
+            {activeProjectId != null && (
+              <ProjectWorkspace
+                projectId={activeProjectId}
+                onBack={() => setActiveTool('projects')}
+              />
+            )}
           </div>
           <div className={activeTool === 'flow' ? '' : 'hidden'}>
             <Flow />

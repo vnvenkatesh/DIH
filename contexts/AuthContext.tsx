@@ -20,6 +20,9 @@ export interface AuthUser extends UserPreferences {
   id: number;
   username: string;
   role: UserRole;
+  companyId: number | null;
+  companyRole: 'admin' | 'member' | null;
+  usesCompanyKeys: boolean;
 }
 
 interface AuthContextValue {
@@ -68,6 +71,9 @@ function deserializeUser(raw: any): AuthUser {
     claudeEffort: raw.claude_effort ?? 'medium',
     grokApiKey: raw.grok_api_key ?? '',
     grokModel: raw.grok_model ?? 'grok-4.3',
+    companyId: raw.company_id ?? null,
+    companyRole: raw.company_role ?? null,
+    usesCompanyKeys: raw.uses_company_keys ?? false,
   };
 }
 

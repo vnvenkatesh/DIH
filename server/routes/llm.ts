@@ -52,8 +52,13 @@ router.post('/gemini', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { model, contents, generationConfig, accelerator } = req.body;
 
-    const { rows } = await pool.query('SELECT gemini_api_key FROM users WHERE id=$1', [req.user!.id]);
-    const apiKey = rows[0]?.gemini_api_key || process.env.GEMINI_API_KEY || process.env.API_KEY;
+    const { rows } = await pool.query(
+      `SELECT u.gemini_api_key, u.uses_company_keys, c.gemini_api_key AS company_key
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id=$1`,
+      [req.user!.id]
+    );
+    const r = rows[0];
+    const apiKey = r?.gemini_api_key || (r?.uses_company_keys ? r?.company_key : '') || process.env.GEMINI_API_KEY || process.env.API_KEY;
 
     if (!apiKey) {
       res.status(400).json({ error: { message: 'Gemini API key not configured. Go to Settings → AI Providers.' } });
@@ -86,8 +91,13 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { model, max_tokens, messages, system, beta, effort, accelerator } = req.body;
 
-    const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [req.user!.id]);
-    const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    const { rows } = await pool.query(
+      `SELECT u.claude_api_key, u.uses_company_keys, c.claude_api_key AS company_key
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id=$1`,
+      [req.user!.id]
+    );
+    const rc = rows[0];
+    const apiKey = rc?.claude_api_key || (rc?.uses_company_keys ? rc?.company_key : '') || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
 
     if (!apiKey) {
       res.status(400).json({ error: { message: 'Claude API key not configured. Go to Settings → AI Providers.' } });
@@ -135,8 +145,13 @@ router.post('/openai', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { model, messages, response_format, accelerator } = req.body;
 
-    const { rows } = await pool.query('SELECT openai_api_key FROM users WHERE id=$1', [req.user!.id]);
-    const apiKey = rows[0]?.openai_api_key || process.env.OPENAI_API_KEY;
+    const { rows } = await pool.query(
+      `SELECT u.openai_api_key, u.uses_company_keys, c.openai_api_key AS company_key
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id=$1`,
+      [req.user!.id]
+    );
+    const ro = rows[0];
+    const apiKey = ro?.openai_api_key || (ro?.uses_company_keys ? ro?.company_key : '') || process.env.OPENAI_API_KEY;
 
     if (!apiKey) {
       res.status(400).json({ error: { message: 'OpenAI API key not configured. Go to Settings → AI Providers.' } });
@@ -184,8 +199,13 @@ router.post('/grok', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { model, messages, response_format, accelerator } = req.body;
 
-    const { rows } = await pool.query('SELECT grok_api_key FROM users WHERE id=$1', [req.user!.id]);
-    const apiKey = rows[0]?.grok_api_key || process.env.GROK_API_KEY || process.env.XAI_API_KEY;
+    const { rows } = await pool.query(
+      `SELECT u.grok_api_key, u.uses_company_keys, c.grok_api_key AS company_key
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id=$1`,
+      [req.user!.id]
+    );
+    const rg = rows[0];
+    const apiKey = rg?.grok_api_key || (rg?.uses_company_keys ? rg?.company_key : '') || process.env.GROK_API_KEY || process.env.XAI_API_KEY;
 
     if (!apiKey) {
       res.status(400).json({ error: { message: 'Grok API key not configured. Go to Settings → AI Providers.' } });

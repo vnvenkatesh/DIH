@@ -22,6 +22,9 @@ function toClientUser(row: any) {
     claude_effort: row.claude_effort ?? 'medium',
     grok_api_key: row.grok_api_key ?? '',
     grok_model: row.grok_model ?? 'grok-4.3',
+    company_id: row.company_id ?? null,
+    company_role: row.company_role ?? null,
+    uses_company_keys: row.uses_company_keys ?? false,
   };
 }
 

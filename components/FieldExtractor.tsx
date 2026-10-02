@@ -272,7 +272,7 @@ const SyntheticDataGenerator: React.FC = () => {
             <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
                     <DocumentTextIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-                    Synthetic Data Generation
+                    Test Data Generation
                 </h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400">
                     Upload an XSD schema to generate synthetic XML data. Optionally add a test cases CSV to generate grouped XML bundles covering each test case.
@@ -281,53 +281,55 @@ const SyntheticDataGenerator: React.FC = () => {
 
             {/* ── Upload section ── */}
             {!hasResults && !isLoading && (
-                <div className="max-w-2xl mx-auto space-y-6">
-                    {/* Step 1: XSD */}
-                    <div>
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                            1. Upload XML Schema (XSD) <span className="text-red-500">*</span>
-                        </h3>
-                        {!xsdFile ? (
-                            <FileUploader
-                                onFileChange={setXsdFile}
-                                acceptedFileType='.xsd'
-                                fileTypeName='XSD Schema'
-                                icon={<XmlFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />}
-                            />
-                        ) : (
-                            <div className="bg-slate-100 dark:bg-slate-700 p-6 rounded-lg flex flex-col items-center border-2 border-dashed border-green-500">
-                                <XmlFileIcon className="w-10 h-10 mb-2 text-green-600 dark:text-green-400" />
-                                <p className="font-semibold text-green-600 dark:text-green-400">XSD Ready</p>
-                                <p className="text-sm truncate w-full px-4 text-center mt-1 text-slate-600 dark:text-slate-300">{xsdFile.name}</p>
-                                <button onClick={() => setXsdFile(null)} className="text-sm text-indigo-500 hover:underline mt-3">Change File</button>
-                            </div>
-                        )}
-                    </div>
+                <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Step 1: XSD */}
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                                1. Upload XML Schema (XSD) <span className="text-red-500">*</span>
+                            </h3>
+                            {!xsdFile ? (
+                                <FileUploader
+                                    onFileChange={setXsdFile}
+                                    acceptedFileType='.xsd'
+                                    fileTypeName='XSD Schema'
+                                    icon={<XmlFileIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />}
+                                />
+                            ) : (
+                                <div className="bg-slate-100 dark:bg-slate-700 p-6 rounded-lg flex flex-col items-center border-2 border-dashed border-green-500 h-full">
+                                    <XmlFileIcon className="w-10 h-10 mb-2 text-green-600 dark:text-green-400" />
+                                    <p className="font-semibold text-green-600 dark:text-green-400">XSD Ready</p>
+                                    <p className="text-sm truncate w-full px-4 text-center mt-1 text-slate-600 dark:text-slate-300">{xsdFile.name}</p>
+                                    <button onClick={() => setXsdFile(null)} className="text-sm text-indigo-500 hover:underline mt-3">Change File</button>
+                                </div>
+                            )}
+                        </div>
 
-                    {/* Step 2: Test Cases CSV (optional) */}
-                    <div>
-                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                            2. Upload Test Cases CSV{' '}
-                            <span className="text-slate-400 font-normal">(optional — from Test Case Generator)</span>
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                            When provided, generates grouped XML bundles — one per scenario — each tagged with the test case IDs it covers.
-                        </p>
-                        {!testCasesCsvFile ? (
-                            <FileUploader
-                                onFileChange={setTestCasesCsvFile}
-                                acceptedFileType='.csv'
-                                fileTypeName='Test Cases CSV'
-                                icon={<DocumentTextIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />}
-                            />
-                        ) : (
-                            <div className="bg-slate-100 dark:bg-slate-700 p-6 rounded-lg flex flex-col items-center border-2 border-dashed border-indigo-400">
-                                <DocumentTextIcon className="w-10 h-10 mb-2 text-indigo-500 dark:text-indigo-400" />
-                                <p className="font-semibold text-indigo-600 dark:text-indigo-400">Test Cases CSV Ready</p>
-                                <p className="text-sm truncate w-full px-4 text-center mt-1 text-slate-600 dark:text-slate-300">{testCasesCsvFile.name}</p>
-                                <button onClick={() => setTestCasesCsvFile(null)} className="text-sm text-indigo-500 hover:underline mt-3">Remove</button>
-                            </div>
-                        )}
+                        {/* Step 2: Test Cases CSV (optional) */}
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                2. Upload Test Cases CSV{' '}
+                                <span className="text-slate-400 font-normal">(optional — from Test Case Generator)</span>
+                            </h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                                When provided, generates grouped XML bundles — one per scenario — each tagged with the test case IDs it covers.
+                            </p>
+                            {!testCasesCsvFile ? (
+                                <FileUploader
+                                    onFileChange={setTestCasesCsvFile}
+                                    acceptedFileType='.csv'
+                                    fileTypeName='Test Cases CSV'
+                                    icon={<DocumentTextIcon className="w-12 h-12 mb-4 text-slate-500 dark:text-slate-400" />}
+                                />
+                            ) : (
+                                <div className="bg-slate-100 dark:bg-slate-700 p-6 rounded-lg flex flex-col items-center border-2 border-dashed border-indigo-400">
+                                    <DocumentTextIcon className="w-10 h-10 mb-2 text-indigo-500 dark:text-indigo-400" />
+                                    <p className="font-semibold text-indigo-600 dark:text-indigo-400">Test Cases CSV Ready</p>
+                                    <p className="text-sm truncate w-full px-4 text-center mt-1 text-slate-600 dark:text-slate-300">{testCasesCsvFile.name}</p>
+                                    <button onClick={() => setTestCasesCsvFile(null)} className="text-sm text-indigo-500 hover:underline mt-3">Remove</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {xsdFile && (
@@ -336,7 +338,7 @@ const SyntheticDataGenerator: React.FC = () => {
                                 onClick={handleProcess}
                                 className="bg-indigo-600 text-white font-bold py-4 px-10 rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 transition-all duration-300 transform hover:scale-105 shadow-lg"
                             >
-                                {isBundleMode ? 'Generate XML Bundles' : 'Generate Synthetic XML'}
+                                {isBundleMode ? 'Generate XML Bundles' : 'Generate Test XML'}
                             </button>
                         </div>
                     )}

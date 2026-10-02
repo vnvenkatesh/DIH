@@ -160,6 +160,13 @@ export async function initDb(): Promise<void> {
     console.log('[db] initDb: AdminCo company created, id:', adminCoId);
   }
 
+  // Ensure General company exists (for independent/solo users)
+  const { rows: genRows } = await pool.query(`SELECT id FROM companies WHERE name = 'General' LIMIT 1`);
+  if (!genRows.length) {
+    await pool.query(`INSERT INTO companies (name) VALUES ('General')`);
+    console.log('[db] initDb: General company created');
+  }
+
   // ── Seed or update default admin ──────────────────────────────────────────
   const { rows: admins } = await pool.query("SELECT id FROM users WHERE role = 'Admin' LIMIT 1");
   if (!admins.length) {

@@ -436,10 +436,13 @@ interface DBUser {
   id: number;
   username: string;
   role: 'Admin' | 'AppUser';
+  company_id: number | null;
+  company_role: string | null;
+  company_name: string | null;
   created_at: string;
 }
 
-const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentUser, token }) => {
+const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boolean }> = ({ currentUser, token, isAppAdmin }) => {
   const [users, setUsers]       = useState<DBUser[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
@@ -497,7 +500,9 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">User Management</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Manage who has access to this application.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            {isAppAdmin ? 'Manage all users across the platform.' : 'Manage users in your company.'}
+          </p>
         </div>
         <button onClick={openAdd} className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
@@ -519,6 +524,7 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Username</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Role</th>
+                {isAppAdmin && <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Company</th>}
                 <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Created</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -534,7 +540,13 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${u.role === 'Admin' ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                       {u.role}
                     </span>
+                    {u.company_role === 'admin' && <span className="ml-1 inline-flex px-1.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">Co.Admin</span>}
                   </td>
+                  {isAppAdmin && (
+                    <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+                      {u.company_name ?? <span className="italic text-slate-400">—</span>}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
@@ -574,13 +586,15 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string }> = ({ currentU
                 </label>
                 <input type="password" value={form.password} onChange={(e) => setForm(f => ({ ...f, password: e.target.value }))} className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder={editTarget ? 'New password (optional)' : 'Enter password'} />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Role</label>
-                <select value={form.role} onChange={(e) => setForm(f => ({ ...f, role: e.target.value as 'Admin' | 'AppUser' }))} className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                  <option value="AppUser">AppUser</option>
-                  <option value="Admin">Admin</option>
-                </select>
-              </div>
+              {isAppAdmin && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Role</label>
+                  <select value={form.role} onChange={(e) => setForm(f => ({ ...f, role: e.target.value as 'Admin' | 'AppUser' }))} className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="AppUser">AppUser</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+              )}
               {formError && <p className="text-xs text-red-600 dark:text-red-400 px-1">{formError}</p>}
             </div>
             <div className="flex gap-2 mt-5">
@@ -602,17 +616,19 @@ const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
 
-  const tabs: { id: SettingsTab; label: string; adminOnly?: boolean; showWhen?: boolean }[] = [
-    { id: 'ai',         label: 'AI Providers' },
-    { id: 'company',    label: 'Company', showWhen: true },
-    { id: 'users',      label: 'Users', adminOnly: true },
-    { id: 'appearance', label: 'Appearance' },
+  const isAppAdmin    = user?.role === 'Admin';
+  const isCompanyAdmin = user?.companyRole === 'admin' && user?.companyName !== 'General';
+  const isGeneralUser  = !user?.companyId || user?.companyName === 'General';
+  const canManageUsers = isAppAdmin || isCompanyAdmin;
+
+  const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
+    { id: 'ai',         label: 'AI Providers',                     show: true },
+    { id: 'company',    label: isGeneralUser ? 'Storage' : 'Company', show: !isGeneralUser || isAppAdmin },
+    { id: 'users',      label: 'Users',                            show: canManageUsers },
+    { id: 'appearance', label: 'Appearance',                       show: true },
   ];
 
-  const visibleTabs = tabs.filter(t => {
-    if (t.adminOnly && user?.role !== 'Admin') return false;
-    return true;
-  });
+  const visibleTabs = tabs.filter(t => t.show);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -641,8 +657,8 @@ const SettingsPage: React.FC = () => {
       {activeTab === 'ai' && token && (
         <AiProvidersTab updatePreferences={updatePreferences} token={token} />
       )}
-      {activeTab === 'users' && user?.role === 'Admin' && token && (
-        <UsersTab currentUser={user} token={token} />
+      {activeTab === 'users' && canManageUsers && token && (
+        <UsersTab currentUser={user!} token={token} isAppAdmin={isAppAdmin} />
       )}
       {activeTab === 'company' && (
         <CompanySettings />

@@ -186,6 +186,21 @@ export async function initDb(): Promise<void> {
     );
     console.log('[db] initDb: admin exists, ensured AdminCo link');
   }
+
+  // ── Migrate unassigned users to General company ────────────────────────────
+  // Runs idempotently: only touches rows where company_id IS NULL.
+  // App Admins named 'admin' or 'venkat' are excluded — they stay on AdminCo.
+  const { rows: [{ id: generalId }] } = await pool.query(`SELECT id FROM companies WHERE name = 'General' LIMIT 1`);
+  const { rowCount: migrated } = await pool.query(
+    `UPDATE users
+     SET company_id   = $1,
+         company_role = 'member',
+         updated_at   = NOW()
+     WHERE company_id IS NULL
+       AND NOT (role = 'Admin' AND LOWER(username) IN ('admin', 'venkat'))`,
+    [generalId]
+  );
+  if (migrated) console.log(`[db] initDb: migrated ${migrated} user(s) to General company`);
 }
 
 export default pool;

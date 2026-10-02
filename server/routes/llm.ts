@@ -84,7 +84,7 @@ router.post('/gemini', requireAuth as any, async (req: AuthRequest, res) => {
 // ── Claude proxy ──────────────────────────────────────────────────────────────
 router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { model, max_tokens, messages, beta, effort, accelerator } = req.body;
+    const { model, max_tokens, messages, system, beta, effort, accelerator } = req.body;
 
     const { rows } = await pool.query('SELECT claude_api_key FROM users WHERE id=$1', [req.user!.id]);
     const apiKey = rows[0]?.claude_api_key || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
@@ -102,6 +102,7 @@ router.post('/claude', requireAuth as any, async (req: AuthRequest, res) => {
     if (beta) headers['anthropic-beta'] = beta;
 
     const claudeBody: Record<string, any> = { model, max_tokens, messages };
+    if (system) claudeBody.system = system;
     if (effort) claudeBody.effort = effort;
 
     const upstream = await fetch(CLAUDE_API, {

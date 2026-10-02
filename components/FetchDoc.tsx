@@ -148,6 +148,8 @@ function rdiConvertToSpoolXml(raw: string): string {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
+const PROFILES_STORAGE_KEY = 'dih_fetchdoc_profiles';
+
 type UiEntry = { id: string; enabled: boolean; key: string; value: string };
 type AuthMode = 'none' | 'bearer' | 'basic';
 type BodyMode = 'none' | 'json' | 'raw' | 'form-urlencoded';
@@ -174,6 +176,24 @@ type State = {
     rdiConversionWarnings?: string[];
 };
 
+type SavedProfile = {
+    id: string;
+    name: string;
+    savedAt: string;
+    method: HttpMethod;
+    url: string;
+    query: UiEntry[];
+    headers: UiEntry[];
+    authMode: AuthMode;
+    bearerToken: string;
+    basicUsername: string;
+    basicPassword: string;
+    bodyMode: BodyMode;
+    jsonBody: string;
+    rawBody: string;
+    rawContentType: string;
+};
+
 type Action =
     | { type: 'set-url'; value: string }
     | { type: 'set-method'; value: HttpMethod }
@@ -192,7 +212,8 @@ type Action =
     | { type: 'entry-remove'; collection: 'query' | 'headers' | 'formEntries'; id: string }
     | { type: 'apply-rdi-flat' }
     | { type: 'apply-rdi-spool' }
-    | { type: 'dismiss-rdi-prompt' };
+    | { type: 'dismiss-rdi-prompt' }
+    | { type: 'load-profile'; profile: SavedProfile };
 
 function newEntry(enabled = false): UiEntry {
     return { id: crypto.randomUUID(), enabled, key: '', value: '' };
@@ -256,6 +277,27 @@ function reducer(state: State, action: Action): State {
         }
         case 'dismiss-rdi-prompt':
             return { ...state, rdiDismissedFor: state.rawBody };
+        case 'load-profile': {
+            const p = action.profile;
+            return {
+                ...state,
+                method: p.method,
+                url: p.url,
+                query: p.query.length > 0 ? p.query : [newEntry()],
+                headers: p.headers.length > 0 ? p.headers : [newEntry()],
+                authMode: p.authMode,
+                bearerToken: p.bearerToken,
+                basicUsername: p.basicUsername,
+                basicPassword: p.basicPassword,
+                bodyMode: p.bodyMode,
+                jsonBody: p.jsonBody,
+                rawBody: p.rawBody,
+                rawContentType: p.rawContentType,
+                rdiDismissedFor: undefined,
+                rdiConversionWarnings: undefined,
+                validationError: undefined,
+            };
+        }
         default: return state;
     }
 }
@@ -355,6 +397,60 @@ const FetchDoc: React.FC = () => {
     const abortRef = useRef<AbortController | null>(null);
     const timerRef = useRef<number | null>(null);
     const pdfObjectUrlRef = useRef<string | null>(null);
+
+    // Profiles state
+    const [profiles, setProfiles] = useState<SavedProfile[]>(() => {
+        try { return JSON.parse(localStorage.getItem(PROFILES_STORAGE_KEY) || '[]') as SavedProfile[]; }
+        catch { return []; }
+    });
+    const [showProfiles, setShowProfiles] = useState(false);
+    const [saveName, setSaveName] = useState('');
+    const profilesRef = useRef<HTMLDivElement>(null);
+
+    const persistProfiles = useCallback((updated: SavedProfile[]) => {
+        setProfiles(updated);
+        try { localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(updated)); } catch { }
+    }, []);
+
+    const saveProfile = useCallback(() => {
+        if (!state.url) return;
+        const name = saveName.trim() || `${state.method} ${state.url.slice(0, 50)}`;
+        const profile: SavedProfile = {
+            id: crypto.randomUUID(),
+            name,
+            savedAt: new Date().toISOString(),
+            method: state.method,
+            url: state.url,
+            query: state.query,
+            headers: state.headers,
+            authMode: state.authMode,
+            bearerToken: state.bearerToken,
+            basicUsername: state.basicUsername,
+            basicPassword: state.basicPassword,
+            bodyMode: state.bodyMode,
+            jsonBody: state.jsonBody,
+            rawBody: state.rawBody,
+            rawContentType: state.rawContentType,
+        };
+        persistProfiles([profile, ...profiles]);
+        setSaveName('');
+    }, [state, saveName, profiles, persistProfiles]);
+
+    const deleteProfile = useCallback((id: string) => {
+        persistProfiles(profiles.filter(p => p.id !== id));
+    }, [profiles, persistProfiles]);
+
+    // Close profiles popover on outside click
+    useEffect(() => {
+        if (!showProfiles) return;
+        const handleClick = (e: MouseEvent) => {
+            if (profilesRef.current && !profilesRef.current.contains(e.target as Node)) {
+                setShowProfiles(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [showProfiles]);
 
     useEffect(() => {
         return () => {
@@ -529,6 +625,79 @@ const FetchDoc: React.FC = () => {
                         spellCheck={false}
                         autoComplete="off"
                     />
+
+                    {/* Profiles popover */}
+                    <div className="relative flex-shrink-0" ref={profilesRef}>
+                        <button
+                            type="button"
+                            onClick={() => setShowProfiles(v => !v)}
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+                            </svg>
+                            Profiles
+                            {profiles.length > 0 && (
+                                <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">({profiles.length})</span>
+                            )}
+                        </button>
+                        {showProfiles && (
+                            <div className="absolute right-0 top-full mt-1.5 w-80 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-30 p-3 flex flex-col gap-2.5">
+                                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Saved Profiles</p>
+                                {profiles.length === 0 ? (
+                                    <p className="text-xs text-slate-400 dark:text-slate-500 italic py-1">No saved profiles yet.</p>
+                                ) : (
+                                    <div className="max-h-52 overflow-y-auto flex flex-col divide-y divide-slate-100 dark:divide-slate-700">
+                                        {profiles.map(p => (
+                                            <div key={p.id} className="flex items-center gap-2 py-1.5">
+                                                <span className={`flex-shrink-0 text-xs font-bold px-1.5 py-0.5 rounded ${p.method === 'GET' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'}`}>
+                                                    {p.method}
+                                                </span>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs text-slate-700 dark:text-slate-300 truncate font-medium" title={p.name}>{p.name}</p>
+                                                    <p className="text-xs text-slate-400 dark:text-slate-500 truncate font-mono" title={p.url}>{p.url}</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { dispatch({ type: 'load-profile', profile: p }); setShowProfiles(false); }}
+                                                    className="flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                                >
+                                                    Load
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => deleteProfile(p.id)}
+                                                    className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                                    title="Delete profile"
+                                                >
+                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex gap-1.5 items-center">
+                                    <input
+                                        value={saveName}
+                                        onChange={e => setSaveName(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') saveProfile(); }}
+                                        placeholder="Profile name (optional)"
+                                        className="flex-1 min-w-0 px-2 py-1 text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:border-indigo-400"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={saveProfile}
+                                        disabled={!state.url}
+                                        className="flex-shrink-0 px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded transition-colors"
+                                    >
+                                        Save
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {isLoading ? (
                         <button

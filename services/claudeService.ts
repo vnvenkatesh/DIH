@@ -31,13 +31,14 @@ const EFFORT_SUPPORTED_MODELS = new Set([
 
 let _accelerator = 'Other';
 
-async function callClaude(payload: { model: string; max_tokens: number; messages: any[] }, extraHeaders: Record<string, string> = {}): Promise<any> {
+async function callClaude(payload: { model: string; max_tokens: number; messages: any[]; system?: string }, extraHeaders: Record<string, string> = {}): Promise<any> {
     const body: Record<string, any> = {
         model: payload.model,
         max_tokens: payload.max_tokens,
         messages: payload.messages,
         accelerator: _accelerator,
     };
+    if (payload.system) body.system = payload.system;
     if (extraHeaders['anthropic-beta']) body.beta = extraHeaders['anthropic-beta'];
     if (EFFORT_SUPPORTED_MODELS.has(payload.model)) body.effort = getClaudeEffort();
 

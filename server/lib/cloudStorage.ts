@@ -13,13 +13,24 @@ interface CompanyStorage {
   storage_azure_connection: string;
 }
 
-async function getCompanyStorage(companyId: number): Promise<CompanyStorage> {
+async function getCompanyStorage(companyId: number, userId?: number): Promise<CompanyStorage> {
+  // Try company-level storage first
   const { rows } = await pool.query(
     'SELECT storage_provider, storage_bucket, storage_region, storage_access_key, storage_secret_key, storage_azure_connection FROM companies WHERE id = $1',
     [companyId]
   );
-  if (!rows[0]) throw new Error('Company not found');
-  return rows[0];
+  if (rows[0]?.storage_provider) return rows[0];
+
+  // Fallback: user-level storage (General users and App Admins configure storage on their own account)
+  if (userId) {
+    const { rows: uRows } = await pool.query(
+      'SELECT storage_provider, storage_bucket, storage_region, storage_access_key, storage_secret_key, storage_azure_connection FROM users WHERE id = $1',
+      [userId]
+    );
+    if (uRows[0]?.storage_provider) return uRows[0];
+  }
+
+  throw new Error('No cloud storage configured. Please configure storage in Settings → Storage.');
 }
 
 export async function uploadFile(
@@ -27,9 +38,10 @@ export async function uploadFile(
   projectId: number,
   buffer: Buffer,
   fileName: string,
-  mimeType: string
+  mimeType: string,
+  userId?: number
 ): Promise<string> {
-  const co = await getCompanyStorage(companyId);
+  const co = await getCompanyStorage(companyId, userId);
   const key = `projects/${projectId}/${randomUUID()}-${fileName}`;
 
   if (co.storage_provider === 's3') {
@@ -55,9 +67,10 @@ export async function uploadFile(
 export async function getSignedUrl(
   companyId: number,
   storageKey: string,
-  expiresInSeconds = 3600
+  expiresInSeconds = 3600,
+  userId?: number
 ): Promise<string> {
-  const co = await getCompanyStorage(companyId);
+  const co = await getCompanyStorage(companyId, userId);
 
   if (co.storage_provider === 's3') {
     const client = new S3Client({
@@ -79,8 +92,8 @@ export async function getSignedUrl(
   throw new Error('Company has no cloud storage configured');
 }
 
-export async function deleteFile(companyId: number, storageKey: string): Promise<void> {
-  const co = await getCompanyStorage(companyId);
+export async function deleteFile(companyId: number, storageKey: string, userId?: number): Promise<void> {
+  const co = await getCompanyStorage(companyId, userId);
 
   if (co.storage_provider === 's3') {
     const client = new S3Client({

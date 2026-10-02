@@ -121,7 +121,7 @@ router.delete('/:id', requireAuth as any, async (req: AuthRequest, res) => {
 
     const { rows: files } = await pool.query('SELECT storage_key FROM project_files WHERE project_id = $1', [projectId]);
     for (const f of files) {
-      try { await deleteFile(u.company_id, f.storage_key); } catch { /* best effort */ }
+      try { await deleteFile(u.company_id, f.storage_key, req.user!.id); } catch { /* best effort */ }
     }
 
     await pool.query('DELETE FROM projects WHERE id = $1', [projectId]);
@@ -145,7 +145,7 @@ router.post('/:id/files', requireAuth as any, upload.array('files'), async (req:
 
     for (const file of files) {
       const ext = file.originalname.split('.').pop()?.toLowerCase() ?? '';
-      const storageKey = await uploadFile(u.company_id, projectId, file.buffer, file.originalname, file.mimetype);
+      const storageKey = await uploadFile(u.company_id, projectId, file.buffer, file.originalname, file.mimetype, req.user!.id);
       const { rows } = await pool.query(
         'INSERT INTO project_files (project_id, uploaded_by, name, file_type, role, storage_key, size_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
         [projectId, req.user!.id, file.originalname, ext, role, storageKey, file.size]
@@ -176,7 +176,7 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
 
     const filesWithUrls = await Promise.all(rows.map(async (r) => {
       let signedUrl: string | undefined;
-      try { signedUrl = await getSignedUrl(u.company_id, r.storage_key); } catch { /* no storage */ }
+      try { signedUrl = await getSignedUrl(u.company_id, r.storage_key, 3600, req.user!.id); } catch { /* no storage */ }
       return {
         id: r.id, projectId: r.project_id, uploadedBy: r.uploaded_by,
         name: r.name, fileType: r.file_type, role: r.role,
@@ -224,7 +224,7 @@ router.delete('/:id/files/:fileId', requireAuth as any, async (req: AuthRequest,
     const { rows } = await pool.query('SELECT * FROM project_files WHERE id = $1 AND project_id = $2', [req.params.fileId, projectId]);
     if (!rows[0]) { res.status(404).json({ error: 'File not found' }); return; }
 
-    try { await deleteFile(u.company_id, rows[0].storage_key); } catch { /* best effort */ }
+    try { await deleteFile(u.company_id, rows[0].storage_key, req.user!.id); } catch { /* best effort */ }
     await pool.query('DELETE FROM project_files WHERE id = $1', [req.params.fileId]);
     res.status(204).end();
   } catch (err: any) {

@@ -54,12 +54,9 @@ router.post('/login', async (req, res) => {
                  FROM users u
                  LEFT JOIN companies c ON u.company_id = c.id
                  WHERE LOWER(u.username) = LOWER($1)`;
-    // Only filter by company when a specific (non-General) company is provided.
-    // 'General' is the default "no company" value on the login screen.
-    const companyFilter = company?.trim();
-    if (companyFilter && companyFilter.toLowerCase() !== 'general') {
+    if (company?.trim()) {
       query += ` AND LOWER(c.name) = LOWER($2)`;
-      params.push(companyFilter);
+      params.push(company.trim());
     }
     const { rows } = await pool.query(query, params);
     const user = rows[0];

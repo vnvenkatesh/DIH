@@ -157,6 +157,76 @@ export interface AccessibilityResult {
   totalChecked: number;
 }
 
+// ── Company / Projects ────────────────────────────────────────────────────
+
+export interface Company {
+  id: number;
+  name: string;
+  storageProvider: 's3' | 'azure' | null;
+  storageBucket: string;
+  storageRegion: string;
+  hasGeminiKey: boolean;
+  hasClaudeKey: boolean;
+  hasOpenAiKey: boolean;
+  hasGrokKey: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanyMember {
+  id: number;
+  username: string;
+  role: 'Admin' | 'AppUser';
+  companyRole: 'admin' | 'member';
+  usesCompanyKeys: boolean;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string;
+  companyId: number;
+  createdBy: number;
+  status: 'active' | 'archived';
+  createdAt: string;
+  updatedAt: string;
+  fileCount?: number;
+}
+
+export interface ProjectFile {
+  id: number;
+  projectId: number;
+  uploadedBy: number;
+  name: string;
+  fileType: string;
+  role: 'template' | 'reference' | 'xsd' | 'csv' | 'archived';
+  storageKey: string;
+  signedUrl?: string;
+  sizeBytes: number;
+  archived: boolean;
+  createdAt: string;
+}
+
+export interface ProjectResult {
+  id: number;
+  projectId: number;
+  accelerator: string;
+  resultData: any;
+  provider: string | null;
+  model: string | null;
+  createdBy: number;
+  createdAt: string;
+}
+
+export interface ProjectMessage {
+  id: number;
+  projectId: number;
+  userId: number;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
+
 // ── Template Analyser ──────────────────────────────────────────────────────
 
 export interface RegulationCheck {

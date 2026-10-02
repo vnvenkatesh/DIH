@@ -31,7 +31,6 @@ import PdfValidator from './components/PdfValidator';
 import Flow from './components/Flow';
 import FetchDoc from './components/FetchDoc';
 import Projects from './components/Projects';
-import CompanyAdmin from './components/CompanyAdmin';
 import ProjectWorkspace from './components/ProjectWorkspace';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
@@ -41,7 +40,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help' | 'companyAdmin';
+type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -80,7 +79,7 @@ const ACCELERATOR_TOOLS: Tool[] = [
 ];
 
 // Tools that should NOT show the LLM warning banner
-const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs', 'companyAdmin'];
+const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs'];
 
 const App: React.FC = () => {
   const { user, logout, isLoading } = useAuth();
@@ -135,16 +134,6 @@ const App: React.FC = () => {
         </svg>
       ),
     },
-    ...(user?.role === 'Admin' ? [{
-      tool: 'companyAdmin' as Tool,
-      label: 'Companies',
-      description: 'Manage company workspaces',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
-        </svg>
-      ),
-    }] : []),
     { tool: 'cluster', label: 'Cluster', description: 'Group similar PDFs', icon: <Squares2X2Icon className="w-5 h-5" /> },
     { tool: 'pdfCompare', label: 'PDF AI Compare', description: 'AI-powered semantic diff', icon: <ArrowsRightLeftIcon className="w-5 h-5" /> },
     {
@@ -431,9 +420,6 @@ const App: React.FC = () => {
               onOpenProject={(id) => { setActiveProjectId(id); setActiveTool('projectWorkspace'); }}
               onGoToStorage={() => setActiveTool('settings')}
             />
-          </div>
-          <div className={activeTool === 'companyAdmin' ? '' : 'hidden'}>
-            <CompanyAdmin />
           </div>
           <div className={activeTool === 'projectWorkspace' ? '' : 'hidden'}>
             {activeProjectId != null && (

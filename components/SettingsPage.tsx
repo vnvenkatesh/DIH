@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSettings, LLMProvider } from '../contexts/SettingsContext';
 import { useAuth, AuthUser, UserPreferences } from '../contexts/AuthContext';
-import CompanySettings from './CompanySettings';
+import CompanyAdmin from './CompanyAdmin';
 import StorageSettings from './StorageSettings';
 
 // ── Icons ──────────────────────────────────────────────────────────────────
@@ -611,7 +611,7 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
 
 // ── Settings Page ──────────────────────────────────────────────────────────
 
-type SettingsTab = 'appearance' | 'ai' | 'storage' | 'users' | 'company';
+type SettingsTab = 'appearance' | 'ai' | 'storage' | 'companies' | 'users';
 
 const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
@@ -629,8 +629,8 @@ const SettingsPage: React.FC = () => {
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
     { id: 'ai',         label: 'AI Providers', show: canSeeProviders },
     { id: 'storage',    label: 'Storage',      show: canSeeProviders },
+    { id: 'companies',  label: 'Companies',    show: isAppAdmin },
     { id: 'users',      label: 'Users',        show: canManageUsers },
-    { id: 'company',    label: 'Company',      show: isCompanyAdmin },
     { id: 'appearance', label: 'Appearance',   show: true },
   ];
 
@@ -664,10 +664,10 @@ const SettingsPage: React.FC = () => {
         <AiProvidersTab updatePreferences={updatePreferences} token={token} />
       )}
       {activeTab === 'storage' && <StorageSettings />}
+      {activeTab === 'companies' && isAppAdmin && <CompanyAdmin />}
       {activeTab === 'users' && canManageUsers && token && (
         <UsersTab currentUser={user!} token={token} isAppAdmin={isAppAdmin} />
       )}
-      {activeTab === 'company' && isCompanyAdmin && <CompanySettings />}
     </div>
   );
 };

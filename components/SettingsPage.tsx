@@ -611,22 +611,22 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
 
 // ── Settings Page ──────────────────────────────────────────────────────────
 
-type SettingsTab = 'appearance' | 'ai' | 'users' | 'company';
+type SettingsTab = 'appearance' | 'ai' | 'storage' | 'users' | 'company';
 
 const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
 
-  const isAppAdmin    = user?.role === 'Admin';
+  const isAppAdmin     = user?.role === 'Admin';
   const isCompanyAdmin = user?.companyRole === 'admin' && user?.companyName !== 'General';
-  const isGeneralUser  = !user?.companyId || user?.companyName === 'General';
   const canManageUsers = isAppAdmin || isCompanyAdmin;
 
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
-    { id: 'ai',         label: 'AI Providers',                        show: true },
-    { id: 'company',    label: isGeneralUser ? 'Storage' : 'Company', show: (isGeneralUser || isCompanyAdmin) && !isAppAdmin },
-    { id: 'users',      label: 'Users',                               show: canManageUsers },
-    { id: 'appearance', label: 'Appearance',                          show: true },
+    { id: 'ai',         label: 'AI Providers', show: true },
+    { id: 'storage',    label: 'Storage',      show: true },
+    { id: 'users',      label: 'Users',        show: canManageUsers },
+    { id: 'company',    label: 'Company',      show: isCompanyAdmin },
+    { id: 'appearance', label: 'Appearance',   show: true },
   ];
 
   const visibleTabs = tabs.filter(t => t.show);
@@ -658,12 +658,11 @@ const SettingsPage: React.FC = () => {
       {activeTab === 'ai' && token && (
         <AiProvidersTab updatePreferences={updatePreferences} token={token} />
       )}
+      {activeTab === 'storage' && <StorageSettings />}
       {activeTab === 'users' && canManageUsers && token && (
         <UsersTab currentUser={user!} token={token} isAppAdmin={isAppAdmin} />
       )}
-      {activeTab === 'company' && (
-        isGeneralUser ? <StorageSettings /> : <CompanySettings />
-      )}
+      {activeTab === 'company' && isCompanyAdmin && <CompanySettings />}
     </div>
   );
 };

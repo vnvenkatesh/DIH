@@ -184,13 +184,14 @@ export async function initDb(): Promise<void> {
     );
     console.log('[db] initDb: default admin created → username: admin  password: Admin@123  company: AdminCo');
   } else {
-    // Link existing admin to AdminCo if they don't have a company yet
-    await pool.query(
-      `UPDATE users SET company_id = COALESCE(company_id, $1), company_role = COALESCE(NULLIF(company_role, ''), 'admin'), updated_at = NOW()
-       WHERE role = 'Admin' AND company_id IS NULL`,
+    // Always ensure ALL App Admins are linked to AdminCo with company_role='admin'
+    const { rowCount: fixed } = await pool.query(
+      `UPDATE users SET company_id = $1, company_role = 'admin', updated_at = NOW()
+       WHERE role = 'Admin' AND (company_id IS NULL OR company_id != $1 OR company_role != 'admin')`,
       [adminCoId]
     );
-    console.log('[db] initDb: admin exists, ensured AdminCo link');
+    if (fixed) console.log(`[db] initDb: linked ${fixed} App Admin(s) to AdminCo`);
+    else console.log('[db] initDb: all App Admins already linked to AdminCo');
   }
 
   // ── Migrate unassigned users to General company ────────────────────────────

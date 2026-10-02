@@ -615,15 +615,20 @@ type SettingsTab = 'appearance' | 'ai' | 'storage' | 'users' | 'company';
 
 const SettingsPage: React.FC = () => {
   const { user, token, updatePreferences } = useAuth();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('ai');
 
   const isAppAdmin     = user?.role === 'Admin';
   const isCompanyAdmin = user?.companyRole === 'admin' && user?.companyName !== 'General';
-  const canManageUsers = isAppAdmin || isCompanyAdmin;
+  const isGeneralUser  = !user?.companyId || user?.companyName === 'General';
+  // Company members (regular members of a specific non-General company) use company-managed keys/storage
+  const isCompanyMember = !isAppAdmin && !isCompanyAdmin && !isGeneralUser;
+  const canManageUsers  = isAppAdmin || isCompanyAdmin;
+  const canSeeProviders = !isCompanyMember; // App Admin + Company Admin + General only
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(isCompanyMember ? 'appearance' : 'ai');
 
   const tabs: { id: SettingsTab; label: string; show: boolean }[] = [
-    { id: 'ai',         label: 'AI Providers', show: true },
-    { id: 'storage',    label: 'Storage',      show: true },
+    { id: 'ai',         label: 'AI Providers', show: canSeeProviders },
+    { id: 'storage',    label: 'Storage',      show: canSeeProviders },
     { id: 'users',      label: 'Users',        show: canManageUsers },
     { id: 'company',    label: 'Company',      show: isCompanyAdmin },
     { id: 'appearance', label: 'Appearance',   show: true },

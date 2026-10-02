@@ -149,17 +149,35 @@ export async function initDb(): Promise<void> {
 
   console.log('[db] initDb: schema ready');
 
-  const { rowCount } = await pool.query("SELECT id FROM users WHERE role = 'Admin' LIMIT 1");
-  if (!rowCount) {
+  // ── Ensure AdminCo company exists ─────────────────────────────────────────
+  const { rows: coRows } = await pool.query(`SELECT id FROM companies WHERE name = 'AdminCo' LIMIT 1`);
+  let adminCoId: number;
+  if (coRows.length) {
+    adminCoId = coRows[0].id;
+  } else {
+    const ins = await pool.query(`INSERT INTO companies (name) VALUES ('AdminCo') RETURNING id`);
+    adminCoId = ins.rows[0].id;
+    console.log('[db] initDb: AdminCo company created, id:', adminCoId);
+  }
+
+  // ── Seed or update default admin ──────────────────────────────────────────
+  const { rows: admins } = await pool.query("SELECT id FROM users WHERE role = 'Admin' LIMIT 1");
+  if (!admins.length) {
     console.log('[db] initDb: seeding default admin...');
     const passwordHash = await hash('Admin@123', 10);
     await pool.query(
-      "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'Admin')",
-      ['admin', passwordHash]
+      "INSERT INTO users (username, password_hash, role, company_id, company_role) VALUES ($1, $2, 'Admin', $3, 'admin')",
+      ['admin', passwordHash, adminCoId]
     );
-    console.log('[db] initDb: default admin created → username: admin  password: Admin@123');
+    console.log('[db] initDb: default admin created → username: admin  password: Admin@123  company: AdminCo');
   } else {
-    console.log('[db] initDb: admin already exists, skip seed');
+    // Link existing admin to AdminCo if they don't have a company yet
+    await pool.query(
+      `UPDATE users SET company_id = COALESCE(company_id, $1), company_role = COALESCE(NULLIF(company_role, ''), 'admin'), updated_at = NOW()
+       WHERE role = 'Admin' AND company_id IS NULL`,
+      [adminCoId]
+    );
+    console.log('[db] initDb: admin exists, ensured AdminCo link');
   }
 }
 

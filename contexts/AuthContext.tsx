@@ -22,13 +22,14 @@ export interface AuthUser extends UserPreferences {
   role: UserRole;
   companyId: number | null;
   companyRole: 'admin' | 'member' | null;
+  companyName: string | null;
   usesCompanyKeys: boolean;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string, company?: string) => Promise<void>;
   logout: () => void;
   updatePreferences: (prefs: Partial<UserPreferences>) => Promise<void>;
   isLoading: boolean;
@@ -39,7 +40,7 @@ const AUTH_STORAGE_KEY = 'dih_auth';
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   token: null,
-  login: async () => {},
+  login: async (_u, _p, _c?) => {},
   logout: () => {},
   updatePreferences: async () => {},
   isLoading: true,
@@ -73,6 +74,7 @@ function deserializeUser(raw: any): AuthUser {
     grokModel: raw.grok_model ?? 'grok-4.3',
     companyId: raw.company_id ?? null,
     companyRole: raw.company_role ?? null,
+    companyName: raw.company_name ?? null,
     usesCompanyKeys: raw.uses_company_keys ?? false,
   };
 }
@@ -100,13 +102,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
-  const login = async (username: string, password: string): Promise<void> => {
+  const login = async (username: string, password: string, company?: string): Promise<void> => {
     let res: Response;
     try {
       res = await fetch('/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, ...(company?.trim() ? { company: company.trim() } : {}) }),
       });
     } catch (networkErr: any) {
       console.error('[login] Network error:', networkErr);

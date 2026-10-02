@@ -24,6 +24,7 @@ function toClientUser(row: any) {
     grok_model: row.grok_model ?? 'grok-4.3',
     company_id: row.company_id ?? null,
     company_role: row.company_role ?? null,
+    company_name: row.company_name ?? null,
     uses_company_keys: row.uses_company_keys ?? false,
   };
 }
@@ -32,7 +33,7 @@ router.post('/login', async (req, res) => {
   try {
     console.log('[auth/login] attempt:', req.body?.username);
 
-    const { username, password } = req.body ?? {};
+    const { username, password, company } = req.body ?? {};
     if (!username || !password) {
       res.status(400).json({ error: 'Username and password are required' });
       return;
@@ -45,10 +46,16 @@ router.post('/login', async (req, res) => {
     }
 
     console.log('[auth/login] querying user...');
-    const { rows } = await pool.query(
-      'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
-      [username]
-    );
+    const params: any[] = [username];
+    let query = `SELECT u.*, c.name AS company_name
+                 FROM users u
+                 LEFT JOIN companies c ON u.company_id = c.id
+                 WHERE LOWER(u.username) = LOWER($1)`;
+    if (company?.trim()) {
+      query += ` AND LOWER(c.name) = LOWER($2)`;
+      params.push(company.trim());
+    }
+    const { rows } = await pool.query(query, params);
     const user = rows[0];
     if (!user) {
       res.status(401).json({ error: 'Invalid credentials' });
@@ -79,7 +86,10 @@ router.post('/login', async (req, res) => {
 
 router.get('/me', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user!.id]);
+    const { rows } = await pool.query(
+      `SELECT u.*, c.name AS company_name FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1`,
+      [req.user!.id]
+    );
     if (!rows[0]) { res.status(404).json({ error: 'User not found' }); return; }
     res.json({ user: toClientUser(rows[0]) });
   } catch (err: any) {

@@ -22,6 +22,7 @@ const Login: React.FC = () => {
     document.documentElement.classList.remove('dark');
   }, []);
 
+  const [company, setCompany] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -34,7 +35,7 @@ const Login: React.FC = () => {
     setError('');
     setIsSubmitting(true);
     try {
-      await login(username.trim(), password);
+      await login(username.trim(), password, company.trim() || undefined);
     } catch (err: any) {
       setError(err.message || 'Login failed. Please try again.');
     } finally {
@@ -64,6 +65,22 @@ const Login: React.FC = () => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="company" className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+              Company
+            </label>
+            <input
+              id="company"
+              type="text"
+              autoComplete="organization"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+              placeholder="Enter your company name"
+              disabled={isSubmitting}
+            />
+          </div>
+
           <div>
             <label htmlFor="username" className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1.5">
               Username

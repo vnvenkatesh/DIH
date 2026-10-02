@@ -207,9 +207,9 @@ const BusinessRulesExtractor: React.FC = () => {
     const baseName = file?.name.replace(/\.docx$/i, '') ?? 'business-rules';
 
     return (
-        <div className="space-y-6">
+        <div className="max-w-6xl mx-auto space-y-4">
             {/* Upload */}
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Upload Requirements Document</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                     Upload a DOCX file containing form specifications or BRDs. Body text and reviewer comments are both analysed.

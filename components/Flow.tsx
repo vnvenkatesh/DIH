@@ -814,7 +814,7 @@ const FlowRunner: React.FC<{ flow: FlowDef; onBack: () => void }> = ({ flow, onB
   const isRunning = Object.values(stepStates).some((s: StepState) => s.status === 'running');
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-6xl mx-auto space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
@@ -839,7 +839,7 @@ const FlowRunner: React.FC<{ flow: FlowDef; onBack: () => void }> = ({ flow, onB
 
       {/* Pre-start: inputs + mode */}
       {!started && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6 space-y-5">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 mb-4 space-y-5 shadow-sm">
           <div>
             <h3 className="font-semibold text-slate-900 dark:text-white mb-1">Configure &amp; Start</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400">{flow.description}</p>

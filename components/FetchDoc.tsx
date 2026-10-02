@@ -592,7 +592,7 @@ const FetchDoc: React.FC = () => {
     const selectCls = 'px-2.5 py-1.5 text-sm rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-400';
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="max-w-6xl mx-auto space-y-4">
             {/* URL Bar */}
             <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3">
                 <div className="flex gap-2 items-center">

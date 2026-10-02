@@ -768,7 +768,7 @@ const PdfCompare: React.FC<PdfCompareProps> = ({ initialFiles, onInitialFilesCon
     const totalDifferences = flatDifferences.length;
 
     return (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-10 transition-all duration-300">
+        <div className="max-w-full mx-auto bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
              <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-3">
                     <ArrowsRightLeftIcon className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />

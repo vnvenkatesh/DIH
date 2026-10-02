@@ -199,10 +199,10 @@ const TestCaseGenerator: React.FC = () => {
     })();
 
     return (
-        <div className="space-y-6">
+        <div className="max-w-6xl mx-auto space-y-4">
 
             {/* ── Upload ── */}
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Upload Business Rules CSV</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                     Export a CSV from the Business Rules Extractor and upload it here. Rules are parsed instantly — no upload to any server.
@@ -260,7 +260,7 @@ const TestCaseGenerator: React.FC = () => {
             </div>
 
             {/* ── Hints ── */}
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-4 mb-3">
                     <div>
                         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Additional Testing Context</h3>

@@ -367,8 +367,8 @@ const TemplateAnalyser: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6 max-w-4xl">
-            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5">
+        <div className="max-w-6xl mx-auto space-y-4">
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">Upload Documents</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                     Upload one or more PDFs or Word documents. Each document is analysed independently for type, industry, completeness, regulatory compliance, and sentiment.

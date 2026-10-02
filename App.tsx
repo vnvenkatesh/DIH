@@ -306,21 +306,19 @@ const App: React.FC = () => {
                         <button
                           key={tool}
                           onClick={() => setActiveTool(tool)}
-                          className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 group ${
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 group ${
                             activeTool === tool
                               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
                               : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                           }`}
+                          title={description}
                           aria-current={activeTool === tool ? 'page' : undefined}
                         >
-                          <span className={`mt-0.5 flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                          <span className={`flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
                             {icon}
                           </span>
                           <span className="min-w-0">
                             <span className="block text-sm font-medium leading-tight">{label}</span>
-                            <span className={`block text-xs mt-0.5 leading-tight transition-colors ${activeTool === tool ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-400'}`}>
-                              {description}
-                            </span>
                           </span>
                         </button>
                       ))}
@@ -334,21 +332,19 @@ const App: React.FC = () => {
               <button
                 key={tool}
                 onClick={() => setActiveTool(tool)}
-                className={`w-full flex items-start gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
                   activeTool === tool
                     ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                 }`}
+                title={description}
                 aria-current={activeTool === tool ? 'page' : undefined}
               >
-                <span className={`mt-0.5 flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                <span className={`flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
                   {icon}
                 </span>
                 <span className="min-w-0">
                   <span className="block text-sm font-medium leading-tight">{label}</span>
-                  <span className={`block text-xs mt-0.5 leading-tight transition-colors ${activeTool === tool ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-400'}`}>
-                    {description}
-                  </span>
                 </span>
               </button>
             );

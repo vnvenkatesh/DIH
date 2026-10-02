@@ -195,7 +195,7 @@ const GhostDraftGenerator: React.FC = () => {
   const baseName = gdFile?.name.replace(/\.gd$/i, '') ?? 'document';
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-4">
 
       {/* Upload Section */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">

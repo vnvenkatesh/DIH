@@ -1042,7 +1042,7 @@ const PdfVisualCompare: React.FC = () => {
     || (diffMode === 'precise' && (summary?.totalPageShift ?? 0) > 0);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-10">
+    <div className="max-w-full mx-auto bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
 
       {/* ── Header ── */}
       <div className="text-center mb-6">

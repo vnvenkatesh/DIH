@@ -297,7 +297,7 @@ const AccessibilityScorer: React.FC = () => {
     }
 
     return (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 md:p-10">
+        <div className="max-w-6xl mx-auto bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
             <div className="text-center mb-8">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Accessibility Check</h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400 max-w-xl mx-auto">

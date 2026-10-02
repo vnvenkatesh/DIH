@@ -163,7 +163,7 @@ const LayoutRecommendation: React.FC = () => {
     const isPdf = file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'));
 
     return (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-10 transition-all duration-300">
+        <div className="max-w-6xl mx-auto bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
             <div className="text-center mb-6">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Layout Recommendation</h2>
                 <p className="mt-2 text-slate-600 dark:text-slate-400">

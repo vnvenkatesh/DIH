@@ -186,162 +186,156 @@ const AccessibilityScorer: React.FC = () => {
 
     const handleReset = () => { setFile(null); setResult(null); setError(null); setPdfMeta(null); };
 
-    if (isLoading) {
-        return (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-10">
-                <Loader />
-                <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-4">
-                    Analysing document against WCAG 2.1…
-                </p>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-10 text-center">
-                <div className="text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-xl p-6 max-w-lg mx-auto">
-                    <p className="font-bold text-base mb-1">Analysis Failed</p>
-                    <p className="text-sm">{error}</p>
-                    <button onClick={handleReset} className="mt-4 px-4 py-2 bg-red-500 text-white text-sm font-semibold rounded-lg hover:bg-red-600 transition-colors">
-                        Try Again
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    if (result) {
-        const wcag = result.standards[0];
-        const criteria = wcag?.criteria ?? [];
-        const passCount = criteria.filter(c => c.status === 'pass').length;
-        const failCount = criteria.filter(c => c.status === 'fail').length;
-        const warnCount = criteria.filter(c => c.status === 'warning').length;
-
-        return (
-            <div className="space-y-5">
-                {/* Document info strip */}
-                {pdfMeta && (
-                    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <svg className="w-4 h-4 text-rose-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                            </svg>
-                            <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate max-w-xs" title={pdfMeta.name}>
-                                {pdfMeta.name}
-                            </span>
-                        </div>
-                        {[
-                            { label: 'Size',     value: formatSize(pdfMeta.sizeKb) },
-                            { label: 'Pages',    value: pdfMeta.pages.toString() },
-                            { label: 'Analysed', value: `${pdfMeta.analyzedChars.toLocaleString()} chars` },
-                        ].map(({ label, value }) => (
-                            <div key={label} className="flex items-center gap-1.5 text-sm">
-                                <span className="text-slate-400 dark:text-slate-500">{label}:</span>
-                                <span className="font-medium text-slate-700 dark:text-slate-300">{value}</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Score overview */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-                    <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
-                        <ScoreGauge score={result.overallScore} />
-                        <div className="flex-1 min-w-0 text-center sm:text-left">
-                            <div className="flex flex-wrap items-center gap-3 justify-center sm:justify-start mb-2">
-                                <h3 className="text-xl font-bold text-slate-900 dark:text-white">WCAG 2.1 Report</h3>
-                                <span className={`text-2xl font-extrabold w-10 h-10 rounded-xl flex items-center justify-center border-2 ${gradeStyle[result.grade]}`}>
-                                    {result.grade}
-                                </span>
-                            </div>
-                            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">{result.summary}</p>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                {[
-                                    { label: 'Passed',   value: passCount,              cls: 'text-emerald-600 dark:text-emerald-400' },
-                                    { label: 'Failed',   value: failCount,              cls: 'text-red-600 dark:text-red-400' },
-                                    { label: 'Warnings', value: warnCount,              cls: 'text-amber-600 dark:text-amber-400' },
-                                    { label: 'Checked',  value: criteria.length,        cls: 'text-slate-600 dark:text-slate-300' },
-                                ].map(({ label, value, cls }) => (
-                                    <div key={label} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl px-3 py-2 text-center">
-                                        <p className={`text-2xl font-extrabold ${cls}`}>{value}</p>
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{label}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Itemised criteria — issues first, then passes */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 p-5 space-y-2">
-                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
-                        WCAG 2.1 Criteria — {criteria.length} checked
-                    </h4>
-                    {[...criteria]
-                        .sort((a, b) => {
-                            const order = { fail: 0, warning: 1, pass: 2, 'not-applicable': 3 };
-                            return (order[a.status] ?? 4) - (order[b.status] ?? 4);
-                        })
-                        .map((c, i) => <CriterionRow key={`${c.id}-${i}`} c={c} />)
-                    }
-                </div>
-
-                <div className="text-center">
-                    <button onClick={handleReset} className="px-5 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                        Check another document
-                    </button>
-                </div>
-            </div>
-        );
-    }
+    const wcag = result?.standards[0];
+    const criteria = wcag?.criteria ?? [];
+    const passCount = criteria.filter(c => c.status === 'pass').length;
+    const failCount = criteria.filter(c => c.status === 'fail').length;
+    const warnCount = criteria.filter(c => c.status === 'warning').length;
 
     return (
-        <div className="max-w-6xl mx-auto bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
-            <div className="text-center mb-8">
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Accessibility Check</h2>
-                <p className="mt-2 text-slate-600 dark:text-slate-400 max-w-xl mx-auto">
-                    Upload a PDF to receive an itemised WCAG 2.1 compliance report. Each criterion is scored pass, fail, or warning with a specific fix recommendation.
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 mt-3">
-                    {['Level A', 'Level AA', 'WCAG 2.1'].map(s => (
-                        <span key={s} className="text-xs px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 border border-rose-100 dark:border-rose-800 font-medium">
-                            {s}
-                        </span>
-                    ))}
+        <div className="max-w-6xl mx-auto space-y-4">
+            {/* Upload panel */}
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">Upload Document</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Upload a PDF to receive an itemised WCAG 2.1 compliance report scored pass, fail, or warning with fix recommendations.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {['Level A', 'Level AA', 'WCAG 2.1'].map(s => (
+                            <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 border border-rose-100 dark:border-rose-800 font-medium">
+                                {s}
+                            </span>
+                        ))}
+                    </div>
                 </div>
-            </div>
-
-            <div className="max-w-xl mx-auto">
                 {!file ? (
                     <FileUploader
-                        onFileChange={setFile}
+                        onFileChange={f => { setFile(f); setResult(null); setError(null); setPdfMeta(null); }}
                         acceptedFileType=".pdf,application/pdf"
                         fileTypeName="PDF Document"
                         icon={<PdfFileIcon className="w-12 h-12 mb-4 text-slate-400" />}
                     />
                 ) : (
-                    <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-8 flex flex-col items-center border-2 border-dashed border-rose-400 dark:border-rose-600">
-                        <PdfFileIcon className="w-12 h-12 mb-3 text-rose-500 dark:text-rose-400" />
-                        <p className="font-semibold text-rose-600 dark:text-rose-400">Ready to analyse</p>
-                        <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 text-center truncate w-full px-4">{file.name}</p>
-                        <button onClick={() => setFile(null)} className="text-sm text-indigo-500 hover:underline mt-3">
+                    <div className="bg-slate-50 dark:bg-slate-700/50 rounded-xl p-5 flex items-center gap-4 border-2 border-dashed border-rose-400 dark:border-rose-600">
+                        <PdfFileIcon className="w-10 h-10 flex-shrink-0 text-rose-500 dark:text-rose-400" />
+                        <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-rose-600 dark:text-rose-400 text-sm">Ready to analyse</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{file.name}</p>
+                        </div>
+                        <button onClick={handleReset} className="flex-shrink-0 text-xs text-indigo-500 hover:underline">
                             Change file
                         </button>
                     </div>
                 )}
-
-                {file && (
-                    <div className="text-center mt-6">
+                {file && !isLoading && (
+                    <div className="mt-4 flex items-center gap-3">
                         <button
                             onClick={handleScore}
-                            className="bg-rose-600 text-white font-bold py-4 px-10 rounded-xl hover:bg-rose-700 focus:outline-none focus:ring-4 focus:ring-rose-300 dark:focus:ring-rose-800 transition-all shadow-lg"
+                            disabled={isLoading}
+                            className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
                         >
                             Run Accessibility Check
                         </button>
+                        {result && (
+                            <button onClick={handleReset} className="px-4 py-2 text-sm font-semibold text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                                Check another document
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
+
+            {/* Error */}
+            {error && (
+                <div className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+                    <span className="font-semibold">Analysis failed: </span>{error}
+                </div>
+            )}
+
+            {/* Loading */}
+            {isLoading && (
+                <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-10 shadow-sm">
+                    <Loader />
+                    <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-4">
+                        Analysing document against WCAG 2.1…
+                    </p>
+                </div>
+            )}
+
+            {/* Results */}
+            {result && (
+                <>
+                    {/* Document info strip */}
+                    {pdfMeta && (
+                        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-3 shadow-sm flex flex-wrap items-center gap-x-6 gap-y-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <svg className="w-4 h-4 text-rose-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                </svg>
+                                <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate max-w-xs" title={pdfMeta.name}>
+                                    {pdfMeta.name}
+                                </span>
+                            </div>
+                            {[
+                                { label: 'Size',     value: formatSize(pdfMeta.sizeKb) },
+                                { label: 'Pages',    value: pdfMeta.pages.toString() },
+                                { label: 'Analysed', value: `${pdfMeta.analyzedChars.toLocaleString()} chars` },
+                            ].map(({ label, value }) => (
+                                <div key={label} className="flex items-center gap-1.5 text-sm">
+                                    <span className="text-slate-400 dark:text-slate-500">{label}:</span>
+                                    <span className="font-medium text-slate-700 dark:text-slate-300">{value}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Score overview */}
+                    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+                        <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start">
+                            <ScoreGauge score={result.overallScore} />
+                            <div className="flex-1 min-w-0 text-center sm:text-left">
+                                <div className="flex flex-wrap items-center gap-3 justify-center sm:justify-start mb-2">
+                                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">WCAG 2.1 Report</h3>
+                                    <span className={`text-2xl font-extrabold w-10 h-10 rounded-xl flex items-center justify-center border-2 ${gradeStyle[result.grade]}`}>
+                                        {result.grade}
+                                    </span>
+                                </div>
+                                <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-4">{result.summary}</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    {[
+                                        { label: 'Passed',   value: passCount,       cls: 'text-emerald-600 dark:text-emerald-400' },
+                                        { label: 'Failed',   value: failCount,       cls: 'text-red-600 dark:text-red-400' },
+                                        { label: 'Warnings', value: warnCount,       cls: 'text-amber-600 dark:text-amber-400' },
+                                        { label: 'Checked',  value: criteria.length, cls: 'text-slate-600 dark:text-slate-300' },
+                                    ].map(({ label, value, cls }) => (
+                                        <div key={label} className="bg-slate-50 dark:bg-slate-700/50 rounded-xl px-3 py-2 text-center">
+                                            <p className={`text-2xl font-extrabold ${cls}`}>{value}</p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{label}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Itemised criteria */}
+                    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm space-y-2">
+                        <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">
+                            WCAG 2.1 Criteria — {criteria.length} checked
+                        </h4>
+                        {[...criteria]
+                            .sort((a, b) => {
+                                const order = { fail: 0, warning: 1, pass: 2, 'not-applicable': 3 };
+                                return (order[a.status] ?? 4) - (order[b.status] ?? 4);
+                            })
+                            .map((c, i) => <CriterionRow key={`${c.id}-${i}`} c={c} />)
+                        }
+                    </div>
+                </>
+            )}
         </div>
     );
 };

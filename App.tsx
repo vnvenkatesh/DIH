@@ -81,7 +81,7 @@ const App: React.FC = () => {
   const { saveSettings } = useSettings();
   const [activeTool, setActiveTool] = useState<Tool>('home');
   const [filesToCompare, setFilesToCompare] = useState<[File, File] | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['Build Automation']));
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Hydrate SettingsContext (and localStorage) from the user's DB preferences on login.
   // This ensures services that read from localStorage pick up the right keys.

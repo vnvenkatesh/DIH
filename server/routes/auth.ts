@@ -49,20 +49,29 @@ router.post('/login', async (req, res) => {
     }
 
     console.log('[auth/login] querying user...');
-    const params: any[] = [username];
-    let query = `SELECT u.*, c.name AS company_name, c.storage_provider AS company_storage_provider
-                 FROM users u
-                 LEFT JOIN companies c ON u.company_id = c.id
-                 WHERE LOWER(u.username) = LOWER($1)`;
-    if (company?.trim()) {
-      query += ` AND LOWER(c.name) = LOWER($2)`;
-      params.push(company.trim());
-    }
-    const { rows } = await pool.query(query, params);
-    const user = rows[0];
+    // Fetch user by username first (no company filter yet)
+    const { rows } = await pool.query(
+      `SELECT u.*, c.name AS company_name, c.storage_provider AS company_storage_provider
+       FROM users u
+       LEFT JOIN companies c ON u.company_id = c.id
+       WHERE LOWER(u.username) = LOWER($1)`,
+      [username]
+    );
+    let user = rows[0];
     if (!user) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
+    }
+
+    // For non-App-Admin users enforce company match when a company was supplied
+    const companyFilter = company?.trim();
+    if (companyFilter && user.role !== 'Admin') {
+      const companyMatch =
+        user.company_name && user.company_name.toLowerCase() === companyFilter.toLowerCase();
+      if (!companyMatch) {
+        res.status(401).json({ error: 'Invalid credentials' });
+        return;
+      }
     }
 
     console.log('[auth/login] comparing password...');

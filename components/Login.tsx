@@ -22,7 +22,7 @@ const Login: React.FC = () => {
     document.documentElement.classList.remove('dark');
   }, []);
 
-  const [company, setCompany] = useState('');
+  const [company, setCompany] = useState('General');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

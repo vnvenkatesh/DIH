@@ -156,3 +156,46 @@ export interface AccessibilityResult {
   passed: number;
   totalChecked: number;
 }
+
+// ── Template Analyser ──────────────────────────────────────────────────────
+
+export interface RegulationCheck {
+  name: string;
+  status: 'compliant' | 'partial' | 'non-compliant' | 'not-applicable';
+  accuracyScore: number;
+  findings: string;
+  recommendation: string;
+}
+
+export interface CompletenessAnalysis {
+  score: number;
+  presentElements: string[];
+  missingElements: string[];
+  recommendations: string[];
+}
+
+export interface SentimentAnalysis {
+  overall: 'positive' | 'neutral' | 'negative';
+  tone: string;
+  readabilityScore: number;
+  readabilityGrade: string;
+  complexity: 'simple' | 'moderate' | 'complex';
+  keyEmotions: string[];
+}
+
+export interface TemplateAnalysisResult {
+  documentName: string;
+  documentType: string;
+  industry: string;
+  purpose: string;
+  targetAudience: string;
+  channel: string;
+  completeness: CompletenessAnalysis;
+  regulations: RegulationCheck[];
+  sentiment: SentimentAnalysis;
+  overallScore: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  summary: string;
+  keyFindings: string[];
+  criticalIssues: string[];
+}

@@ -1,4 +1,4 @@
-﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+﻿import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult, TemplateAnalysisResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 const AUTH_KEY = 'dih_auth';
@@ -359,4 +359,70 @@ export const scoreAccessibility = async (
         }],
     });
     return JSON.parse(cleanJson(extractText(result))) as AccessibilityResult;
+};
+
+const templateAnalyserSystemPrompt = `You are an expert document analyst specialising in Customer Communication Management (CCM), regulatory compliance, and sentiment analysis. Analyse documents and return structured JSON analysis.`;
+
+export const analyseTemplate = async (documentText: string, documentName: string): Promise<TemplateAnalysisResult> => {
+    _accelerator = 'Template Analyser';
+    const truncated = documentText.slice(0, 6000);
+    const prompt = `Analyse this document and return a JSON object with exactly these fields:
+{
+  "documentName": "${documentName}",
+  "documentType": "specific type e.g. Insurance Renewal Notice, Welcome Letter, Claims Settlement",
+  "industry": "industry and sub-sector e.g. Insurance — Motor",
+  "purpose": "one sentence describing what this document does",
+  "targetAudience": "description of intended recipients",
+  "channel": "delivery channel(s) e.g. Print, Email, Print / Email",
+  "completeness": {
+    "score": 0-100,
+    "presentElements": ["elements present"],
+    "missingElements": ["elements typically expected but absent"],
+    "recommendations": ["actionable recommendations"]
+  },
+  "regulations": [
+    {
+      "name": "regulation name",
+      "status": "compliant | partial | non-compliant | not-applicable",
+      "accuracyScore": 0-100,
+      "findings": "specific findings",
+      "recommendation": "improvement recommendation"
+    }
+  ],
+  "sentiment": {
+    "overall": "positive | neutral | negative",
+    "tone": "description of tone",
+    "readabilityScore": 0-100,
+    "readabilityGrade": "reading level",
+    "complexity": "simple | moderate | complex",
+    "keyEmotions": ["emotions the document conveys"]
+  },
+  "overallScore": 0-100,
+  "grade": "A | B | C | D | F",
+  "summary": "2-3 sentence executive summary",
+  "keyFindings": ["3-5 most important findings"],
+  "criticalIssues": ["critical issues requiring immediate attention, or empty array"]
+}
+
+Grade: A=90-100, B=75-89, C=60-74, D=40-59, F=0-39.
+Check minimum: FCA Consumer Duty, GDPR, Plain Language, Accessibility (WCAG). Add industry-specific regulations if applicable.
+Return ONLY valid JSON — no markdown.
+
+Document filename: ${documentName}
+
+--- DOCUMENT CONTENT ---
+${truncated}`;
+
+    const result = await callClaude({
+        model: getClaudeModel(),
+        max_tokens: 4000,
+        system: templateAnalyserSystemPrompt,
+        messages: [{ role: 'user', content: prompt }],
+    });
+    const text = extractText(result);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Claude returned no valid JSON for template analysis.');
+    const parsed = JSON.parse(jsonMatch[0]) as TemplateAnalysisResult;
+    parsed.documentName = documentName;
+    return parsed;
 };

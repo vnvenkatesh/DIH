@@ -1,5 +1,5 @@
 ﻿
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult, TemplateAnalysisResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 const AUTH_KEY = 'dih_auth';
@@ -545,6 +545,126 @@ export const generateTestCases = async (rulesAndHints: string): Promise<TestCase
         return JSON.parse(extractJsonText(result)) as TestCaseResult;
     } catch (error) {
         console.error('Gemini generateTestCases error:', error);
+        throw error;
+    }
+};
+
+const templateAnalyserPrompt = `You are an expert document analyst specialising in Customer Communication Management (CCM), document generation, regulatory compliance, and sentiment analysis.
+
+Analyse the provided document and return a comprehensive structured analysis covering metadata, completeness, regulatory compliance, and sentiment.
+
+Return a JSON object with exactly these fields:
+{
+  "documentName": "filename passed in",
+  "documentType": "specific type e.g. Insurance Renewal Notice, Welcome Letter, Claims Settlement, Policy Schedule, Direct Debit Mandate",
+  "industry": "industry and sub-sector e.g. Insurance — Motor, Banking — Retail, Utilities — Energy",
+  "purpose": "one sentence describing exactly what this document does",
+  "targetAudience": "description of intended recipients",
+  "channel": "delivery channel(s) e.g. Print, Email, Print / Email, SMS",
+  "completeness": {
+    "score": 0-100,
+    "presentElements": ["list of expected document elements that are present"],
+    "missingElements": ["list of elements typically expected for this document type that are absent"],
+    "recommendations": ["actionable recommendations to improve completeness"]
+  },
+  "regulations": [
+    {
+      "name": "regulation name e.g. FCA Consumer Duty, GDPR, Plain Language, Accessibility (WCAG), Industry-specific",
+      "status": "compliant | partial | non-compliant | not-applicable",
+      "accuracyScore": 0-100,
+      "findings": "specific findings about compliance with this regulation",
+      "recommendation": "specific improvement recommendation"
+    }
+  ],
+  "sentiment": {
+    "overall": "positive | neutral | negative",
+    "tone": "description of tone e.g. formal and professional, warm and reassuring, cold and transactional",
+    "readabilityScore": 0-100,
+    "readabilityGrade": "reading level e.g. Grade 8 (General Public), Grade 12 (Professional)",
+    "complexity": "simple | moderate | complex",
+    "keyEmotions": ["list of emotions the document conveys e.g. reassurance, urgency, clarity"]
+  },
+  "overallScore": 0-100,
+  "grade": "A | B | C | D | F",
+  "summary": "2-3 sentence executive summary of the document analysis",
+  "keyFindings": ["list of 3-5 most important findings"],
+  "criticalIssues": ["list of any critical issues requiring immediate attention, empty array if none"]
+}
+
+Grade scale: A=90-100, B=75-89, C=60-74, D=40-59, F=0-39.
+Always check these regulations as a minimum: FCA Consumer Duty, GDPR, Plain Language, Accessibility (WCAG).
+Add industry-specific regulations if identifiable (e.g. FCA ICOBS for insurance, PCI DSS for payment docs).
+Return ONLY valid JSON — no markdown fences.`;
+
+export const analyseTemplate = async (documentText: string, documentName: string): Promise<TemplateAnalysisResult> => {
+    _accelerator = 'Template Analyser';
+    try {
+        const truncated = documentText.slice(0, 6000);
+        const result = await callGemini(
+            getGeminiModel(),
+            [{ parts: [{ text: templateAnalyserPrompt }, { text: `\n\nDocument filename: ${documentName}\n\n--- DOCUMENT CONTENT ---\n\n${truncated}` }] }],
+            {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: 'OBJECT',
+                    properties: {
+                        documentName:   { type: 'STRING' },
+                        documentType:   { type: 'STRING' },
+                        industry:       { type: 'STRING' },
+                        purpose:        { type: 'STRING' },
+                        targetAudience: { type: 'STRING' },
+                        channel:        { type: 'STRING' },
+                        completeness: {
+                            type: 'OBJECT',
+                            properties: {
+                                score:           { type: 'NUMBER' },
+                                presentElements: { type: 'ARRAY', items: { type: 'STRING' } },
+                                missingElements: { type: 'ARRAY', items: { type: 'STRING' } },
+                                recommendations: { type: 'ARRAY', items: { type: 'STRING' } },
+                            },
+                            required: ['score', 'presentElements', 'missingElements', 'recommendations'],
+                        },
+                        regulations: {
+                            type: 'ARRAY',
+                            items: {
+                                type: 'OBJECT',
+                                properties: {
+                                    name:           { type: 'STRING' },
+                                    status:         { type: 'STRING' },
+                                    accuracyScore:  { type: 'NUMBER' },
+                                    findings:       { type: 'STRING' },
+                                    recommendation: { type: 'STRING' },
+                                },
+                                required: ['name', 'status', 'accuracyScore', 'findings', 'recommendation'],
+                            },
+                        },
+                        sentiment: {
+                            type: 'OBJECT',
+                            properties: {
+                                overall:          { type: 'STRING' },
+                                tone:             { type: 'STRING' },
+                                readabilityScore: { type: 'NUMBER' },
+                                readabilityGrade: { type: 'STRING' },
+                                complexity:       { type: 'STRING' },
+                                keyEmotions:      { type: 'ARRAY', items: { type: 'STRING' } },
+                            },
+                            required: ['overall', 'tone', 'readabilityScore', 'readabilityGrade', 'complexity', 'keyEmotions'],
+                        },
+                        overallScore:   { type: 'NUMBER' },
+                        grade:          { type: 'STRING' },
+                        summary:        { type: 'STRING' },
+                        keyFindings:    { type: 'ARRAY', items: { type: 'STRING' } },
+                        criticalIssues: { type: 'ARRAY', items: { type: 'STRING' } },
+                    },
+                    required: ['documentName','documentType','industry','purpose','targetAudience','channel','completeness','regulations','sentiment','overallScore','grade','summary','keyFindings','criticalIssues'],
+                },
+            }
+        );
+        const parsed = JSON.parse(extractJsonText(result)) as TemplateAnalysisResult;
+        parsed.documentName = documentName;
+        return parsed;
+    } catch (error) {
+        console.error('Gemini analyseTemplate error:', error);
         throw error;
     }
 };

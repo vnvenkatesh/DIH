@@ -2,7 +2,7 @@ import * as gemini from './geminiService';
 import * as claude from './claudeService';
 import * as openai from './openaiService';
 import * as grok from './grokService';
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult, TemplateAnalysisResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 function getProvider(): 'claude' | 'gemini' | 'openai' | 'grok' {
@@ -98,3 +98,11 @@ export const generateTestCases = (rulesAndHints: string): Promise<TestCaseResult
 
 // Embeddings are always computed client-side
 export const embedContentBatch = gemini.embedContentBatch;
+
+export const analyseTemplate = (documentText: string, documentName: string): Promise<TemplateAnalysisResult> => {
+    const p = getProvider();
+    if (p === 'claude') return claude.analyseTemplate(documentText, documentName);
+    if (p === 'openai') return openai.analyseTemplate(documentText, documentName);
+    if (p === 'grok')   return grok.analyseTemplate(documentText, documentName);
+    return gemini.analyseTemplate(documentText, documentName);
+};

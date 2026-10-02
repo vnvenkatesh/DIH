@@ -1,4 +1,4 @@
-import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult } from '../types';
+import { XPathMapping, DataMappingResult, SyntheticDataResult, LayoutRecommendationResult, AccessibilityResult, BusinessRulesResult, TestCaseResult, TemplateAnalysisResult } from '../types';
 import { SETTINGS_STORAGE_KEY } from '../contexts/SettingsContext';
 
 const AUTH_KEY = 'dih_auth';
@@ -297,6 +297,32 @@ export const scoreAccessibility = async (
         true
     );
     return JSON.parse(cleanJson(extractText(result))) as AccessibilityResult;
+};
+
+export const analyseTemplate = async (documentText: string, documentName: string): Promise<TemplateAnalysisResult> => {
+    _accelerator = 'Template Analyser';
+    const truncated = documentText.slice(0, 6000);
+    const prompt = `Analyse this CCM document and return a JSON object with these fields: documentName, documentType, industry, purpose, targetAudience, channel, completeness (score 0-100, presentElements[], missingElements[], recommendations[]), regulations (array of: name, status [compliant/partial/non-compliant/not-applicable], accuracyScore 0-100, findings, recommendation), sentiment (overall [positive/neutral/negative], tone, readabilityScore 0-100, readabilityGrade, complexity [simple/moderate/complex], keyEmotions[]), overallScore 0-100, grade (A/B/C/D/F where A=90-100), summary, keyFindings[], criticalIssues[].
+
+Check minimum: FCA Consumer Duty, GDPR, Plain Language, Accessibility (WCAG). Add industry-specific if applicable.
+Grade: A=90-100, B=75-89, C=60-74, D=40-59, F=0-39.
+
+Document filename: ${documentName}
+
+--- DOCUMENT ---
+${truncated}
+
+Return ONLY valid JSON.`;
+
+    const result = await callOpenAI(getOpenAIModel(), [
+        { role: 'system', content: 'You are an expert document analyst specialising in CCM, regulatory compliance, and sentiment analysis.' },
+        { role: 'user', content: prompt },
+    ], true);
+    const text = result?.choices?.[0]?.message?.content ?? '';
+    const clean = cleanJson(text);
+    const parsed = JSON.parse(clean) as TemplateAnalysisResult;
+    parsed.documentName = documentName;
+    return parsed;
 };
 
 const testCasePrompt = `You are a senior QA engineer specialising in enterprise COTS implementation testing.

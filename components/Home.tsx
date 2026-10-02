@@ -17,6 +17,24 @@ const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const FolderIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+  </svg>
+);
+
+const GlobeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+  </svg>
+);
+
+const MagnifyingGlassIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m5.231 13.481L15 17.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v16.5c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9zm3.75 11.625a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+  </svg>
+);
+
 interface HomeProps {
   onNavigate: (tool: string) => void;
 }
@@ -71,6 +89,16 @@ const accelerators = [
       'Upload any requirements document or BRD and AI extracts every validation, conditional, calculation, and presentation rule — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Exports to CSV and JSON.',
     benefit: 'Capture rules that would otherwise be missed in manual review',
     accent: { bg: 'bg-fuchsia-50 dark:bg-fuchsia-900/20', icon: 'bg-fuchsia-100 dark:bg-fuchsia-800/60 text-fuchsia-600 dark:text-fuchsia-300', border: 'border-fuchsia-100 dark:border-fuchsia-800/50', tag: 'bg-fuchsia-100 dark:bg-fuchsia-900/40 text-fuchsia-700 dark:text-fuchsia-300' },
+  },
+  {
+    id: 'templateAnalyser',
+    Icon: MagnifyingGlassIcon,
+    name: 'Template Analyser',
+    tagline: 'Metadata, regulations & sentiment',
+    description:
+      'Upload a document and receive a comprehensive analysis — template metadata, applicable regulatory requirements, tone and sentiment scoring, and a plain-English summary of key content. Ideal for intake reviews and regulatory alignment checks.',
+    benefit: 'Replace manual document intake reviews with structured AI analysis',
+    accent: { bg: 'bg-orange-50 dark:bg-orange-900/20', icon: 'bg-orange-100 dark:bg-orange-800/60 text-orange-600 dark:text-orange-300', border: 'border-orange-100 dark:border-orange-800/50', tag: 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300' },
   },
   {
     id: 'testCaseGenerator',
@@ -152,6 +180,16 @@ const accelerators = [
     benefit: 'Accelerate XML data population for CCM templates',
     accent: { bg: 'bg-slate-50 dark:bg-slate-700/40', icon: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300', border: 'border-slate-200 dark:border-slate-600', tag: 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300' },
   },
+  {
+    id: 'fetchDoc',
+    Icon: GlobeIcon,
+    name: 'FetchDoc',
+    tagline: 'Lightweight HTTP API client',
+    description:
+      'A built-in HTTP client for testing and exploring REST APIs directly within the platform. Compose requests, inspect responses, and use returned documents as inputs for other accelerators — all without leaving the tool.',
+    benefit: 'Retrieve live documents and data without switching to an external client',
+    accent: { bg: 'bg-sky-50 dark:bg-sky-900/20', icon: 'bg-sky-100 dark:bg-sky-800/60 text-sky-600 dark:text-sky-300', border: 'border-sky-100 dark:border-sky-800/50', tag: 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300' },
+  },
 ];
 
 const securityPoints = [
@@ -171,7 +209,7 @@ const securityPoints = [
       </svg>
     ),
     title: 'Direct API calls only',
-    body: 'Document content is sent directly from your browser to Google Gemini. No Deloitte-managed server stores, logs, or inspects the payload.',
+    body: 'Document content is sent directly from your browser to the configured AI provider. No Deloitte-managed server stores, logs, or inspects the payload.',
   },
   {
     icon: (
@@ -180,7 +218,7 @@ const securityPoints = [
       </svg>
     ),
     title: 'Your API key, your control',
-    body: 'The Gemini API key is stored only in your browser\'s local storage and is never transmitted to any server other than Google\'s own API endpoint.',
+    body: 'API keys (Gemini, Claude, OpenAI) are stored only in your account and are never exposed to other users or logged anywhere.',
   },
   {
     icon: (
@@ -188,8 +226,8 @@ const securityPoints = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
       </svg>
     ),
-    title: 'No data retention',
-    body: 'Once your session ends, no document content, results, or metadata persist anywhere. Each session starts completely fresh.',
+    title: 'Project files in your storage',
+    body: 'Files uploaded to Projects are stored in your own configured S3 or Azure Blob container — not on any shared Deloitte infrastructure.',
   },
 ];
 
@@ -215,16 +253,22 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           </p>
           <div className="flex flex-wrap gap-3">
             <button
-              onClick={() => onNavigate('cluster')}
+              onClick={() => onNavigate('projects')}
               className="px-5 py-2.5 bg-white text-indigo-700 font-bold text-sm rounded-lg hover:bg-indigo-50 transition-colors shadow"
             >
-              Get Started
+              Open Projects
+            </button>
+            <button
+              onClick={() => onNavigate('cluster')}
+              className="px-5 py-2.5 bg-white/15 border border-white/30 text-white font-semibold text-sm rounded-lg hover:bg-white/25 transition-colors"
+            >
+              Try an Accelerator
             </button>
             <button
               onClick={() => onNavigate('apiDocs')}
               className="px-5 py-2.5 bg-white/15 border border-white/30 text-white font-semibold text-sm rounded-lg hover:bg-white/25 transition-colors"
             >
-              View API Docs
+              API Docs
             </button>
           </div>
         </div>
@@ -233,10 +277,10 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '12', label: 'Accelerators', sub: '11 AI-powered, 1 AI-free' },
+          { value: '14', label: 'Accelerators', sub: '13 AI-powered, 1 AI-free' },
+          { value: '3', label: 'AI Providers', sub: 'Gemini · Claude · OpenAI' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
-          { value: '0', label: 'Data retained', sub: 'after each session' },
-          { value: '100%', label: 'Browser-side', sub: 'document processing' },
+          { value: '100%', label: 'Your storage', sub: 'S3 or Azure Blob' },
         ].map(({ value, label, sub }) => (
           <div key={label} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-5 text-center shadow-sm">
             <p className="text-3xl font-extrabold text-indigo-600 dark:text-indigo-400 leading-none">{value}</p>
@@ -244,6 +288,35 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{sub}</p>
           </div>
         ))}
+      </div>
+
+      {/* ── Projects feature callout ── */}
+      <div className="rounded-2xl border border-indigo-200 dark:border-indigo-700/60 bg-gradient-to-br from-indigo-50 to-slate-50 dark:from-indigo-900/20 dark:to-slate-800/40 px-7 py-6 shadow-sm">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 shadow">
+            <FolderIcon className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Projects</h3>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">New</span>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
+              Persistent workspaces that follow the full CCM implementation lifecycle. Upload templates once, run accelerators in context, save results, and chat with your project data — all backed by your own cloud storage (S3 or Azure Blob).
+            </p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {['Upload templates', 'Cluster & rationalise', 'Map fields', 'Generate test data', 'Validate output', 'Project chat'].map(f => (
+                <span key={f} className="text-xs font-medium px-2.5 py-1 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300">{f}</span>
+              ))}
+            </div>
+            <button
+              onClick={() => onNavigate('projects')}
+              className="px-4 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors shadow-sm"
+            >
+              Open Projects →
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ── Accelerators grid ── */}
@@ -295,16 +368,16 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
         <div className="flex flex-col sm:flex-row gap-3">
           {[
             {
-              steps: ['Business Rules', '→', 'Test Case Generator', '→', 'Synthetic Data', '→', 'Output Validator'],
+              steps: ['Business Rules', '→', 'Test Cases', '→', 'Test Data', '→', 'Output Validator'],
               label: 'Full QA Pipeline',
             },
             {
-              steps: ['Data Mapping Generator', '→', 'XPath Extractor', '→', 'GhostDraft Generator'],
+              steps: ['Dynamic Fields', '→', 'XPath Extractor', '→', 'GhostDraft Template Build'],
               label: 'Field Mapping → GhostDraft Document',
             },
             {
-              steps: ['Synthetic Data', '→', 'Output Validator'],
-              label: 'Data-Driven Output Validation',
+              steps: ['Template Analyser', '→', 'Business Rules', '→', 'Test Cases'],
+              label: 'Requirements to Test Suite',
             },
           ].map(({ steps, label }) => (
             <div key={label} className="flex-1 bg-white dark:bg-slate-800 rounded-xl border border-indigo-100 dark:border-indigo-800/60 px-4 py-3 shadow-sm">
@@ -359,10 +432,11 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
           <div className="absolute left-5 top-5 bottom-5 w-px bg-indigo-200 dark:bg-indigo-800 hidden md:block" />
           <div className="space-y-4">
             {[
-              { phase: 'Discovery', tools: ['Cluster'], detail: 'Rapidly assess and cluster an existing template library. Identify redundant documents before migrating them to the new platform.' },
+              { phase: 'Workspace Setup', tools: ['Projects'], detail: 'Create a project workspace for each engagement or template library. Upload all source documents once and share them across your team — backed by your own S3 or Azure Blob storage.' },
+              { phase: 'Discovery', tools: ['Cluster', 'Template Analyser'], detail: 'Rapidly assess and cluster an existing template library to identify duplicates and near-duplicates. Use Template Analyser to extract metadata, regulatory requirements, tone, and sentiment from each document before migration.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
-              { phase: 'Design & Mapping', tools: ['Data Mapping Generator', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Test Case Generator', 'Synthetic Data Generation', 'GhostDraft Generator'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Synthetic Data Generation alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Generator to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },
+              { phase: 'Design & Mapping', tools: ['Dynamic Fields', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
+              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings and a sample XML for immediate Studio testing.' },
               { phase: 'QA & Review', tools: ['Output Validator', 'PDF AI Compare', 'PDF Visual Compare'], detail: 'Close the loop with Output Validator: upload the rendered PDF, input XML/JSON, and test cases CSV to automatically validate every field, conditional rule, and format check — with a colour-coded annotated PDF as evidence. Use Visual Compare for a fast, AI-free structural and pixel diff between iterations; switch to AI Compare when you need to catch intent shifts that wording alone hides.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },

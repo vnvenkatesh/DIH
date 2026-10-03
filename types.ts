@@ -235,6 +235,34 @@ export interface ProjectMessage {
   createdAt: string;
 }
 
+// ── Final Inventory & Project Documents ───────────────────────────────────
+
+export interface InventoryItem {
+  id: number;
+  projectId: number;
+  fileId: number;
+  fileName: string;
+  fileType: string;
+  groupId: number | null;
+  variantCount: number;
+  variations: { field: string; differences: string }[];
+  businessDomain: string;
+  status: 'pending' | 'in_progress' | 'done';
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectDocument {
+  id: number;
+  projectId: number;
+  docType: 'brd' | 'test_cases';
+  content: any;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Template Analyser ──────────────────────────────────────────────────────
 
 export interface RegulationCheck {

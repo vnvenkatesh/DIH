@@ -669,7 +669,7 @@ router.put('/:id/documents/:docType', requireAuth as any, async (req: AuthReques
     await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const docType = req.params.docType;
-    if (!['brd', 'test_cases'].includes(docType)) { res.status(400).json({ error: 'docType must be brd or test_cases' }); return; }
+    if (!['brd', 'test_cases', 'field_mapping'].includes(docType)) { res.status(400).json({ error: 'docType must be brd, test_cases, or field_mapping' }); return; }
     const { content } = req.body;
     if (content === undefined || content === null) { res.status(400).json({ error: 'content required' }); return; }
 
@@ -755,22 +755,38 @@ router.post('/:id/documents/brd/generate', requireAuth as any, async (req: AuthR
       );
     }
 
-    const prompt = `You are a business analyst generating a Business Requirements Document for a CCM implementation project.
-The project contains ${invRows.length} template(s) to implement.
+    const prompt = `You are a senior business analyst creating a Business Requirements Document for a CCM implementation project.
+The project has ${invRows.length} template(s) in its final implementation inventory.
 
-For each template:
 ${templateSections.join('\n\n---\n\n')}
 
-Generate a structured BRD. Return ONLY valid JSON matching this schema exactly:
+Extract structured business rules from these templates. Then compile them into a BRD.
+
+Return ONLY valid JSON matching this schema exactly:
 {
-  "title": "string",
-  "version": "string",
+  "title": "Business Requirements Document",
+  "version": "1.0",
   "sections": {
     "executiveSummary": "string",
-    "templatesOverview": [{"name": "string", "domain": "string", "variants": 0}],
-    "requirements": [{"templateName": "string", "purpose": "string", "keyFields": "string", "conditionalLogic": "string", "businessRules": "string", "notes": "string"}],
+    "scope": "string",
+    "templatesOverview": [{"name": "string", "domain": "string", "variants": 0, "purpose": "string"}],
+    "businessRules": [
+      {
+        "templateName": "string",
+        "rules": [
+          {
+            "ruleName": "string",
+            "ruleType": "Validation|Conditional|Calculation|Presentation",
+            "condition": "string",
+            "action": "string",
+            "priority": "High|Medium|Low"
+          }
+        ]
+      }
+    ],
     "commonRequirements": "string",
-    "implementationNotes": "string"
+    "implementationNotes": "string",
+    "assumptions": "string"
   }
 }`;
 
@@ -847,15 +863,25 @@ router.post('/:id/documents/test-cases/generate', requireAuth as any, async (req
       );
     }
 
-    const prompt = `Generate a comprehensive Test Case Tracker for a CCM implementation project with ${invRows.length} template(s).
+    // Check if BRD already has businessRules to seed test cases from
+    const { rows: brdRows } = await pool.query(
+      `SELECT content FROM project_documents WHERE project_id = $1 AND doc_type = 'brd' LIMIT 1`,
+      [projectId]
+    );
+    const brdBusinessRules = brdRows[0]?.content?.sections?.businessRules;
+    const brdRulesSection = brdBusinessRules?.length
+      ? `\n\nExisting Business Rules from BRD:\n${JSON.stringify(brdBusinessRules, null, 2)}\n\nUse these business rules as the primary source for generating test cases.\n`
+      : '';
 
-For each template, generate test cases covering:
+    const prompt = `Generate a comprehensive Test Case Tracker for a CCM implementation project with ${invRows.length} template(s).
+${brdRulesSection}
+For each template, generate test cases covering all these categories:
 - Happy Path: standard valid input scenarios
-- Mandatory Fields: missing required field scenarios
-- Boundary Values: min/max/edge values for numeric and date fields
-- Conditional Logic: if/then business rule scenarios
-- Format Validation: invalid format inputs
-- Error Handling: system error and exception scenarios
+- Mandatory: missing required field scenarios
+- Boundary: min/max/edge values for numeric and date fields
+- Conditional: if/then business rule scenarios
+- Format: invalid format inputs
+- Calculation: computed field and formula validation
 
 Templates:
 ${templateSections.join('\n\n---\n\n')}
@@ -870,12 +896,13 @@ Return ONLY valid JSON matching this schema exactly:
       "testCases": [
         {
           "id": "string",
-          "category": "string",
+          "category": "Happy Path|Mandatory|Boundary|Conditional|Format|Calculation",
           "description": "string",
           "inputData": "string",
           "expectedResult": "string",
           "priority": "High|Medium|Low",
-          "preconditions": "string"
+          "preconditions": "string",
+          "testSteps": "string"
         }
       ]
     }
@@ -905,6 +932,106 @@ Return ONLY valid JSON matching this schema exactly:
     const { rows: savedRows } = await pool.query(`
       INSERT INTO project_documents (project_id, doc_type, content, created_by, updated_by)
       VALUES ($1, 'test_cases', $2, $3, $3)
+      ON CONFLICT (project_id, doc_type) DO UPDATE
+        SET content = $2, version = project_documents.version + 1, updated_by = $3, updated_at = NOW()
+      RETURNING *
+    `, [projectId, JSON.stringify(content), req.user!.id]);
+
+    const r = savedRows[0];
+    res.json({ document: { id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// POST /v1/projects/:id/documents/field-mapping/generate
+router.post('/:id/documents/field-mapping/generate', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows: invRows } = await pool.query(`
+      SELECT fi.*, pf.name, pf.file_type, pf.storage_key
+      FROM final_inventory fi JOIN project_files pf ON pf.id = fi.file_id
+      WHERE fi.project_id = $1
+    `, [projectId]);
+
+    if (!invRows.length) { res.status(400).json({ error: 'No templates in Final Inventory. Add templates first.' }); return; }
+
+    const apiKey = await getGeminiKeyForUser(req.user!.id);
+    if (!apiKey) { res.status(400).json({ error: 'No Gemini API key configured. Add one in Settings.' }); return; }
+
+    const templateSections: string[] = [];
+    for (const item of invRows) {
+      let text = '';
+      try {
+        const signedUrl = await getSignedUrl(u.company_id, item.storage_key, 3600, req.user!.id);
+        const resp = await fetch(signedUrl);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          text = await extractTextFromBuffer(buf, item.name);
+        }
+      } catch { /* skip */ }
+      templateSections.push(
+        `Template: ${item.name}\nDomain: ${item.business_domain || 'Unspecified'}\nContent:\n${text.slice(0, 2500)}`
+      );
+    }
+
+    const prompt = `You are a data mapping specialist analyzing CCM templates to identify all unique variable fields.
+The project has ${invRows.length} template(s) in its final inventory.
+
+${templateSections.join('\n\n---\n\n')}
+
+Extract ALL unique data fields/variables across these templates. For each field:
+- Identify its data type (text, date, currency, number, boolean, address, list)
+- List which templates use it
+- Note any conditional logic or business rules
+- Provide a sample/example value
+- Suggest an XSD XPath if inferable from the field name and context
+
+Return ONLY valid JSON matching this schema exactly:
+{
+  "summary": "string (overview of the field mapping analysis)",
+  "totalFields": 0,
+  "fields": [
+    {
+      "fieldName": "string (technical identifier, camelCase)",
+      "displayName": "string (human-readable label)",
+      "dataType": "text|date|currency|number|boolean|address|list",
+      "templates": ["string"],
+      "sampleValue": "string",
+      "isConditional": false,
+      "conditionalLogic": "string (empty if not conditional)",
+      "xsdPath": "string (suggested XPath or empty)"
+    }
+  ]
+}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    });
+
+    if (!upstream.ok) {
+      const errData = await upstream.json().catch(() => ({})) as any;
+      res.status(502).json({ error: `Gemini error: ${errData?.error?.message ?? upstream.statusText}` }); return;
+    }
+
+    const data = await upstream.json() as any;
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    let content: any;
+    try { content = JSON.parse(rawText); } catch { content = { summary: 'Field mapping analysis', fields: [], raw: rawText }; }
+
+    const { rows: savedRows } = await pool.query(`
+      INSERT INTO project_documents (project_id, doc_type, content, created_by, updated_by)
+      VALUES ($1, 'field_mapping', $2, $3, $3)
       ON CONFLICT (project_id, doc_type) DO UPDATE
         SET content = $2, version = project_documents.version + 1, updated_by = $3, updated_at = NOW()
       RETURNING *

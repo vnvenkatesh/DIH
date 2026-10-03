@@ -136,7 +136,24 @@ interface ProjectWorkspaceProps {
   onBack: () => void;
 }
 
-type Tab = 'files' | 'rationalise' | 'inventory' | 'brd' | 'test_cases';
+type Tab = 'files' | 'rationalise' | 'inventory' | 'field_mapping' | 'brd' | 'test_cases';
+
+const FIELD_TYPE_COLORS: Record<string, string> = {
+  text:     'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+  date:     'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+  currency: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
+  number:   'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300',
+  boolean:  'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+  address:  'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300',
+  list:     'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300',
+};
+
+const RULE_TYPE_COLORS: Record<string, string> = {
+  Validation:   'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
+  Conditional:  'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+  Calculation:  'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+  Presentation: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
+};
 
 const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }) => {
   const { token } = useAuth();
@@ -175,6 +192,12 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [testCasesLoading, setTestCasesLoading] = useState(false);
   const [testCasesGenerating, setTestCasesGenerating] = useState(false);
   const [testCasesError, setTestCasesError] = useState('');
+
+  // Field Mapping
+  const [fieldMappingDoc, setFieldMappingDoc] = useState<ProjectDocument | null>(null);
+  const [fieldMappingLoading, setFieldMappingLoading] = useState(false);
+  const [fieldMappingGenerating, setFieldMappingGenerating] = useState(false);
+  const [fieldMappingError, setFieldMappingError] = useState('');
 
   // Chat sidebar
   const [chatInput, setChatInput] = useState('');
@@ -240,6 +263,21 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     setTestCasesLoading(false);
   }, [token, projectId]);
 
+  const fetchFieldMappingDoc = useCallback(async () => {
+    if (!token) return;
+    setFieldMappingLoading(true);
+    try {
+      const res = await fetch(`/v1/projects/${projectId}/documents/field_mapping`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setFieldMappingDoc(mapDocument(data.document ?? data));
+      } else if (res.status === 404) {
+        setFieldMappingDoc(null);
+      }
+    } catch { /* ignore */ }
+    setFieldMappingLoading(false);
+  }, [token, projectId]);
+
   const fetchChat = useCallback(async () => {
     if (!token) return;
     try {
@@ -258,9 +296,10 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
   useEffect(() => {
     if (activeTab === 'inventory') fetchInventory();
+    if (activeTab === 'field_mapping') fetchFieldMappingDoc();
     if (activeTab === 'brd') fetchBrdDoc();
     if (activeTab === 'test_cases') fetchTestCasesDoc();
-  }, [activeTab, fetchInventory, fetchBrdDoc, fetchTestCasesDoc]);
+  }, [activeTab, fetchInventory, fetchFieldMappingDoc, fetchBrdDoc, fetchTestCasesDoc]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -501,14 +540,85 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     URL.revokeObjectURL(url);
   };
 
+  // ── Field Mapping handlers ───────────────────────────────────────────────────
+
+  const handleGenerateFieldMapping = async () => {
+    if (!token) return;
+    setFieldMappingGenerating(true); setFieldMappingError('');
+    try {
+      const res = await fetch(`/v1/projects/${projectId}/documents/field-mapping/generate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFieldMappingDoc(mapDocument(data.document ?? data));
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setFieldMappingError((err as any).error ?? 'Field mapping generation failed');
+      }
+    } catch (e: any) {
+      setFieldMappingError(e.message ?? 'Field mapping generation failed');
+    }
+    setFieldMappingGenerating(false);
+  };
+
+  const handleDownloadFieldMappingCsv = () => {
+    if (!fieldMappingDoc?.content?.fields) return;
+    const headers = ['Field Name', 'Display Name', 'Data Type', 'Templates', 'Sample Value', 'Is Conditional', 'Conditional Logic', 'XSD Path'];
+    const rows = (fieldMappingDoc.content.fields as any[]).map(f => [
+      f.fieldName ?? '', f.displayName ?? '', f.dataType ?? '',
+      (f.templates ?? []).join('; '), f.sampleValue ?? '',
+      f.isConditional ? 'Yes' : 'No', f.conditionalLogic ?? '', f.xsdPath ?? '',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map((c: string) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'field-mapping.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // ── Chat handler ─────────────────────────────────────────────────────────────
 
   const handleSendChat = async () => {
     if (!chatInput.trim() || !token || chatLoading) return;
     const msg = chatInput.trim();
+    const msgLower = msg.toLowerCase();
     setChatInput('');
     setChatLoading(true);
     setMessages(prev => [...prev, { id: Date.now(), projectId, userId: 0, role: 'user', content: msg, createdAt: new Date().toISOString() }]);
+
+    // Intent detection: intercept generate commands before sending to LLM
+    const isBrd = /\b(brd|business requirements?|business rules?|generate brd)\b/.test(msgLower);
+    const isTestCases = /\b(test cases?|test tracker|generate tests?)\b/.test(msgLower);
+    const isFieldMapping = /\b(field mapping|fields? map|dynamic fields?|map fields?|field extractor)\b/.test(msgLower);
+    const isGenerate = /\b(generate|create|run|start|initiate|make)\b/.test(msgLower);
+
+    if (isGenerate && isFieldMapping) {
+      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: "I'll generate the Fields Mapping now...", createdAt: new Date().toISOString() }]);
+      setActiveTab('field_mapping');
+      await handleGenerateFieldMapping();
+      setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: '✅ Fields Mapping generated! Switch to the Fields Mapping tab to view results.', createdAt: new Date().toISOString() }]);
+      setChatLoading(false);
+      return;
+    }
+    if (isGenerate && isBrd) {
+      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: "I'll generate the Business Requirements Document now...", createdAt: new Date().toISOString() }]);
+      setActiveTab('brd');
+      await handleGenerateBrd();
+      setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: '✅ BRD generated! Switch to the BRD tab to view results.', createdAt: new Date().toISOString() }]);
+      setChatLoading(false);
+      return;
+    }
+    if (isGenerate && isTestCases) {
+      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: "I'll generate Test Cases now...", createdAt: new Date().toISOString() }]);
+      setActiveTab('test_cases');
+      await handleGenerateTestCases();
+      setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: '✅ Test Cases generated! Switch to the Test Cases tab to view results.', createdAt: new Date().toISOString() }]);
+      setChatLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(`/v1/projects/${projectId}/chat`, {
         method: 'POST',
@@ -538,11 +648,12 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   }
 
   const tabs: { id: Tab; label: string; icon: string; badge?: number }[] = [
-    { id: 'files',      label: 'Files',       icon: '📁', badge: activeFiles.length || undefined },
-    { id: 'rationalise',label: 'Rationalise', icon: '🔗' },
-    { id: 'inventory',  label: 'Inventory',   icon: '📋', badge: inventory.length || undefined },
-    { id: 'brd',        label: 'BRD',         icon: '📄' },
-    { id: 'test_cases', label: 'Test Cases',  icon: '✅' },
+    { id: 'files',         label: 'Files',          icon: '📁', badge: activeFiles.length || undefined },
+    { id: 'rationalise',   label: 'Rationalise',    icon: '🔗' },
+    { id: 'inventory',     label: 'Inventory',      icon: '📋', badge: inventory.length || undefined },
+    { id: 'field_mapping', label: 'Fields Mapping', icon: '🗺️' },
+    { id: 'brd',           label: 'BRD',            icon: '📄' },
+    { id: 'test_cases',    label: 'Test Cases',     icon: '✅' },
   ];
 
   return (
@@ -919,6 +1030,120 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
         </div>
       )}
 
+      {/* ── Fields Mapping tab ── */}
+      {activeTab === 'field_mapping' && (
+        <div className="space-y-4">
+          {fieldMappingLoading ? (
+            <div className="text-sm text-slate-400 dark:text-slate-500 py-4">Loading field mapping...</div>
+          ) : fieldMappingDoc ? (
+            <>
+              <div className={`${panelCls} p-5`}>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Dynamic Fields Mapping</h3>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                      v{fieldMappingDoc.version} · Updated {new Date(fieldMappingDoc.updatedAt).toLocaleDateString()}
+                      {fieldMappingDoc.content?.totalFields ? ` · ${fieldMappingDoc.content.totalFields} fields` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleGenerateFieldMapping}
+                      disabled={fieldMappingGenerating || inventory.length === 0}
+                      className="px-3 py-1.5 text-sm text-indigo-600 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-600 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-50 transition-colors"
+                    >
+                      {fieldMappingGenerating ? 'Updating...' : 'Update Mapping'}
+                    </button>
+                    <button
+                      onClick={handleDownloadFieldMappingCsv}
+                      className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Download CSV
+                    </button>
+                  </div>
+                </div>
+                {fieldMappingDoc.content?.summary && (
+                  <p className="mt-3 text-xs text-slate-600 dark:text-slate-400 leading-relaxed border-t border-slate-100 dark:border-slate-700 pt-3">
+                    {fieldMappingDoc.content.summary}
+                  </p>
+                )}
+              </div>
+
+              {fieldMappingError && <p className="text-sm text-red-600">{fieldMappingError}</p>}
+
+              {(fieldMappingDoc.content?.fields ?? []).length > 0 && (
+                <div className={`${panelCls} overflow-hidden`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
+                          <th className="px-4 py-2.5 pr-3 font-medium">Field Name</th>
+                          <th className="px-2 py-2.5 pr-3 font-medium">Display Name</th>
+                          <th className="px-2 py-2.5 pr-3 font-medium">Type</th>
+                          <th className="px-2 py-2.5 pr-3 font-medium">Templates</th>
+                          <th className="px-2 py-2.5 pr-3 font-medium">Sample Value</th>
+                          <th className="px-2 py-2.5 pr-3 font-medium">Conditional</th>
+                          <th className="px-2 py-2.5 font-medium">XSD Path</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {(fieldMappingDoc.content.fields as any[]).map((f: any, i: number) => (
+                          <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                            <td className="px-4 py-2 pr-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">{f.fieldName}</td>
+                            <td className="px-2 py-2 pr-3 text-slate-700 dark:text-slate-300">{f.displayName}</td>
+                            <td className="px-2 py-2 pr-3 whitespace-nowrap">
+                              <span className={`px-1.5 py-0.5 rounded-full font-medium ${FIELD_TYPE_COLORS[f.dataType] ?? FIELD_TYPE_COLORS.text}`}>
+                                {f.dataType}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 pr-3 text-slate-500 dark:text-slate-400 max-w-xs">
+                              {(f.templates ?? []).join(', ')}
+                            </td>
+                            <td className="px-2 py-2 pr-3 text-slate-600 dark:text-slate-400 font-mono">{f.sampleValue}</td>
+                            <td className="px-2 py-2 pr-3 text-center">
+                              {f.isConditional ? (
+                                <span title={f.conditionalLogic} className="text-amber-500 cursor-help">⚡</span>
+                              ) : (
+                                <span className="text-slate-300 dark:text-slate-600">—</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2 font-mono text-slate-400 dark:text-slate-500 text-xs max-w-xs truncate" title={f.xsdPath}>{f.xsdPath || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className={`${panelCls} p-8 text-center`}>
+              <svg className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z" />
+              </svg>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">No Fields Mapping yet</h3>
+              {inventory.length === 0 ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+                  Add templates to the <button onClick={() => setActiveTab('inventory')} className="underline font-medium">Final Inventory</button> first.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+                  Extract all unique dynamic fields from your {inventory.length} template{inventory.length !== 1 ? 's' : ''} using the Data Mapping accelerator.
+                </p>
+              )}
+              {fieldMappingError && <p className="text-xs text-red-600 mb-3">{fieldMappingError}</p>}
+              <button
+                onClick={handleGenerateFieldMapping}
+                disabled={fieldMappingGenerating || inventory.length === 0}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {fieldMappingGenerating ? 'Generating… (this may take up to a minute)' : 'Generate Fields Mapping'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── BRD tab ── */}
       {activeTab === 'brd' && (
         <div className="space-y-4">
@@ -961,6 +1186,12 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                   </CollapseSection>
                 )}
 
+                {brdDoc.content?.sections?.scope && (
+                  <CollapseSection title="Scope" defaultOpen={false}>
+                    <p className="whitespace-pre-wrap leading-relaxed">{brdDoc.content.sections.scope}</p>
+                  </CollapseSection>
+                )}
+
                 {brdDoc.content?.sections?.templatesOverview?.length > 0 && (
                   <CollapseSection title="Templates Overview">
                     <table className="w-full text-xs">
@@ -968,7 +1199,8 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                         <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                           <th className="pb-1 pr-4">Template</th>
                           <th className="pb-1 pr-4">Domain</th>
-                          <th className="pb-1">Variants</th>
+                          <th className="pb-1 pr-4">Variants</th>
+                          <th className="pb-1">Purpose</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
@@ -976,7 +1208,8 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                           <tr key={i}>
                             <td className="py-1.5 pr-4 font-medium text-slate-800 dark:text-white">{t.name}</td>
                             <td className="py-1.5 pr-4 text-slate-600 dark:text-slate-300">{t.domain ?? '—'}</td>
-                            <td className="py-1.5 text-slate-600 dark:text-slate-300">{t.variants ?? 1}</td>
+                            <td className="py-1.5 pr-4 text-slate-600 dark:text-slate-300">{t.variants ?? 1}</td>
+                            <td className="py-1.5 text-slate-500 dark:text-slate-400">{t.purpose ?? '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -984,7 +1217,51 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                   </CollapseSection>
                 )}
 
-                {brdDoc.content?.sections?.requirements?.length > 0 && (
+                {/* New businessRules schema (v2 BRDs) */}
+                {brdDoc.content?.sections?.businessRules?.length > 0 && (
+                  <CollapseSection title="Business Rules">
+                    <div className="space-y-4">
+                      {brdDoc.content.sections.businessRules.map((tmpl: any, ti: number) => (
+                        <div key={ti}>
+                          <p className="font-semibold text-slate-800 dark:text-white mb-2 pb-1 border-b border-slate-200 dark:border-slate-700">{tmpl.templateName}</p>
+                          {(tmpl.rules ?? []).length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-left text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700">
+                                    <th className="pb-1 pr-3">Rule</th>
+                                    <th className="pb-1 pr-3">Type</th>
+                                    <th className="pb-1 pr-3">Condition</th>
+                                    <th className="pb-1 pr-3">Action</th>
+                                    <th className="pb-1">Priority</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                                  {tmpl.rules.map((r: any, ri: number) => (
+                                    <tr key={ri}>
+                                      <td className="py-1.5 pr-3 font-medium text-slate-700 dark:text-slate-300">{r.ruleName}</td>
+                                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${RULE_TYPE_COLORS[r.ruleType] ?? 'bg-slate-100 text-slate-600'}`}>{r.ruleType}</span>
+                                      </td>
+                                      <td className="py-1.5 pr-3 text-slate-600 dark:text-slate-400">{r.condition}</td>
+                                      <td className="py-1.5 pr-3 text-slate-600 dark:text-slate-400">{r.action}</td>
+                                      <td className="py-1.5">
+                                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${r.priority === 'High' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : r.priority === 'Medium' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>{r.priority}</span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CollapseSection>
+                )}
+
+                {/* Legacy requirements schema (v1 BRDs) */}
+                {!brdDoc.content?.sections?.businessRules?.length && brdDoc.content?.sections?.requirements?.length > 0 && (
                   <CollapseSection title="Requirements per Template">
                     <div className="space-y-4">
                       {brdDoc.content.sections.requirements.map((r: any, i: number) => (
@@ -1010,6 +1287,12 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                 {brdDoc.content?.sections?.implementationNotes && (
                   <CollapseSection title="Implementation Notes">
                     <p className="whitespace-pre-wrap leading-relaxed">{brdDoc.content.sections.implementationNotes}</p>
+                  </CollapseSection>
+                )}
+
+                {brdDoc.content?.sections?.assumptions && (
+                  <CollapseSection title="Assumptions" defaultOpen={false}>
+                    <p className="whitespace-pre-wrap leading-relaxed">{brdDoc.content.sections.assumptions}</p>
                   </CollapseSection>
                 )}
               </div>

@@ -3,6 +3,8 @@ import { compare } from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../db.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
+import { testStorageConnection } from '../lib/cloudStorage.js';
+import { testStorageConnection } from '../lib/cloudStorage.js';
 
 const router = express.Router();
 
@@ -153,6 +155,29 @@ router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => 
     res.json({ user: toClientUser(rows[0]) });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? 'Internal server error' });
+  }
+});
+
+router.post('/test-storage', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const { rows } = await pool.query('SELECT company_id FROM users WHERE id = $1', [req.user!.id]);
+    const companyId = rows[0]?.company_id;
+    const result = await testStorageConnection(companyId ?? 0, req.user!.id);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message ?? 'Connection test failed' });
+  }
+});
+
+// POST /v1/auth/storage/test — verify cloud storage connectivity
+router.post('/storage/test', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const { rows } = await pool.query('SELECT company_id FROM users WHERE id = $1', [req.user!.id]);
+    const companyId = rows[0]?.company_id ?? 0;
+    const result = await testStorageConnection(companyId, req.user!.id);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ ok: false, provider: 'none', bucket: '', error: err.message });
   }
 });
 

@@ -19,6 +19,8 @@ const StorageSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; provider?: string; bucket?: string; error?: string } | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -27,6 +29,24 @@ const StorageSettings: React.FC = () => {
   }, [user?.id]);
 
   const hasSaved = user?.hasStorage ?? false;
+
+  const handleTestConnection = async () => {
+    if (!token) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/v1/auth/test-storage', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setTestResult(data);
+    } catch (err: any) {
+      setTestResult({ ok: false, error: err?.message ?? 'Request failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!token) return;
@@ -141,7 +161,7 @@ const StorageSettings: React.FC = () => {
 
         {error && <p className="mt-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
 
-        <div className="mt-5">
+        <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             onClick={handleSave}
             disabled={saving}
@@ -151,7 +171,56 @@ const StorageSettings: React.FC = () => {
           >
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Storage Settings'}
           </button>
+
+          {hasSaved && provider !== 'none' && (
+            <button
+              onClick={handleTestConnection}
+              disabled={testing}
+              className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 flex items-center gap-2 transition-all"
+            >
+              {testing ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Testing…
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Test Connection
+                </>
+              )}
+            </button>
+          )}
         </div>
+
+        {testResult && (
+          <div className={`mt-3 flex items-start gap-2 px-3 py-2.5 rounded-lg text-sm ${
+            testResult.ok
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
+              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-400'
+          }`}>
+            {testResult.ok ? (
+              <>
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Connected to <strong>{testResult.provider?.toUpperCase()}</strong> · bucket: <code className="font-mono text-xs">{testResult.bucket}</code></span>
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <span>{testResult.error ?? 'Connection failed'}</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {hasSaved && (

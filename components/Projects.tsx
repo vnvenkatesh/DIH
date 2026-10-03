@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import type { Project } from '../types';
+import type { Project, ProjectMember } from '../types';
 
 type FilterTab = 'all' | 'active' | 'archived';
 
@@ -11,6 +11,148 @@ interface ProjectsProps {
 
 const panelCls = 'bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm';
 
+// ── Icons ──────────────────────────────────────────────────────────────────
+
+const LockIcon = () => (
+  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+  </svg>
+);
+
+const ShareIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+  </svg>
+);
+
+// ── Visibility badge ───────────────────────────────────────────────────────
+
+const VisibilityBadge: React.FC<{ visibility: 'private' | 'shared' }> = ({ visibility }) =>
+  visibility === 'private' ? (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium">
+      <LockIcon /> Private
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 font-medium">
+      <ShareIcon /> Shared
+    </span>
+  );
+
+// ── Share panel ───────────────────────────────────────────────────────────
+
+interface SharePanelProps {
+  project: Project;
+  token: string;
+  onClose: () => void;
+}
+
+const SharePanel: React.FC<SharePanelProps> = ({ project, token, onClose }) => {
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [inviting, setInviting] = useState(false);
+  const [error, setError] = useState('');
+
+  const authHeader = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  const fetchMembers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/v1/projects/${project.id}/members`, { headers: authHeader });
+      const data = await res.json();
+      setMembers(data.members ?? []);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [project.id, token]);
+
+  useEffect(() => { fetchMembers(); }, [fetchMembers]);
+
+  const handleInvite = async () => {
+    if (!inviteUsername.trim()) return;
+    setInviting(true);
+    setError('');
+    try {
+      const res = await fetch(`/v1/projects/${project.id}/members`, {
+        method: 'POST',
+        headers: authHeader,
+        body: JSON.stringify({ username: inviteUsername.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to invite');
+      setInviteUsername('');
+      fetchMembers();
+    } catch (e: any) {
+      setError(e.message);
+    }
+    setInviting(false);
+  };
+
+  const handleRemove = async (userId: number) => {
+    try {
+      await fetch(`/v1/projects/${project.id}/members/${userId}`, {
+        method: 'DELETE',
+        headers: authHeader,
+      });
+      fetchMembers();
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="mt-3 p-4 rounded-lg border border-indigo-200 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 text-sm space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-indigo-700 dark:text-indigo-300 text-xs uppercase tracking-wider">Share with users</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={inviteUsername}
+          onChange={e => setInviteUsername(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleInvite()}
+          placeholder="Username to invite…"
+          className="flex-1 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <button
+          onClick={handleInvite}
+          disabled={inviting || !inviteUsername.trim()}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 transition-colors"
+        >
+          {inviting ? '…' : 'Add'}
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-xs text-slate-400">Loading…</p>
+      ) : members.length === 0 ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400">No members added yet.</p>
+      ) : (
+        <ul className="space-y-1">
+          {members.map(m => (
+            <li key={m.userId} className="flex items-center justify-between py-1 px-2 rounded bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600">
+              <span className="text-xs text-slate-700 dark:text-slate-200">{m.username}</span>
+              <button
+                onClick={() => handleRemove(m.userId)}
+                className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-300"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => {
   const { user, token } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -19,8 +161,10 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [newVisibility, setNewVisibility] = useState<'shared' | 'private'>('shared');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const [sharePanelFor, setSharePanelFor] = useState<number | null>(null);
 
   const isGeneralUser = !user?.companyId || user?.companyName === 'General';
   const isLocked =
@@ -50,13 +194,14 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
       const res = await fetch('/v1/projects', {
         method: 'POST',
         headers: authHeader,
-        body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() }),
+        body: JSON.stringify({ name: newName.trim(), description: newDesc.trim(), visibility: newVisibility }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to create project');
       setShowCreate(false);
       setNewName('');
       setNewDesc('');
+      setNewVisibility('shared');
       fetchProjects();
     } catch (e: any) {
       setError(e.message);
@@ -83,6 +228,11 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
       body: JSON.stringify({ status: newStatus }),
     });
     fetchProjects();
+  };
+
+  const toggleSharePanel = (e: React.MouseEvent, projectId: number) => {
+    e.stopPropagation();
+    setSharePanelFor(prev => (prev === projectId ? null : projectId));
   };
 
   const filtered = projects.filter(p =>
@@ -134,7 +284,7 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
           </p>
         </div>
         <button
-          onClick={() => { setShowCreate(true); setNewName(''); setNewDesc(''); setError(''); }}
+          onClick={() => { setShowCreate(true); setNewName(''); setNewDesc(''); setNewVisibility('shared'); setError(''); }}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -195,6 +345,32 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
                   className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Visibility</label>
+                <div className="flex gap-2">
+                  {(['shared', 'private'] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setNewVisibility(v)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium rounded-lg border transition-colors ${
+                        newVisibility === v
+                          ? v === 'shared'
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-slate-700 border-slate-700 text-white'
+                          : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {v === 'private' ? <LockIcon /> : <ShareIcon />}
+                      {v === 'shared' ? 'Shared (Company)' : 'Private (Only Me)'}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+                  {newVisibility === 'shared'
+                    ? 'All company members can view and access this project.'
+                    : 'Only you (and invited users) can access this project.'}
+                </p>
+              </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={() => setShowCreate(false)} className="flex-1 py-2 px-4 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
@@ -227,60 +403,87 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.map(project => (
-            <div
-              key={project.id}
-              className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group cursor-pointer"
-              onClick={() => onOpenProject(project.id)}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                    {project.name}
-                  </h3>
-                  {project.description && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{project.description}</p>
-                  )}
+            <div key={project.id} className="flex flex-col">
+              <div
+                className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group cursor-pointer"
+                onClick={() => onOpenProject(project.id)}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                        {project.name}
+                      </h3>
+                      <VisibilityBadge visibility={project.visibility ?? 'shared'} />
+                    </div>
+                    {project.description && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{project.description}</p>
+                    )}
+                  </div>
+                  <span className={`ml-2 flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
+                    project.status === 'active'
+                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                  }`}>
+                    {project.status}
+                  </span>
                 </div>
-                <span className={`ml-2 flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
-                  project.status === 'active'
-                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                }`}>
-                  {project.status}
-                </span>
-              </div>
 
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mt-3">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                </svg>
-                {project.fileCount ?? 0} files · Updated {new Date(project.updatedAt).toLocaleDateString()}
-              </div>
-
-              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60">
-                <button
-                  onClick={e => { e.stopPropagation(); onOpenProject(project.id); }}
-                  className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
-                >
-                  Open
-                </button>
-                <button
-                  onClick={e => handleArchive(e, project)}
-                  className="py-1.5 px-3 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                  title={project.status === 'active' ? 'Archive' : 'Restore'}
-                >
-                  {project.status === 'active' ? 'Archive' : 'Restore'}
-                </button>
-                <button
-                  onClick={e => handleDelete(e, project)}
-                  className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                  title="Delete project"
-                >
+                <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mt-3">
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                   </svg>
-                </button>
+                  {project.fileCount ?? 0} files · Updated {new Date(project.updatedAt).toLocaleDateString()}
+                </div>
+
+                <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                  <button
+                    onClick={e => { e.stopPropagation(); onOpenProject(project.id); }}
+                    className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
+                  >
+                    Open
+                  </button>
+                  {/* Share button — only visible to project creator */}
+                  {project.createdBy === user?.id && (
+                    <button
+                      onClick={e => toggleSharePanel(e, project.id)}
+                      className={`p-1.5 rounded-lg transition-colors ${
+                        sharePanelFor === project.id
+                          ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300'
+                          : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
+                      }`}
+                      title="Share project"
+                    >
+                      <ShareIcon />
+                    </button>
+                  )}
+                  <button
+                    onClick={e => handleArchive(e, project)}
+                    className="py-1.5 px-3 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                    title={project.status === 'active' ? 'Archive' : 'Restore'}
+                  >
+                    {project.status === 'active' ? 'Archive' : 'Restore'}
+                  </button>
+                  <button
+                    onClick={e => handleDelete(e, project)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                    title="Delete project"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                    </svg>
+                  </button>
+                </div>
               </div>
+
+              {/* Inline share panel — renders below the card */}
+              {sharePanelFor === project.id && token && (
+                <SharePanel
+                  project={project}
+                  token={token}
+                  onClose={() => setSharePanelFor(null)}
+                />
+              )}
             </div>
           ))}
         </div>

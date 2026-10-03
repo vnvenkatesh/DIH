@@ -106,6 +106,21 @@ export async function initDb(): Promise<void> {
       status      VARCHAR(20)  DEFAULT 'active'
     )
   `);
+  await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS visibility VARCHAR(10) DEFAULT 'shared'`);
+
+  // ── Project members (invite-based sharing for private projects) ────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      id         SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+      invited_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(project_id, user_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_project_members_user    ON project_members(user_id)`);
 
   // ── Project files ──────────────────────────────────────────────────────────
   await pool.query(`

@@ -188,9 +188,17 @@ export interface Project {
   companyId: number;
   createdBy: number;
   status: 'active' | 'archived';
+  visibility: 'private' | 'shared';
   createdAt: string;
   updatedAt: string;
   fileCount?: number;
+}
+
+export interface ProjectMember {
+  userId: number;
+  username: string;
+  invitedBy: number;
+  createdAt: string;
 }
 
 export interface ProjectFile {

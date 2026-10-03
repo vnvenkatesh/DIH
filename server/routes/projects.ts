@@ -12,9 +12,29 @@ async function getUserCompany(userId: number) {
   return rows[0];
 }
 
-async function assertProjectAccess(projectId: number, companyId: number) {
-  const { rows } = await pool.query('SELECT id FROM projects WHERE id = $1 AND company_id = $2', [projectId, companyId]);
+async function assertProjectAccess(projectId: number, companyId: number, userId: number) {
+  const { rows } = await pool.query(`
+    SELECT p.id FROM projects p
+    WHERE p.id = $1 AND p.company_id = $2
+      AND (
+        p.visibility = 'shared'
+        OR p.created_by = $3
+        OR EXISTS (
+          SELECT 1 FROM project_members pm
+          WHERE pm.project_id = p.id AND pm.user_id = $3
+        )
+      )
+  `, [projectId, companyId, userId]);
   if (!rows[0]) throw Object.assign(new Error('Project not found'), { status: 404 });
+}
+
+function toProjectRow(r: any) {
+  return {
+    id: r.id, name: r.name, description: r.description,
+    companyId: r.company_id, createdBy: r.created_by,
+    status: r.status, visibility: r.visibility ?? 'shared',
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
 }
 
 // GET /v1/projects
@@ -28,16 +48,22 @@ router.get('/', requireAuth as any, async (req: AuthRequest, res) => {
       FROM projects p
       LEFT JOIN project_files pf ON pf.project_id = p.id AND pf.archived = false
       WHERE p.company_id = $1
+        AND (
+          p.visibility = 'shared'
+          OR p.created_by = $2
+          OR EXISTS (
+            SELECT 1 FROM project_members pm
+            WHERE pm.project_id = p.id AND pm.user_id = $2
+          )
+        )
       GROUP BY p.id
       ORDER BY p.updated_at DESC
-    `, [u.company_id]);
+    `, [u.company_id, req.user!.id]);
 
     res.json({
       projects: rows.map(r => ({
-        id: r.id, name: r.name, description: r.description,
-        companyId: r.company_id, createdBy: r.created_by,
-        status: r.status, fileCount: r.file_count,
-        createdAt: r.created_at, updatedAt: r.updated_at,
+        ...toProjectRow(r),
+        fileCount: r.file_count,
       })),
     });
   } catch (err: any) {
@@ -51,21 +77,17 @@ router.post('/', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(400).json({ error: 'Must be in a company to create projects' }); return; }
 
-    const { name, description = '' } = req.body;
+    const { name, description = '', visibility = 'shared' } = req.body;
     if (!name?.trim()) { res.status(400).json({ error: 'Project name required' }); return; }
+    if (!['private', 'shared'].includes(visibility)) { res.status(400).json({ error: 'visibility must be private or shared' }); return; }
 
     const { rows } = await pool.query(
-      'INSERT INTO projects (name, description, company_id, created_by) VALUES ($1, $2, $3, $4) RETURNING *',
-      [name.trim(), description, u.company_id, req.user!.id]
+      'INSERT INTO projects (name, description, company_id, created_by, visibility) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [name.trim(), description, u.company_id, req.user!.id, visibility]
     );
     const r = rows[0];
     res.status(201).json({
-      project: {
-        id: r.id, name: r.name, description: r.description,
-        companyId: r.company_id, createdBy: r.created_by,
-        status: r.status, fileCount: 0,
-        createdAt: r.created_at, updatedAt: r.updated_at,
-      },
+      project: { ...toProjectRow(r), fileCount: 0 },
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -77,11 +99,11 @@ router.get('/:id', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
-    await assertProjectAccess(parseInt(req.params.id), u.company_id);
+    await assertProjectAccess(parseInt(req.params.id), u.company_id, req.user!.id);
 
     const { rows } = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
     const r = rows[0];
-    res.json({ project: { id: r.id, name: r.name, description: r.description, companyId: r.company_id, createdBy: r.created_by, status: r.status, createdAt: r.created_at, updatedAt: r.updated_at } });
+    res.json({ project: toProjectRow(r) });
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
   }
@@ -93,19 +115,23 @@ router.put('/:id', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
-    const { name, description, status } = req.body;
+    const { name, description, status, visibility } = req.body;
+    if (visibility !== undefined && !['private', 'shared'].includes(visibility)) {
+      res.status(400).json({ error: 'visibility must be private or shared' }); return;
+    }
     const { rows } = await pool.query(`
       UPDATE projects SET
         name        = COALESCE($1, name),
         description = COALESCE($2, description),
         status      = COALESCE($3, status),
+        visibility  = COALESCE($4, visibility),
         updated_at  = NOW()
-      WHERE id = $4 RETURNING *
-    `, [name ?? null, description ?? null, status ?? null, projectId]);
+      WHERE id = $5 RETURNING *
+    `, [name ?? null, description ?? null, status ?? null, visibility ?? null, projectId]);
     const r = rows[0];
-    res.json({ project: { id: r.id, name: r.name, description: r.description, companyId: r.company_id, createdBy: r.created_by, status: r.status, createdAt: r.created_at, updatedAt: r.updated_at } });
+    res.json({ project: toProjectRow(r) });
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
   }
@@ -117,7 +143,7 @@ router.delete('/:id', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows: files } = await pool.query('SELECT storage_key FROM project_files WHERE project_id = $1', [projectId]);
     for (const f of files) {
@@ -137,7 +163,7 @@ router.post('/:id/files', requireAuth as any, upload.array('files'), async (req:
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const files = (req.files as Express.Multer.File[]) ?? [];
     const role = req.body.role ?? 'template';
@@ -167,7 +193,7 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows } = await pool.query(
       'SELECT * FROM project_files WHERE project_id = $1 ORDER BY created_at ASC',
@@ -197,7 +223,7 @@ router.patch('/:id/files/:fileId', requireAuth as any, async (req: AuthRequest, 
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { role, archived } = req.body;
     const { rows } = await pool.query(
@@ -219,7 +245,7 @@ router.delete('/:id/files/:fileId', requireAuth as any, async (req: AuthRequest,
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows } = await pool.query('SELECT * FROM project_files WHERE id = $1 AND project_id = $2', [req.params.fileId, projectId]);
     if (!rows[0]) { res.status(404).json({ error: 'File not found' }); return; }
@@ -238,7 +264,7 @@ router.post('/:id/results', requireAuth as any, async (req: AuthRequest, res) =>
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { accelerator, result_data, provider = null, model = null } = req.body;
     if (!accelerator || !result_data) { res.status(400).json({ error: 'accelerator and result_data required' }); return; }
@@ -261,7 +287,7 @@ router.get('/:id/results', requireAuth as any, async (req: AuthRequest, res) => 
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows } = await pool.query(
       'SELECT * FROM project_results WHERE project_id = $1 ORDER BY created_at DESC',
@@ -279,7 +305,7 @@ router.get('/:id/chat', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows } = await pool.query(
       'SELECT * FROM project_messages WHERE project_id = $1 ORDER BY created_at ASC LIMIT 100',
@@ -297,7 +323,7 @@ router.post('/:id/chat', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { content } = req.body;
     if (!content?.trim()) { res.status(400).json({ error: 'content required' }); return; }
@@ -350,6 +376,107 @@ router.post('/:id/chat', requireAuth as any, async (req: AuthRequest, res) => {
     );
 
     res.json({ reply: assistantReply });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// ── Project members ───────────────────────────────────────────────────────
+
+// GET /v1/projects/:id/members
+router.get('/:id/members', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows } = await pool.query(`
+      SELECT pm.user_id, u.username, pm.invited_by, pm.created_at
+      FROM project_members pm
+      JOIN users u ON u.id = pm.user_id
+      WHERE pm.project_id = $1
+      ORDER BY pm.created_at ASC
+    `, [projectId]);
+
+    res.json({
+      members: rows.map(r => ({
+        userId: r.user_id, username: r.username,
+        invitedBy: r.invited_by, createdAt: r.created_at,
+      })),
+    });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// POST /v1/projects/:id/members
+router.post('/:id/members', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+
+    // Only the project creator can invite
+    const { rows: projRows } = await pool.query(
+      'SELECT created_by FROM projects WHERE id = $1 AND company_id = $2',
+      [projectId, u.company_id]
+    );
+    if (!projRows[0]) { res.status(404).json({ error: 'Project not found' }); return; }
+    if (projRows[0].created_by !== req.user!.id) {
+      res.status(403).json({ error: 'Only the project creator can invite members' }); return;
+    }
+
+    const { username } = req.body;
+    if (!username?.trim()) { res.status(400).json({ error: 'username required' }); return; }
+
+    // Look up target user in same company
+    const { rows: targetRows } = await pool.query(
+      'SELECT id, username FROM users WHERE LOWER(username) = LOWER($1) AND company_id = $2',
+      [username.trim(), u.company_id]
+    );
+    if (!targetRows[0]) { res.status(404).json({ error: 'User not found in your company' }); return; }
+    if (targetRows[0].id === req.user!.id) {
+      res.status(400).json({ error: 'You are already the project owner' }); return;
+    }
+
+    await pool.query(
+      'INSERT INTO project_members (project_id, user_id, invited_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [projectId, targetRows[0].id, req.user!.id]
+    );
+
+    res.status(201).json({
+      member: {
+        userId: targetRows[0].id, username: targetRows[0].username,
+        invitedBy: req.user!.id, createdAt: new Date().toISOString(),
+      },
+    });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/projects/:id/members/:userId
+router.delete('/:id/members/:userId', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+
+    const { rows: projRows } = await pool.query(
+      'SELECT created_by FROM projects WHERE id = $1 AND company_id = $2',
+      [projectId, u.company_id]
+    );
+    if (!projRows[0]) { res.status(404).json({ error: 'Project not found' }); return; }
+    if (projRows[0].created_by !== req.user!.id) {
+      res.status(403).json({ error: 'Only the project creator can remove members' }); return;
+    }
+
+    await pool.query(
+      'DELETE FROM project_members WHERE project_id = $1 AND user_id = $2',
+      [projectId, parseInt(req.params.userId)]
+    );
+    res.status(204).end();
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
   }

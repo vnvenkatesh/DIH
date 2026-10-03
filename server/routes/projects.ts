@@ -1044,4 +1044,133 @@ Return ONLY valid JSON matching this schema exactly:
   }
 });
 
+// ── Rationalise (server-side: exact or semantic clustering) ───────────────────
+
+// POST /v1/projects/:id/rationalise
+router.post('/:id/rationalise', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { mode = 'semantic', threshold = 75 } = req.body;
+    if (!['exact', 'semantic'].includes(mode)) {
+      res.status(400).json({ error: 'mode must be exact or semantic' }); return;
+    }
+
+    // Fetch non-archived project files
+    const { rows: fileRows } = await pool.query(
+      `SELECT id, name, file_type, storage_key FROM project_files
+       WHERE project_id = $1 AND archived = false ORDER BY name`,
+      [projectId]
+    );
+    if (fileRows.length < 2) {
+      res.status(400).json({ error: 'Upload at least 2 files to rationalise' }); return;
+    }
+
+    // Extract text from each file
+    const docs: { id: number; name: string; fileType: string; text: string }[] = [];
+    const skipped: string[] = [];
+    for (const f of fileRows) {
+      const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+      if (!['pdf', 'docx', 'doc'].includes(ext) && !['pdf', 'docx'].includes(f.file_type)) {
+        skipped.push(f.name); continue;
+      }
+      let text = '';
+      try {
+        const signedUrl = await getSignedUrl(u.company_id, f.storage_key, 3600, req.user!.id);
+        const resp = await fetch(signedUrl);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          text = (await extractTextFromBuffer(buf, f.name)).slice(0, 10000);
+        }
+      } catch { /* skip */ }
+      if (text.trim()) docs.push({ id: f.id, name: f.name, fileType: f.file_type, text });
+      else skipped.push(f.name);
+    }
+    if (docs.length < 2) {
+      res.status(400).json({ error: 'Could not extract text from enough files. Ensure templates are PDFs or DOCX.' }); return;
+    }
+
+    let groups: any[];
+
+    if (mode === 'exact') {
+      const { createHash } = await import('crypto');
+      const hashMap = new Map<string, typeof docs>();
+      for (const doc of docs) {
+        const normalized = doc.text.toLowerCase().replace(/\s+/g, ' ').trim();
+        const hash = createHash('sha256').update(normalized).digest('hex');
+        if (!hashMap.has(hash)) hashMap.set(hash, []);
+        hashMap.get(hash)!.push(doc);
+      }
+      groups = Array.from(hashMap.values()).map((g, idx) => ({
+        id: idx,
+        similarity: g.length > 1 ? 1.0 : 0,
+        isUnique: g.length === 1,
+        documents: g.map(d => ({ fileId: d.id, fileName: d.name, fileType: d.fileType })),
+      }));
+    } else {
+      // Semantic: Gemini text-embedding-004 + cosine similarity clustering
+      const apiKey = await getGeminiKeyForUser(req.user!.id);
+      if (!apiKey) {
+        res.status(400).json({ error: 'No Gemini API key configured. Add one in Settings to use semantic clustering.' }); return;
+      }
+      const embeddings: number[][] = [];
+      for (const doc of docs) {
+        try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${encodeURIComponent(apiKey)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model: 'models/text-embedding-004', content: { parts: [{ text: doc.text.slice(0, 2000) }] } }),
+            }
+          );
+          const data = resp.ok ? (await resp.json() as any) : {};
+          embeddings.push(data?.embedding?.values ?? []);
+        } catch { embeddings.push([]); }
+      }
+
+      function cosine(a: number[], b: number[]): number {
+        let dot = 0, na = 0, nb = 0;
+        for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+        return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
+      }
+
+      const thresh = (threshold as number) / 100;
+      const n = docs.length;
+      const gId = new Array(n).fill(-1);
+      const gDocs: (typeof docs)[] = [];
+      const gMin: number[] = [];
+      for (let i = 0; i < n; i++) {
+        if (gId[i] !== -1) continue;
+        const gi = gDocs.length;
+        gDocs.push([docs[i]]); gMin.push(1.0); gId[i] = gi;
+        for (let j = i + 1; j < n; j++) {
+          if (gId[j] !== -1) continue;
+          const sim = cosine(embeddings[i], embeddings[j]);
+          if (sim >= thresh) { gDocs[gi].push(docs[j]); gId[j] = gi; if (sim < gMin[gi]) gMin[gi] = sim; }
+        }
+      }
+      groups = gDocs.map((g, idx) => ({
+        id: idx,
+        similarity: gMin[idx],
+        isUnique: g.length === 1,
+        documents: g.map(d => ({ fileId: d.id, fileName: d.name, fileType: d.fileType })),
+      }));
+    }
+
+    // Save result for project history
+    await pool.query(
+      'INSERT INTO project_results (project_id, accelerator, result_data, created_by) VALUES ($1, $2, $3, $4)',
+      [projectId, 'cluster', JSON.stringify({ mode, threshold, groups }), req.user!.id]
+    );
+
+    res.json({ mode, threshold, groups, skipped });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
 export default router;

@@ -2,47 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import type { Project, ProjectFile, ProjectMessage, InventoryItem, ProjectDocument } from '../types';
 
-// ── Inline cluster math ────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-  return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
-}
-
-function wordHashEmbed(text: string): number[] {
-  const vec = new Float32Array(768);
-  const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/);
-  for (const w of words) {
-    let h = 5381;
-    for (let i = 0; i < w.length; i++) h = ((h * 33) ^ w.charCodeAt(i)) >>> 0;
-    for (let k = 0; k < 4; k++) { const idx = (h + k * 7919) % 768; vec[idx] += 1; }
-  }
-  let norm = 0;
-  for (let i = 0; i < 768; i++) norm += vec[i] * vec[i];
-  norm = Math.sqrt(norm) || 1;
-  return Array.from(vec).map(v => v / norm);
-}
-
-interface DocCluster { id: number; files: ProjectFile[]; similarity: number }
-
-function clusterFiles(files: ProjectFile[], texts: string[], threshold: number): DocCluster[] {
-  const embeddings = texts.map(t => wordHashEmbed(t));
-  const n = files.length;
-  const assigned = new Array(n).fill(-1);
-  const clusters: DocCluster[] = [];
-  for (let i = 0; i < n; i++) {
-    if (assigned[i] !== -1) continue;
-    const cluster: DocCluster = { id: clusters.length, files: [files[i]], similarity: 100 };
-    assigned[i] = cluster.id;
-    for (let j = i + 1; j < n; j++) {
-      if (assigned[j] !== -1) continue;
-      const sim = cosineSimilarity(embeddings[i], embeddings[j]) * 100;
-      if (sim >= threshold) { cluster.files.push(files[j]); assigned[j] = cluster.id; cluster.similarity = Math.min(cluster.similarity, sim); }
-    }
-    clusters.push(cluster);
-  }
-  return clusters;
+interface RGroup {
+  id: number;
+  similarity: number;
+  isUnique: boolean;
+  documents: { fileId: number; fileName: string; fileType: string }[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -168,11 +134,14 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [uploadQueue, setUploadQueue] = useState<{ name: string; status: 'uploading' | 'done' | 'error'; error?: string }[]>([]);
 
   // Rationalise
-  const [threshold, setThreshold] = useState(75);
-  const [clusters, setClusters] = useState<DocCluster[]>([]);
-  const [rationalising, setRationalising] = useState(false);
-  const [rationaliseError, setRationaliseError] = useState('');
-  const [savedResult, setSavedResult] = useState(false);
+  const [rMode, setRMode] = useState<'exact' | 'semantic'>('semantic');
+  const [rThreshold, setRThreshold] = useState(75);
+  const [rRunning, setRRunning] = useState(false);
+  const [rGroups, setRGroups] = useState<RGroup[]>([]);
+  const [rSkipped, setRSkipped] = useState<string[]>([]);
+  const [rSelected, setRSelected] = useState<Set<number>>(new Set());
+  const [rExpandedGroups, setRExpandedGroups] = useState<Set<number>>(new Set());
+  const [rError, setRError] = useState('');
 
   // Inventory
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -376,51 +345,83 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     fetchProject();
   };
 
-  // ── Rationalise handler ──────────────────────────────────────────────────────
+  // ── Rationalise handlers ─────────────────────────────────────────────────────
 
   const handleRationalise = async () => {
-    const templates = files.filter(f => !f.archived && (f.role === 'template' || f.role === 'reference'));
-    if (templates.length < 2) { setRationaliseError('Upload at least 2 template files to rationalise.'); return; }
-    setRationalising(true); setRationaliseError(''); setSavedResult(false); setClusters([]);
+    if (!token) return;
+    setRRunning(true); setRError(''); setRGroups([]); setRSkipped([]); setRSelected(new Set()); setRExpandedGroups(new Set());
     try {
-      const texts = await Promise.all(templates.map(async (f) => {
-        if (!f.signedUrl) return f.name;
-        try { return await (await fetch(f.signedUrl)).text(); } catch { return f.name; }
-      }));
-      const result = clusterFiles(templates, texts, threshold);
-      setClusters(result);
-      if (token) {
-        await fetch(`/v1/projects/${projectId}/results`, {
+      const res = await fetch(`/v1/projects/${projectId}/rationalise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mode: rMode, threshold: rThreshold }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as any;
+        throw new Error(d.error ?? `Server error (${res.status})`);
+      }
+      const data = await res.json();
+      const groups: RGroup[] = data.groups ?? [];
+      setRGroups(groups);
+      setRSkipped(data.skipped ?? []);
+      // Auto-expand duplicate groups
+      setRExpandedGroups(new Set(groups.filter(g => !g.isUnique).map(g => g.id)));
+    } catch (e: any) {
+      setRError(e.message ?? 'Rationalisation failed');
+    }
+    setRRunning(false);
+  };
+
+  const handleBulkAddToInventory = async () => {
+    if (!token || rSelected.size === 0) return;
+    for (const fileId of rSelected) {
+      const group = rGroups.find(g => g.documents.some(d => d.fileId === fileId));
+      if (!group) continue;
+      try {
+        await fetch(`/v1/projects/${projectId}/inventory`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            accelerator: 'rationalise',
-            result_data: { threshold, clusters: result.map(c => ({ id: c.id, files: c.files.map(f => ({ id: f.id, name: f.name })), similarity: c.similarity })) },
-          }),
+          body: JSON.stringify({ fileId, groupId: group.id, variantCount: group.documents.length, variations: [] }),
         });
-        setSavedResult(true);
-      }
-    } catch (e: any) {
-      setRationaliseError(e.message ?? 'Rationalise failed');
+      } catch { /* ignore */ }
     }
-    setRationalising(false);
+    await fetchInventory();
+    setRSelected(new Set());
+  };
+
+  const handleBulkArchive = async () => {
+    if (!token || rSelected.size === 0) return;
+    if (!confirm(`Archive ${rSelected.size} template(s)? They will be hidden from the project.`)) return;
+    for (const fileId of rSelected) {
+      await fetch(`/v1/projects/${projectId}/files/${fileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ archived: true }),
+      }).catch(() => {});
+    }
+    const archivedIds = new Set(rSelected);
+    setRSelected(new Set());
+    setRGroups(prev => prev
+      .map(g => ({ ...g, documents: g.documents.filter(d => !archivedIds.has(d.fileId)) }))
+      .filter(g => g.documents.length > 0)
+    );
+    fetchProject();
   };
 
   // ── Inventory handlers ───────────────────────────────────────────────────────
 
-  const handleAddToInventory = async (file: ProjectFile, cluster: DocCluster) => {
+  const handleAddToInventory = async (fileId: number, groupId: number, variantCount: number) => {
     if (!token) return;
-    setAddingToInventory(prev => new Set(prev).add(file.id));
+    setAddingToInventory(prev => new Set(prev).add(fileId));
     try {
       const res = await fetch(`/v1/projects/${projectId}/inventory`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fileId: file.id, groupId: cluster.id, variantCount: cluster.files.length, variations: [] }),
+        body: JSON.stringify({ fileId, groupId, variantCount, variations: [] }),
       });
       if (res.ok) await fetchInventory();
-      // 409 = already in inventory, silently ignore
     } catch { /* ignore */ }
-    setAddingToInventory(prev => { const s = new Set(prev); s.delete(file.id); return s; });
+    setAddingToInventory(prev => { const s = new Set(prev); s.delete(fileId); return s; });
   };
 
   const handleRemoveFromInventory = async (itemId: number) => {
@@ -792,90 +793,179 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
       {/* ── Rationalise tab ── */}
       {activeTab === 'rationalise' && (
-        <div className="space-y-4">
+        <div className="space-y-4 relative">
+          {/* Controls panel */}
           <div className={`${panelCls} p-5`}>
             <h3 className="text-sm font-semibold text-slate-800 dark:text-white mb-1">Rationalise Templates</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-              Groups similar template files by content similarity. After rationalising, add representative templates to the Final Inventory.
+              Groups similar templates by content. Select templates from groups, then add to inventory or archive duplicates.
             </p>
-            <div className="flex items-center gap-4 mb-4">
-              <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Similarity threshold: <strong>{threshold}%</strong></label>
-              <input type="range" min={50} max={99} value={threshold} onChange={e => setThreshold(Number(e.target.value))} className="w-40 accent-indigo-600" />
-            </div>
-            {rationaliseError && <p className="text-xs text-red-600 mb-2">{rationaliseError}</p>}
-            {savedResult && <p className="text-xs text-emerald-600 mb-2">Result saved to project.</p>}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Mode selector */}
+              <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-sm">
+                {(['exact', 'semantic'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setRMode(m)}
+                    className={`px-4 py-1.5 font-medium capitalize transition-colors ${rMode === m ? 'bg-indigo-600 text-white' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              {/* Threshold slider — semantic only */}
+              {rMode === 'semantic' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Threshold:</span>
+                  <input type="range" min={50} max={99} value={rThreshold} onChange={e => setRThreshold(Number(e.target.value))} className="w-32 accent-indigo-600" />
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 w-8">{rThreshold}%</span>
+                </div>
+              )}
+              {/* Run button */}
               <button
                 onClick={handleRationalise}
-                disabled={rationalising || activeFiles.filter(f => f.role === 'template' || f.role === 'reference').length < 2}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+                disabled={rRunning || activeFiles.filter(f => f.role === 'template' || f.role === 'reference').length < 2}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
               >
-                {rationalising ? 'Analysing...' : 'Run Rationalise'}
+                {rRunning ? (
+                  <><svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Analysing…</>
+                ) : '▶ Run Rationalisation'}
               </button>
-              {clusters.length > 0 && (
-                <button
-                  onClick={() => setActiveTab('inventory')}
-                  className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
-                >
-                  Add to Inventory →
-                </button>
-              )}
             </div>
+            {rError && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{rError}</p>}
+            {rSkipped.length > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                Skipped {rSkipped.length} file(s) (unsupported format or unreadable): {rSkipped.join(', ')}
+              </p>
+            )}
           </div>
 
-          {clusters.length > 0 && (
-            <div className="space-y-3">
-              {clusters.map(cluster => (
-                <div key={cluster.id} className={`${panelCls} p-5`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-sm font-semibold text-slate-800 dark:text-white">
-                      Group {cluster.id + 1}
-                      {cluster.files.length === 1 && <span className="ml-2 text-xs text-slate-400 font-normal">(unique)</span>}
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      {cluster.files.length > 1 && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                          {Math.round(cluster.similarity)}% similar · {cluster.files.length} templates
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    {cluster.files.map((f, i) => (
-                      <div key={f.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-slate-700 dark:text-slate-300">{f.name}</span>
-                          {i === 0 && cluster.files.length > 1 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">canonical</span>
-                          )}
-                          {inInventoryFileIds.has(f.id) && (
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">in inventory</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!inInventoryFileIds.has(f.id) && (
-                            <button
-                              onClick={() => handleAddToInventory(f, cluster)}
-                              disabled={addingToInventory.has(f.id)}
-                              className="text-xs text-violet-600 hover:text-violet-800 dark:hover:text-violet-300 border border-violet-300 dark:border-violet-600 px-2 py-0.5 rounded transition-colors disabled:opacity-50"
-                            >
-                              {addingToInventory.has(f.id) ? 'Adding...' : '+ Inventory'}
-                            </button>
-                          )}
-                          {cluster.files.length > 1 && i > 0 && (
-                            <button
-                              onClick={() => handleArchiveFile(f.id, true)}
-                              className="text-xs text-amber-600 hover:text-amber-800 dark:hover:text-amber-400 border border-amber-300 dark:border-amber-600 px-2 py-0.5 rounded transition-colors"
-                            >
-                              Archive duplicate
-                            </button>
-                          )}
-                        </div>
+          {/* Empty state */}
+          {!rRunning && rGroups.length === 0 && (
+            <div className={`${panelCls} p-8 text-center`}>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Upload templates and click Run Rationalisation to identify duplicates and group similar templates.</p>
+            </div>
+          )}
+
+          {/* Group accordion */}
+          {rGroups.length > 0 && (
+            <div className="space-y-3 pb-16">
+              {rGroups.map(group => {
+                const expanded = rExpandedGroups.has(group.id);
+                const groupFileIds = group.documents.map(d => d.fileId);
+                const allSelected = groupFileIds.length > 0 && groupFileIds.every(id => rSelected.has(id));
+                const someSelected = groupFileIds.some(id => rSelected.has(id));
+                const FILE_TYPE_CHIP: Record<string, string> = {
+                  pdf:  'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
+                  docx: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+                  doc:  'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+                  xsd:  'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300',
+                  csv:  'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300',
+                };
+                return (
+                  <div key={group.id} className={panelCls}>
+                    {/* Group header */}
+                    <div className="flex items-center gap-3 p-4">
+                      {/* Group-level checkbox */}
+                      <div className="flex-shrink-0" onClick={e => {
+                        e.stopPropagation();
+                        setRSelected(prev => {
+                          const next = new Set(prev);
+                          if (allSelected) groupFileIds.forEach(id => next.delete(id));
+                          else groupFileIds.forEach(id => next.add(id));
+                          return next;
+                        });
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                          onChange={() => {}}
+                          className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                        />
                       </div>
-                    ))}
+                      <button
+                        onClick={() => setRExpandedGroups(prev => { const s = new Set(prev); s.has(group.id) ? s.delete(group.id) : s.add(group.id); return s; })}
+                        className="flex-1 flex items-center gap-3 text-left"
+                      >
+                        <span className="text-sm font-medium text-slate-800 dark:text-white">Group {group.id + 1}</span>
+                        {group.isUnique ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">Unique</span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                            {group.documents.length} templates · likely duplicates
+                          </span>
+                        )}
+                        {!group.isUnique && rMode === 'semantic' && (
+                          <span className="text-xs text-slate-400">{Math.round(group.similarity * 100)}% similar</span>
+                        )}
+                        <svg className={`w-4 h-4 text-slate-400 transition-transform ml-auto flex-shrink-0 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                        </svg>
+                      </button>
+                    </div>
+                    {/* Group rows */}
+                    {expanded && (
+                      <div className="border-t border-slate-100 dark:border-slate-700">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700">
+                              <th className="w-10 px-4 py-2 text-left"></th>
+                              <th className="px-4 py-2 text-left">File Name</th>
+                              <th className="px-4 py-2 text-left">Type</th>
+                              <th className="px-4 py-2 text-left">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                            {group.documents.map(doc => {
+                              const inInv = inInventoryFileIds.has(doc.fileId);
+                              const ext = doc.fileName.split('.').pop()?.toLowerCase() ?? doc.fileType;
+                              return (
+                                <tr key={doc.fileId} className="hover:bg-slate-50 dark:hover:bg-slate-700/20">
+                                  <td className="px-4 py-2.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={rSelected.has(doc.fileId)}
+                                      onChange={() => setRSelected(prev => { const s = new Set(prev); s.has(doc.fileId) ? s.delete(doc.fileId) : s.add(doc.fileId); return s; })}
+                                      className="w-4 h-4 accent-indigo-600 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300 truncate max-w-xs">{doc.fileName}</td>
+                                  <td className="px-4 py-2.5">
+                                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${FILE_TYPE_CHIP[ext] ?? 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
+                                      {ext.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    {inInv && <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">✓ In Inventory</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+          )}
+
+          {/* Sticky bulk action bar */}
+          {rSelected.size > 0 && (
+            <div className="sticky bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shadow-lg py-3 px-4 flex items-center gap-3 z-10 rounded-b-xl">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{rSelected.size} template{rSelected.size !== 1 ? 's' : ''} selected</span>
+              <div className="flex-1" />
+              <button onClick={handleBulkAddToInventory} className="px-4 py-1.5 text-sm font-medium rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors">
+                + Add to Inventory
+              </button>
+              <button onClick={handleBulkArchive} className="px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors">
+                Archive
+              </button>
+              <button onClick={() => setRSelected(new Set())} className="px-4 py-1.5 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                Clear
+              </button>
             </div>
           )}
         </div>
@@ -885,29 +975,29 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
       {activeTab === 'inventory' && (
         <div className="space-y-4">
           {/* Add from Rationalise */}
-          {clusters.length > 0 ? (
+          {rGroups.length > 0 ? (
             <div className={`${panelCls} p-5`}>
               <h3 className="text-sm font-semibold text-slate-800 dark:text-white mb-1">Add from Rationalise Groups</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Select templates from cluster groups to add to your implementation inventory.</p>
               <div className="space-y-2">
-                {clusters.map(cluster => (
-                  <div key={cluster.id} className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+                {rGroups.map(group => (
+                  <div key={group.id} className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
                     <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">
-                      Group {cluster.id + 1} — {cluster.files.length} template{cluster.files.length !== 1 ? 's' : ''}{cluster.files.length > 1 ? `, ${Math.round(cluster.similarity)}% similar` : ''}
+                      Group {group.id + 1} — {group.documents.length} template{group.documents.length !== 1 ? 's' : ''}{!group.isUnique ? `, ${Math.round(group.similarity * 100)}% similar` : ' · unique'}
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {cluster.files.map(f => (
-                        <div key={f.id} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-700 rounded px-2 py-1">
-                          <span className="text-xs text-slate-700 dark:text-slate-300 truncate max-w-xs">{f.name}</span>
-                          {inInventoryFileIds.has(f.id) ? (
+                      {group.documents.map(doc => (
+                        <div key={doc.fileId} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-700 rounded px-2 py-1">
+                          <span className="text-xs text-slate-700 dark:text-slate-300 truncate max-w-xs">{doc.fileName}</span>
+                          {inInventoryFileIds.has(doc.fileId) ? (
                             <span className="text-xs text-violet-500">✓</span>
                           ) : (
                             <button
-                              onClick={() => handleAddToInventory(f, cluster)}
-                              disabled={addingToInventory.has(f.id)}
+                              onClick={() => handleAddToInventory(doc.fileId, group.id, group.documents.length)}
+                              disabled={addingToInventory.has(doc.fileId)}
                               className="text-xs text-violet-600 hover:text-violet-800 font-medium disabled:opacity-50"
                             >
-                              {addingToInventory.has(f.id) ? '...' : '+ Add'}
+                              {addingToInventory.has(doc.fileId) ? '...' : '+ Add'}
                             </button>
                           )}
                         </div>

@@ -599,12 +599,14 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     setMessages(prev => [...prev, { id: Date.now(), projectId, userId: 0, role: 'user', content: msg, createdAt: new Date().toISOString() }]);
 
     // Intent detection: intercept generate commands before sending to LLM
-    const isBrd = /\b(brd|business requirements?|business rules?|generate brd)\b/.test(msgLower);
-    const isTestCases = /\b(test cases?|test tracker|generate tests?)\b/.test(msgLower);
-    const isFieldMapping = /\b(field mapping|fields? map|dynamic fields?|map fields?|field extractor)\b/.test(msgLower);
-    const isGenerate = /\b(generate|create|run|start|initiate|make)\b/.test(msgLower);
+    const hasGenerateVerb = /\b(generate|create|run|start|initiate|make|do|perform|build|extract|analyse|analyze|produce)\b/.test(msgLower);
+    // Field mapping: any mention of these phrases is itself a command (map/data/dynamic fields)
+    const isFieldMapping = /\b(field.?mapping|fields?.?map|map.?fields?|data.?mapping|dynamic.?fields?|field.?extract)\b/.test(msgLower);
+    // BRD and test cases require an explicit action verb to avoid false positives from questions
+    const isBrd = hasGenerateVerb && /\b(brd|business.?req|business.?rules?)\b/.test(msgLower);
+    const isTestCases = hasGenerateVerb && /\b(test.?cases?|test.?tracker|test.?suite)\b/.test(msgLower);
 
-    if (isGenerate && isFieldMapping) {
+    if (isFieldMapping) {
       setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: "I'll generate the Fields Mapping now...", createdAt: new Date().toISOString() }]);
       setActiveTab('field_mapping');
       await handleGenerateFieldMapping();
@@ -612,7 +614,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
       setChatLoading(false);
       return;
     }
-    if (isGenerate && isBrd) {
+    if (isBrd) {
       setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: "I'll generate the Business Requirements Document now...", createdAt: new Date().toISOString() }]);
       setActiveTab('brd');
       await handleGenerateBrd();
@@ -620,7 +622,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
       setChatLoading(false);
       return;
     }
-    if (isGenerate && isTestCases) {
+    if (isTestCases) {
       setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: "I'll generate Test Cases now...", createdAt: new Date().toISOString() }]);
       setActiveTab('test_cases');
       await handleGenerateTestCases();

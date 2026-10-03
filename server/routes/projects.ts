@@ -683,7 +683,7 @@ router.get('/:id/documents/:docType', requireAuth as any, async (req: AuthReques
       'SELECT * FROM project_documents WHERE project_id = $1 AND doc_type = $2',
       [projectId, req.params.docType]
     );
-    if (!rows[0]) { res.status(404).json({ error: 'Document not found' }); return; }
+    if (!rows[0]) { res.json({ document: null }); return; }
     const r = rows[0];
     res.json({ document: { id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at } });
   } catch (err: any) {

@@ -546,9 +546,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   ];
 
   return (
-    <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 140px)' }}>
-      {/* ── Main content area (80%) ── */}
-      <div className="flex-1 min-w-0 overflow-y-auto space-y-4 pr-1">
+    <div className="flex flex-col overflow-hidden" style={{ height: 'calc(100vh - 140px)' }}>
 
       {/* Header */}
       <div className="flex items-center gap-3">
@@ -591,6 +589,10 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
           </button>
         ))}
       </div>
+
+      {/* ── Row split: tab content (left) + chat sidebar (right) ── */}
+      <div className="flex flex-row flex-1 overflow-hidden min-h-0">
+      <div className="flex-1 min-w-0 overflow-y-auto pb-10 space-y-4 pr-1 pt-4">
 
       {/* ── Files tab ── */}
       {activeTab === 'files' && (
@@ -1146,7 +1148,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
         </div>
       )}
 
-      </div>{/* end main content area */}
+      </div>{/* end inner content */}
 
       {/* ── Chat sidebar (always visible, 20% width) ── */}
       <div className={`flex flex-col flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-all duration-200 ${chatCollapsed ? 'w-10' : 'w-64'}`}>
@@ -1175,7 +1177,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
         ) : (
           <>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0 pb-10">
               {messages.length === 0 && (
                 <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-8 leading-relaxed">
                   Ask anything about this project — files, rationalise results, or implementation details.
@@ -1223,6 +1225,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
           </>
         )}
       </div>
+      </div>{/* end row split */}
     </div>
   );
 };

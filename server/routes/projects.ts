@@ -1111,54 +1111,82 @@ router.post('/:id/rationalise', requireAuth as any, async (req: AuthRequest, res
         documents: g.map(d => ({ fileId: d.id, fileName: d.name, fileType: d.fileType })),
       }));
     } else {
-      // Semantic: Gemini text-embedding-004 + cosine similarity clustering
-      const apiKey = await getGeminiKeyForUser(req.user!.id);
-      if (!apiKey) {
-        res.status(400).json({ error: 'No Gemini API key configured. Add one in Settings to use semantic clustering.' }); return;
-      }
-      const embeddings: number[][] = [];
-      for (const doc of docs) {
-        try {
-          const resp = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${encodeURIComponent(apiKey)}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model: 'models/text-embedding-004', content: { parts: [{ text: doc.text.slice(0, 2000) }] } }),
-            }
-          );
-          const data = resp.ok ? (await resp.json() as any) : {};
-          embeddings.push(data?.embedding?.values ?? []);
-        } catch { embeddings.push([]); }
+      // Semantic: word-hash 768-dim embeddings + agglomerative clustering
+      // Mirrors the /v1/cluster accelerator exactly — no API key required.
+
+      function wordHashEmbed(text: string): number[] {
+        const vec = new Array<number>(768).fill(0);
+        const words = text.toLowerCase().match(/\w+/g);
+        if (!words) return vec;
+        for (const w of words) {
+          let h = 0;
+          for (let k = 0; k < w.length; k++) { h = ((h << 5) - h) + w.charCodeAt(k); h |= 0; }
+          vec[Math.abs(h) % 768] += 1;
+        }
+        const mag = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
+        return mag > 0 ? vec.map(v => v / mag) : vec;
       }
 
-      function cosine(a: number[], b: number[]): number {
-        let dot = 0, na = 0, nb = 0;
-        for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-        return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
+      // L2-normalised vectors: cosine = dot product
+      function dotCosine(a: number[], b: number[]): number {
+        let d = 0; for (let k = 0; k < a.length; k++) d += a[k] * b[k]; return d;
       }
 
       const thresh = (threshold as number) / 100;
-      const n = docs.length;
-      const gId = new Array(n).fill(-1);
-      const gDocs: (typeof docs)[] = [];
-      const gMin: number[] = [];
-      for (let i = 0; i < n; i++) {
-        if (gId[i] !== -1) continue;
-        const gi = gDocs.length;
-        gDocs.push([docs[i]]); gMin.push(1.0); gId[i] = gi;
-        for (let j = i + 1; j < n; j++) {
-          if (gId[j] !== -1) continue;
-          const sim = cosine(embeddings[i], embeddings[j]);
-          if (sim >= thresh) { gDocs[gi].push(docs[j]); gId[j] = gi; if (sim < gMin[gi]) gMin[gi] = sim; }
+      const embeddings = docs.map(d => wordHashEmbed(d.text));
+      const embMap = new Map<typeof docs[0], number[]>();
+      docs.forEach((d, i) => embMap.set(d, embeddings[i]));
+
+      // Pre-compute ALL pairwise similarities, sorted descending
+      const pairs: { i: number; j: number; sim: number }[] = [];
+      for (let i = 0; i < docs.length; i++)
+        for (let j = i + 1; j < docs.length; j++)
+          pairs.push({ i, j, sim: dotCosine(embeddings[i], embeddings[j]) });
+      pairs.sort((a, b) => b.sim - a.sim);
+
+      // Greedy agglomerative merge (same as cluster.ts)
+      const clusters: (typeof docs)[] = docs.map(d => [d]);
+      const merged = new Array<boolean>(docs.length).fill(false);
+      const finalClusters: (typeof docs)[] = [];
+
+      for (const { i, j, sim } of pairs) {
+        if (sim < thresh) break;
+        if (!merged[i] && !merged[j]) {
+          merged[i] = true; merged[j] = true;
+          finalClusters.push([...clusters[i], ...clusters[j]]);
+        } else if (merged[i] && !merged[j]) {
+          const idx = finalClusters.findIndex(c => c.includes(clusters[i][0]));
+          if (idx !== -1) { finalClusters[idx].push(...clusters[j]); merged[j] = true; }
+        } else if (!merged[i] && merged[j]) {
+          const idx = finalClusters.findIndex(c => c.includes(clusters[j][0]));
+          if (idx !== -1) { finalClusters[idx].push(...clusters[i]); merged[i] = true; }
         }
       }
-      groups = gDocs.map((g, idx) => ({
-        id: idx,
-        similarity: gMin[idx],
-        isUnique: g.length === 1,
-        documents: g.map(d => ({ fileId: d.id, fileName: d.name, fileType: d.fileType })),
-      }));
+
+      let id = 0;
+      groups = [];
+
+      // Similar groups (2+ docs) with average similarity
+      for (const bucket of finalClusters) {
+        const firstEmb = embMap.get(bucket[0])!;
+        const avgSim = bucket.slice(1).reduce((s, d) => s + dotCosine(firstEmb, embMap.get(d)!), 0) / (bucket.length - 1);
+        groups.push({
+          id: id++,
+          similarity: Math.round(avgSim * 100),
+          isUnique: false,
+          documents: bucket.map(d => ({ fileId: d.id, fileName: d.name, fileType: d.fileType })),
+        });
+      }
+
+      // Singleton (unique) docs — not merged with anyone
+      for (let i = 0; i < docs.length; i++) {
+        if (!merged[i]) {
+          groups.push({
+            id: id++, similarity: 0, isUnique: true,
+            documents: [{ fileId: docs[i].id, fileName: docs[i].name, fileType: docs[i].fileType }],
+          });
+        }
+      }
     }
 
     // Save result for project history

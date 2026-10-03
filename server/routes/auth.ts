@@ -4,7 +4,6 @@ import jwt from 'jsonwebtoken';
 import pool from '../db.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
 import { testStorageConnection } from '../lib/cloudStorage.js';
-import { testStorageConnection } from '../lib/cloudStorage.js';
 
 const router = express.Router();
 

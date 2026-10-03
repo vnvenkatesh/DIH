@@ -1,11 +1,9 @@
 import express from 'express';
-import multer from 'multer';
 import pool from '../db.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
-import { uploadFile, getSignedUrl, deleteFile } from '../lib/cloudStorage.js';
+import { getPresignedUploadUrl, getSignedUrl, deleteFile } from '../lib/cloudStorage.js';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
 
 async function getUserCompany(userId: number) {
   const { rows } = await pool.query('SELECT company_id, company_role FROM users WHERE id = $1', [userId]);
@@ -157,31 +155,52 @@ router.delete('/:id', requireAuth as any, async (req: AuthRequest, res) => {
   }
 });
 
-// POST /v1/projects/:id/files — upload files to cloud storage
-router.post('/:id/files', requireAuth as any, upload.array('files'), async (req: AuthRequest, res) => {
+// POST /v1/projects/:id/files/presign — get presigned upload URL (no file bytes through server)
+router.post('/:id/files/presign', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
     await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
-    const files = (req.files as Express.Multer.File[]) ?? [];
-    const role = req.body.role ?? 'template';
-    const savedFiles = [];
+    const { fileName, mimeType } = req.body;
+    if (!fileName || !mimeType) { res.status(400).json({ error: 'fileName and mimeType required' }); return; }
 
-    for (const file of files) {
-      const ext = file.originalname.split('.').pop()?.toLowerCase() ?? '';
-      const storageKey = await uploadFile(u.company_id, projectId, file.buffer, file.originalname, file.mimetype, req.user!.id);
-      const { rows } = await pool.query(
-        'INSERT INTO project_files (project_id, uploaded_by, name, file_type, role, storage_key, size_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-        [projectId, req.user!.id, file.originalname, ext, role, storageKey, file.size]
-      );
-      await pool.query('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
-      const r = rows[0];
-      savedFiles.push({ id: r.id, name: r.name, fileType: r.file_type, role: r.role, sizeBytes: r.size_bytes, archived: r.archived, createdAt: r.created_at });
-    }
+    const result = await getPresignedUploadUrl(u.company_id, projectId, fileName, mimeType, req.user!.id);
+    res.json(result);
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
 
-    res.status(201).json({ files: savedFiles });
+// POST /v1/projects/:id/files/confirm — record a completed direct upload in DB
+router.post('/:id/files/confirm', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { storageKey, fileName, mimeType, size = 0, role = 'template' } = req.body;
+    if (!storageKey || !fileName) { res.status(400).json({ error: 'storageKey and fileName required' }); return; }
+
+    const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+    const fileType = (() => {
+      if (mimeType === 'application/pdf' || ext === 'pdf') return 'pdf';
+      if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx') return 'docx';
+      if (ext === 'xsd') return 'xsd';
+      if (ext === 'csv') return 'csv';
+      if (ext === 'xml' || ext === 'gd') return ext;
+      return 'other';
+    })();
+
+    const { rows } = await pool.query(
+      'INSERT INTO project_files (project_id, uploaded_by, name, file_type, role, storage_key, size_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [projectId, req.user!.id, fileName, fileType, role, storageKey, size]
+    );
+    await pool.query('UPDATE projects SET updated_at = NOW() WHERE id = $1', [projectId]);
+    const r = rows[0];
+    res.status(201).json({ file: { id: r.id, name: r.name, fileType: r.file_type, role: r.role, sizeBytes: r.size_bytes, archived: r.archived, createdAt: r.created_at } });
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
   }

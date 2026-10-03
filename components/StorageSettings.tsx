@@ -35,7 +35,7 @@ const StorageSettings: React.FC = () => {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch('/v1/auth/test-storage', {
+      const res = await fetch('/v1/auth/storage/test', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });

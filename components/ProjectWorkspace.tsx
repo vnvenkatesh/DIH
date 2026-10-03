@@ -146,9 +146,9 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [activeTab, setActiveTab] = useState<Tab>('files');
   const [loading, setLoading] = useState(true);
 
-  // File upload
-  const [uploading, setUploading] = useState(false);
+  // File upload (presigned URL flow)
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadQueue, setUploadQueue] = useState<{ name: string; status: 'uploading' | 'done' | 'error'; error?: string }[]>([]);
 
   // Rationalise
   const [threshold, setThreshold] = useState(75);
@@ -269,19 +269,52 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
   const handleUpload = async (fileList: FileList | null) => {
     if (!fileList || !token) return;
-    setUploading(true);
-    const fd = new FormData();
-    Array.from(fileList).forEach(f => fd.append('files', f));
-    fd.append('role', 'template');
-    try {
-      const res = await fetch(`/v1/projects/${projectId}/files`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
-      if (res.ok) fetchProject();
-    } catch { /* ignore */ }
-    setUploading(false);
+    const fileArr = Array.from(fileList);
+    setUploadQueue(fileArr.map(f => ({ name: f.name, status: 'uploading' as const })));
+
+    for (let i = 0; i < fileArr.length; i++) {
+      const file = fileArr[i];
+      try {
+        // Step 1: get presigned URL
+        const presignRes = await fetch(`/v1/projects/${projectId}/files/presign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/octet-stream', size: file.size }),
+        });
+        if (!presignRes.ok) {
+          const d = await presignRes.json().catch(() => ({})) as any;
+          throw new Error(d.error ?? `Presign failed (${presignRes.status})`);
+        }
+        const { uploadUrl, method, storageKey } = await presignRes.json();
+
+        // Step 2: upload directly to S3/Azure — no auth header (presigned URL is self-authenticated)
+        const uploadRes = await fetch(uploadUrl, {
+          method,
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        if (!uploadRes.ok) throw new Error(`Storage upload failed (${uploadRes.status})`);
+
+        // Step 3: confirm
+        const confirmRes = await fetch(`/v1/projects/${projectId}/files/confirm`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ storageKey, fileName: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, role: 'template' }),
+        });
+        if (!confirmRes.ok) {
+          const d = await confirmRes.json().catch(() => ({})) as any;
+          throw new Error(d.error ?? 'Confirm failed');
+        }
+
+        setUploadQueue(q => q.map((x, idx) => idx === i ? { ...x, status: 'done' } : x));
+      } catch (err: any) {
+        setUploadQueue(q => q.map((x, idx) => idx === i ? { ...x, status: 'error', error: err.message } : x));
+      }
+    }
+
+    // Refresh file list; clear queue after 3s
+    fetchProject();
+    setTimeout(() => setUploadQueue([]), 3000);
   };
 
   const handleArchiveFile = async (fileId: number, archive: boolean) => {
@@ -564,16 +597,30 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
               <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Project Files</h3>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                disabled={uploadQueue.some(f => f.status === 'uploading')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
                 </svg>
-                {uploading ? 'Uploading...' : 'Upload Files'}
+                {uploadQueue.some(f => f.status === 'uploading') ? 'Uploading...' : 'Upload Files'}
               </button>
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => handleUpload(e.target.files)} accept=".pdf,.docx,.doc,.xsd,.csv,.xml,.gd" />
             </div>
+            {uploadQueue.length > 0 && (
+              <div className="mb-3 space-y-1">
+                {uploadQueue.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                    {f.status === 'uploading' && <svg className="w-3 h-3 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>}
+                    {f.status === 'done' && <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+                    {f.status === 'error' && <svg className="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>}
+                    <span className={f.status === 'error' ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>{f.name}</span>
+                    {f.status === 'uploading' && <span className="text-slate-400">Uploading directly to storage…</span>}
+                    {f.error && <span className="text-red-500 ml-1">{f.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
             {activeFiles.length === 0 ? (
               <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors" onClick={() => fileInputRef.current?.click()}>
                 <svg className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>

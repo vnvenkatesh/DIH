@@ -482,4 +482,420 @@ router.delete('/:id/members/:userId', requireAuth as any, async (req: AuthReques
   }
 });
 
+// ── Final Inventory ───────────────────────────────────────────────────────
+
+// GET /v1/projects/:id/inventory
+router.get('/:id/inventory', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows } = await pool.query(`
+      SELECT fi.*, pf.name AS file_name, pf.file_type
+      FROM final_inventory fi
+      JOIN project_files pf ON pf.id = fi.file_id
+      WHERE fi.project_id = $1
+      ORDER BY fi.created_at ASC
+    `, [projectId]);
+
+    res.json({ inventory: rows.map(r => ({
+      id: r.id, projectId: r.project_id, fileId: r.file_id,
+      fileName: r.file_name, fileType: r.file_type,
+      groupId: r.group_id, variantCount: r.variant_count,
+      variations: r.variations, businessDomain: r.business_domain,
+      status: r.status, notes: r.notes,
+      createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+    })) });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// POST /v1/projects/:id/inventory
+router.post('/:id/inventory', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { fileId, groupId = null, variantCount = 1, variations = [], businessDomain = '' } = req.body;
+    if (!fileId || typeof fileId !== 'number') { res.status(400).json({ error: 'fileId (number) required' }); return; }
+
+    const { rows } = await pool.query(`
+      INSERT INTO final_inventory (project_id, file_id, group_id, variant_count, variations, business_domain, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (project_id, file_id) DO NOTHING
+      RETURNING *
+    `, [projectId, fileId, groupId, variantCount, JSON.stringify(variations), businessDomain, req.user!.id]);
+
+    if (!rows[0]) { res.status(409).json({ error: 'Template already in inventory' }); return; }
+
+    const { rows: pf } = await pool.query('SELECT name, file_type FROM project_files WHERE id = $1', [fileId]);
+    const r = rows[0];
+    res.status(201).json({ item: {
+      id: r.id, projectId: r.project_id, fileId: r.file_id,
+      fileName: pf[0]?.name, fileType: pf[0]?.file_type,
+      groupId: r.group_id, variantCount: r.variant_count,
+      variations: r.variations, businessDomain: r.business_domain,
+      status: r.status, notes: r.notes,
+      createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+    } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// PATCH /v1/projects/:id/inventory/:itemId
+router.patch('/:id/inventory/:itemId', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { status, businessDomain, notes, variations } = req.body;
+    const setClauses: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (status !== undefined)        { setClauses.push(`status = $${idx++}`);          params.push(status); }
+    if (businessDomain !== undefined) { setClauses.push(`business_domain = $${idx++}`); params.push(businessDomain); }
+    if (notes !== undefined)         { setClauses.push(`notes = $${idx++}`);            params.push(notes); }
+    if (variations !== undefined)    { setClauses.push(`variations = $${idx++}`);       params.push(JSON.stringify(variations)); }
+    setClauses.push(`updated_at = NOW()`);
+
+    params.push(req.params.itemId, projectId);
+    const { rows } = await pool.query(
+      `UPDATE final_inventory SET ${setClauses.join(', ')} WHERE id = $${idx++} AND project_id = $${idx++} RETURNING *`,
+      params
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Inventory item not found' }); return; }
+    const r = rows[0];
+    res.json({ item: {
+      id: r.id, projectId: r.project_id, fileId: r.file_id,
+      groupId: r.group_id, variantCount: r.variant_count,
+      variations: r.variations, businessDomain: r.business_domain,
+      status: r.status, notes: r.notes,
+      createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+    } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// DELETE /v1/projects/:id/inventory/:itemId
+router.delete('/:id/inventory/:itemId', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    await pool.query('DELETE FROM final_inventory WHERE id = $1 AND project_id = $2', [req.params.itemId, projectId]);
+    res.status(204).end();
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// ── Project Documents ──────────────────────────────────────────────────────
+
+// GET /v1/projects/:id/documents
+router.get('/:id/documents', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows } = await pool.query(
+      'SELECT * FROM project_documents WHERE project_id = $1 ORDER BY doc_type',
+      [projectId]
+    );
+    res.json({ documents: rows.map(r => ({ id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at })) });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// GET /v1/projects/:id/documents/:docType
+router.get('/:id/documents/:docType', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows } = await pool.query(
+      'SELECT * FROM project_documents WHERE project_id = $1 AND doc_type = $2',
+      [projectId, req.params.docType]
+    );
+    if (!rows[0]) { res.status(404).json({ error: 'Document not found' }); return; }
+    const r = rows[0];
+    res.json({ document: { id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// PUT /v1/projects/:id/documents/:docType
+router.put('/:id/documents/:docType', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const docType = req.params.docType;
+    if (!['brd', 'test_cases'].includes(docType)) { res.status(400).json({ error: 'docType must be brd or test_cases' }); return; }
+    const { content } = req.body;
+    if (content === undefined || content === null) { res.status(400).json({ error: 'content required' }); return; }
+
+    const { rows } = await pool.query(`
+      INSERT INTO project_documents (project_id, doc_type, content, created_by, updated_by)
+      VALUES ($1, $2, $3, $4, $4)
+      ON CONFLICT (project_id, doc_type) DO UPDATE
+        SET content = $3, version = project_documents.version + 1, updated_by = $4, updated_at = NOW()
+      RETURNING *
+    `, [projectId, docType, JSON.stringify(content), req.user!.id]);
+
+    const r = rows[0];
+    res.json({ document: { id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// ── BRD Generation ────────────────────────────────────────────────────────
+
+async function getGeminiKeyForUser(userId: number): Promise<string> {
+  const { rows } = await pool.query(`
+    SELECT u.gemini_api_key, u.uses_company_keys, c.gemini_api_key AS company_gemini_key
+    FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1
+  `, [userId]);
+  const kr = rows[0];
+  return kr?.gemini_api_key || (kr?.uses_company_keys ? kr?.company_gemini_key : '') || process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+}
+
+async function extractTextFromBuffer(buffer: Buffer, fileName: string): Promise<string> {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  try {
+    if (ext === 'pdf') {
+      const pdfParse = (await import('pdf-parse')).default;
+      const result = await pdfParse(buffer);
+      return result.text ?? '';
+    }
+    if (ext === 'docx') {
+      const mammoth = (await import('mammoth')).default;
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value ?? '';
+    }
+  } catch { /* ignore extraction errors */ }
+  return '';
+}
+
+// POST /v1/projects/:id/documents/brd/generate
+router.post('/:id/documents/brd/generate', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows: invRows } = await pool.query(`
+      SELECT fi.*, pf.name, pf.file_type, pf.storage_key
+      FROM final_inventory fi JOIN project_files pf ON pf.id = fi.file_id
+      WHERE fi.project_id = $1
+    `, [projectId]);
+
+    if (!invRows.length) { res.status(400).json({ error: 'No templates in Final Inventory. Add templates first.' }); return; }
+
+    const apiKey = await getGeminiKeyForUser(req.user!.id);
+    if (!apiKey) { res.status(400).json({ error: 'No Gemini API key configured. Add one in Settings.' }); return; }
+
+    // Extract text from each file
+    const templateSections: string[] = [];
+    for (const item of invRows) {
+      let text = '';
+      try {
+        const signedUrl = await getSignedUrl(u.company_id, item.storage_key, 3600, req.user!.id);
+        const resp = await fetch(signedUrl);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          text = await extractTextFromBuffer(buf, item.name);
+        }
+      } catch { /* skip on error */ }
+      const variations = Array.isArray(item.variations) && item.variations.length
+        ? JSON.stringify(item.variations)
+        : 'None documented';
+      templateSections.push(
+        `Template: ${item.name}\nBusiness Domain: ${item.business_domain || 'Unspecified'}\nGroup: ${item.group_id ?? 'N/A'}\nVariants: ${item.variant_count}\nVariations: ${variations}\nContent:\n${text.slice(0, 3000)}`
+      );
+    }
+
+    const prompt = `You are a business analyst generating a Business Requirements Document for a CCM implementation project.
+The project contains ${invRows.length} template(s) to implement.
+
+For each template:
+${templateSections.join('\n\n---\n\n')}
+
+Generate a structured BRD. Return ONLY valid JSON matching this schema exactly:
+{
+  "title": "string",
+  "version": "string",
+  "sections": {
+    "executiveSummary": "string",
+    "templatesOverview": [{"name": "string", "domain": "string", "variants": 0}],
+    "requirements": [{"templateName": "string", "purpose": "string", "keyFields": "string", "conditionalLogic": "string", "businessRules": "string", "notes": "string"}],
+    "commonRequirements": "string",
+    "implementationNotes": "string"
+  }
+}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    });
+
+    if (!upstream.ok) {
+      const errData = await upstream.json().catch(() => ({})) as any;
+      res.status(502).json({ error: `Gemini error: ${errData?.error?.message ?? upstream.statusText}` }); return;
+    }
+
+    const data = await upstream.json() as any;
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    let content: any;
+    try { content = JSON.parse(rawText); } catch { content = { title: 'BRD', raw: rawText }; }
+
+    const { rows: savedRows } = await pool.query(`
+      INSERT INTO project_documents (project_id, doc_type, content, created_by, updated_by)
+      VALUES ($1, 'brd', $2, $3, $3)
+      ON CONFLICT (project_id, doc_type) DO UPDATE
+        SET content = $2, version = project_documents.version + 1, updated_by = $3, updated_at = NOW()
+      RETURNING *
+    `, [projectId, JSON.stringify(content), req.user!.id]);
+
+    const r = savedRows[0];
+    res.json({ document: { id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+// POST /v1/projects/:id/documents/test-cases/generate
+router.post('/:id/documents/test-cases/generate', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
+    const projectId = parseInt(req.params.id);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+
+    const { rows: invRows } = await pool.query(`
+      SELECT fi.*, pf.name, pf.file_type, pf.storage_key
+      FROM final_inventory fi JOIN project_files pf ON pf.id = fi.file_id
+      WHERE fi.project_id = $1
+    `, [projectId]);
+
+    if (!invRows.length) { res.status(400).json({ error: 'No templates in Final Inventory. Add templates first.' }); return; }
+
+    const apiKey = await getGeminiKeyForUser(req.user!.id);
+    if (!apiKey) { res.status(400).json({ error: 'No Gemini API key configured. Add one in Settings.' }); return; }
+
+    const templateSections: string[] = [];
+    for (const item of invRows) {
+      let text = '';
+      try {
+        const signedUrl = await getSignedUrl(u.company_id, item.storage_key, 3600, req.user!.id);
+        const resp = await fetch(signedUrl);
+        if (resp.ok) {
+          const buf = Buffer.from(await resp.arrayBuffer());
+          text = await extractTextFromBuffer(buf, item.name);
+        }
+      } catch { /* skip */ }
+      const variations = Array.isArray(item.variations) && item.variations.length
+        ? JSON.stringify(item.variations)
+        : 'None documented';
+      templateSections.push(
+        `Template: ${item.name}\nDomain: ${item.business_domain || 'Unspecified'}\nVariations: ${variations}\nContent:\n${text.slice(0, 2500)}`
+      );
+    }
+
+    const prompt = `Generate a comprehensive Test Case Tracker for a CCM implementation project with ${invRows.length} template(s).
+
+For each template, generate test cases covering:
+- Happy Path: standard valid input scenarios
+- Mandatory Fields: missing required field scenarios
+- Boundary Values: min/max/edge values for numeric and date fields
+- Conditional Logic: if/then business rule scenarios
+- Format Validation: invalid format inputs
+- Error Handling: system error and exception scenarios
+
+Templates:
+${templateSections.join('\n\n---\n\n')}
+
+Return ONLY valid JSON matching this schema exactly:
+{
+  "title": "string",
+  "version": "string",
+  "templates": [
+    {
+      "templateName": "string",
+      "testCases": [
+        {
+          "id": "string",
+          "category": "string",
+          "description": "string",
+          "inputData": "string",
+          "expectedResult": "string",
+          "priority": "High|Medium|Low",
+          "preconditions": "string"
+        }
+      ]
+    }
+  ]
+}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' },
+      }),
+    });
+
+    if (!upstream.ok) {
+      const errData = await upstream.json().catch(() => ({})) as any;
+      res.status(502).json({ error: `Gemini error: ${errData?.error?.message ?? upstream.statusText}` }); return;
+    }
+
+    const data = await upstream.json() as any;
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    let content: any;
+    try { content = JSON.parse(rawText); } catch { content = { title: 'Test Cases', raw: rawText }; }
+
+    const { rows: savedRows } = await pool.query(`
+      INSERT INTO project_documents (project_id, doc_type, content, created_by, updated_by)
+      VALUES ($1, 'test_cases', $2, $3, $3)
+      ON CONFLICT (project_id, doc_type) DO UPDATE
+        SET content = $2, version = project_documents.version + 1, updated_by = $3, updated_at = NOW()
+      RETURNING *
+    `, [projectId, JSON.stringify(content), req.user!.id]);
+
+    const r = savedRows[0];
+    res.json({ document: { id: r.id, projectId: r.project_id, docType: r.doc_type, content: r.content, version: r.version, createdBy: r.created_by, updatedBy: r.updated_by, createdAt: r.created_at, updatedAt: r.updated_at } });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
 export default router;

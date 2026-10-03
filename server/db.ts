@@ -168,6 +168,42 @@ export async function initDb(): Promise<void> {
     )
   `);
 
+  // ── Final Inventory ────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS final_inventory (
+      id              SERIAL PRIMARY KEY,
+      project_id      INTEGER      NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      file_id         INTEGER      NOT NULL REFERENCES project_files(id) ON DELETE CASCADE,
+      group_id        INTEGER,
+      variant_count   INTEGER      DEFAULT 1,
+      variations      JSONB        DEFAULT '[]',
+      business_domain VARCHAR(100) DEFAULT '',
+      status          VARCHAR(20)  DEFAULT 'pending',
+      notes           TEXT         DEFAULT '',
+      created_by      INTEGER      NOT NULL REFERENCES users(id),
+      created_at      TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ  DEFAULT NOW(),
+      UNIQUE(project_id, file_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_final_inventory_project ON final_inventory(project_id)`);
+
+  // ── Project Documents (singleton living docs: brd, test_cases) ─────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_documents (
+      id          SERIAL PRIMARY KEY,
+      project_id  INTEGER      NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      doc_type    VARCHAR(50)  NOT NULL,
+      content     JSONB        NOT NULL DEFAULT '{}',
+      version     INTEGER      NOT NULL DEFAULT 1,
+      created_by  INTEGER      NOT NULL REFERENCES users(id),
+      updated_by  INTEGER      NOT NULL REFERENCES users(id),
+      created_at  TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ  DEFAULT NOW(),
+      UNIQUE(project_id, doc_type)
+    )
+  `);
+
   console.log('[db] initDb: schema ready');
 
   // ── Ensure AdminCo company exists ─────────────────────────────────────────

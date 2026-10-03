@@ -215,7 +215,7 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
     await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows } = await pool.query(
-      'SELECT * FROM project_files WHERE project_id = $1 ORDER BY created_at ASC',
+      `SELECT * FROM project_files WHERE project_id = $1 AND COALESCE(lifecycle_status,'original') != 'finalized' ORDER BY created_at ASC`,
       [projectId]
     );
 
@@ -226,7 +226,8 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
         id: r.id, projectId: r.project_id, uploadedBy: r.uploaded_by,
         name: r.name, fileType: r.file_type, role: r.role,
         storageKey: r.storage_key, signedUrl,
-        sizeBytes: r.size_bytes, archived: r.archived, createdAt: r.created_at,
+        sizeBytes: r.size_bytes, archived: r.archived,
+        lifecycleStatus: r.lifecycle_status ?? 'original', createdAt: r.created_at,
       };
     }));
 
@@ -244,15 +245,25 @@ router.patch('/:id/files/:fileId', requireAuth as any, async (req: AuthRequest, 
     const projectId = parseInt(req.params.id);
     await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
-    const { role, archived } = req.body;
+    const { role, archived, lifecycle_status } = req.body;
+    const allowed = ['original', 'rationalized', 'variation', 'finalized'];
+    const setClauses: string[] = [
+      `role = COALESCE($1, role)`,
+      `archived = COALESCE($2, archived)`,
+    ];
+    const params: any[] = [role ?? null, archived ?? null];
+    if (lifecycle_status && allowed.includes(lifecycle_status)) {
+      setClauses.push(`lifecycle_status = $${params.length + 1}`);
+      params.push(lifecycle_status);
+    }
+    params.push(req.params.fileId, projectId);
     const { rows } = await pool.query(
-      `UPDATE project_files SET role = COALESCE($1, role), archived = COALESCE($2, archived)
-       WHERE id = $3 AND project_id = $4 RETURNING *`,
-      [role ?? null, archived ?? null, req.params.fileId, projectId]
+      `UPDATE project_files SET ${setClauses.join(', ')} WHERE id = $${params.length - 1} AND project_id = $${params.length} RETURNING *`,
+      params
     );
     if (!rows[0]) { res.status(404).json({ error: 'File not found' }); return; }
     const r = rows[0];
-    res.json({ file: { id: r.id, name: r.name, fileType: r.file_type, role: r.role, archived: r.archived } });
+    res.json({ file: { id: r.id, name: r.name, fileType: r.file_type, role: r.role, archived: r.archived, lifecycleStatus: r.lifecycle_status ?? 'original' } });
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
   }
@@ -552,6 +563,12 @@ router.post('/:id/inventory', requireAuth as any, async (req: AuthRequest, res) 
 
     if (!rows[0]) { res.status(409).json({ error: 'Template already in inventory' }); return; }
 
+    // Mark file as finalized — hidden from Files tab and Rationaliser
+    await pool.query(
+      `UPDATE project_files SET lifecycle_status = 'finalized' WHERE id = $1 AND project_id = $2`,
+      [fileId, projectId]
+    );
+
     const { rows: pf } = await pool.query('SELECT name, file_type FROM project_files WHERE id = $1', [fileId]);
     const r = rows[0];
     res.status(201).json({ item: {
@@ -613,7 +630,18 @@ router.delete('/:id/inventory/:itemId', requireAuth as any, async (req: AuthRequ
     const projectId = parseInt(req.params.id);
     await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
+    // Capture file_id before deleting so we can restore lifecycle_status
+    const { rows: invRows } = await pool.query(
+      'SELECT file_id FROM final_inventory WHERE id = $1 AND project_id = $2',
+      [req.params.itemId, projectId]
+    );
     await pool.query('DELETE FROM final_inventory WHERE id = $1 AND project_id = $2', [req.params.itemId, projectId]);
+    if (invRows[0]?.file_id) {
+      await pool.query(
+        `UPDATE project_files SET lifecycle_status = 'rationalized' WHERE id = $1`,
+        [invRows[0].file_id]
+      );
+    }
     res.status(204).end();
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
@@ -1059,10 +1087,12 @@ router.post('/:id/rationalise', requireAuth as any, async (req: AuthRequest, res
       res.status(400).json({ error: 'mode must be exact or semantic' }); return;
     }
 
-    // Fetch non-archived project files
+    // Fetch only original+rationalized files (exclude variations and finalized)
     const { rows: fileRows } = await pool.query(
-      `SELECT id, name, file_type, storage_key FROM project_files
-       WHERE project_id = $1 AND archived = false ORDER BY name`,
+      `SELECT id, name, file_type, storage_key, lifecycle_status FROM project_files
+       WHERE project_id = $1 AND archived = false
+         AND COALESCE(lifecycle_status, 'original') IN ('original', 'rationalized')
+       ORDER BY name`,
       [projectId]
     );
     if (fileRows.length < 2) {
@@ -1187,6 +1217,16 @@ router.post('/:id/rationalise', requireAuth as any, async (req: AuthRequest, res
           });
         }
       }
+    }
+
+    // Mark all participating docs as 'rationalized' (only promote, never demote)
+    const participatingIds = docs.map(d => d.id);
+    if (participatingIds.length > 0) {
+      await pool.query(
+        `UPDATE project_files SET lifecycle_status = 'rationalized'
+         WHERE id = ANY($1) AND COALESCE(lifecycle_status, 'original') = 'original'`,
+        [participatingIds]
+      );
     }
 
     // Save result for project history

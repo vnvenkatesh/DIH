@@ -212,6 +212,7 @@ export interface ProjectFile {
   signedUrl?: string;
   sizeBytes: number;
   archived: boolean;
+  lifecycleStatus: 'original' | 'rationalized' | 'variation' | 'finalized';
   createdAt: string;
 }
 

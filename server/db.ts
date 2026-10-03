@@ -138,6 +138,8 @@ export async function initDb(): Promise<void> {
     )
   `);
 
+  await pool.query(`ALTER TABLE project_files ADD COLUMN IF NOT EXISTS lifecycle_status VARCHAR(20) DEFAULT 'original'`);
+
   // ── Project results ────────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS project_results (

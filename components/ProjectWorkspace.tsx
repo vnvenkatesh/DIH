@@ -189,6 +189,14 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     setLoading(false);
   }, [token, projectId]);
 
+  const fetchFiles = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`/v1/projects/${projectId}/files`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setFiles((await res.json()).files ?? []);
+    } catch { /* ignore */ }
+  }, [token, projectId]);
+
   const fetchInventory = useCallback(async () => {
     if (!token) return;
     setInventoryLoading(true);
@@ -389,20 +397,20 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     setRSelected(new Set());
   };
 
-  const handleBulkArchive = async () => {
+  const handleBulkMarkAsVariation = async () => {
     if (!token || rSelected.size === 0) return;
-    if (!confirm(`Archive ${rSelected.size} template(s)? They will be hidden from the project.`)) return;
+    if (!confirm(`Mark ${rSelected.size} template(s) as Variation? They will stay in your Files list but won't appear in future Rationalisation runs.`)) return;
     for (const fileId of rSelected) {
       await fetch(`/v1/projects/${projectId}/files/${fileId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ archived: true }),
+        body: JSON.stringify({ lifecycle_status: 'variation' }),
       }).catch(() => {});
     }
-    const archivedIds = new Set(rSelected);
+    const variationIds = new Set(rSelected);
     setRSelected(new Set());
     setRGroups(prev => prev
-      .map(g => ({ ...g, documents: g.documents.filter(d => !archivedIds.has(d.fileId)) }))
+      .map(g => ({ ...g, documents: g.documents.filter(d => !variationIds.has(d.fileId)) }))
       .filter(g => g.documents.length > 0)
     );
     fetchProject();
@@ -431,6 +439,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
       headers: { Authorization: `Bearer ${token}` },
     });
     setInventory(prev => prev.filter(i => i.id !== itemId));
+    await fetchFiles(); // restore file to Files tab (server sets lifecycle_status back to 'rationalized')
   };
 
   const handleUpdateInventoryStatus = async (itemId: number, status: InventoryItem['status']) => {
@@ -748,11 +757,17 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 {activeFiles.map(f => (
-                  <div key={f.id} className="flex items-center justify-between py-3 gap-3">
+                  <div key={f.id} className={`flex items-center justify-between py-3 gap-3 ${f.lifecycleStatus === 'variation' ? 'bg-amber-50 dark:bg-amber-900/10 -mx-1 px-1 rounded' : ''}`}>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-slate-800 dark:text-white truncate">{f.name}</span>
                         <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full ${ROLE_COLORS[f.role] ?? ROLE_COLORS.template}`}>{f.role}</span>
+                        {f.lifecycleStatus === 'rationalized' && (
+                          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rationalized</span>
+                        )}
+                        {f.lifecycleStatus === 'variation' && (
+                          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">Variation</span>
+                        )}
                         {inInventoryFileIds.has(f.id) && (
                           <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">in inventory</span>
                         )}
@@ -840,6 +855,21 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
             )}
           </div>
 
+          {/* File lifecycle info line */}
+          {(() => {
+            const origCount = files.filter(f => !f.archived && f.lifecycleStatus === 'original').length;
+            const rationalizedCount = files.filter(f => !f.archived && f.lifecycleStatus === 'rationalized').length;
+            const finalizedCount = inventory.length;
+            const variationCount = files.filter(f => !f.archived && f.lifecycleStatus === 'variation').length;
+            return (origCount + rationalizedCount + finalizedCount + variationCount) > 0 ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400 px-1">
+                Showing <span className="font-medium text-slate-700 dark:text-slate-300">{origCount + rationalizedCount}</span> original &amp; rationalized file{origCount + rationalizedCount !== 1 ? 's' : ''}
+                {finalizedCount > 0 && <> · <span className="font-medium text-violet-600 dark:text-violet-400">{finalizedCount} finalized</span> (in Inventory)</>}
+                {variationCount > 0 && <> · <span className="font-medium text-amber-600 dark:text-amber-400">{variationCount} variation{variationCount !== 1 ? 's' : ''}</span> excluded</>}
+              </p>
+            ) : null;
+          })()}
+
           {/* Empty state */}
           {!rRunning && rGroups.length === 0 && (
             <div className={`${panelCls} p-8 text-center`}>
@@ -920,6 +950,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                             {group.documents.map(doc => {
                               const inInv = inInventoryFileIds.has(doc.fileId);
                               const ext = doc.fileName.split('.').pop()?.toLowerCase() ?? doc.fileType;
+                              const lc = files.find(f => f.id === doc.fileId)?.lifecycleStatus ?? 'original';
                               return (
                                 <tr key={doc.fileId} className="hover:bg-slate-50 dark:hover:bg-slate-700/20">
                                   <td className="px-4 py-2.5">
@@ -936,8 +967,10 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                                       {ext.toUpperCase()}
                                     </span>
                                   </td>
-                                  <td className="px-4 py-2.5">
+                                  <td className="px-4 py-2.5 flex flex-wrap gap-1">
                                     {inInv && <span className="text-xs px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">✓ In Inventory</span>}
+                                    {!inInv && lc === 'rationalized' && <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rationalized</span>}
+                                    {!inInv && lc === 'original' && <span className="text-xs px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500">Original</span>}
                                   </td>
                                 </tr>
                               );
@@ -960,8 +993,8 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
               <button onClick={handleBulkAddToInventory} className="px-4 py-1.5 text-sm font-medium rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition-colors">
                 + Add to Inventory
               </button>
-              <button onClick={handleBulkArchive} className="px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors">
-                Archive
+              <button onClick={handleBulkMarkAsVariation} className="px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors">
+                Mark as Variation
               </button>
               <button onClick={() => setRSelected(new Set())} className="px-4 py-1.5 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
                 Clear

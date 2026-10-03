@@ -136,7 +136,7 @@ interface ProjectWorkspaceProps {
   onBack: () => void;
 }
 
-type Tab = 'files' | 'rationalise' | 'inventory' | 'brd' | 'test_cases' | 'chat';
+type Tab = 'files' | 'rationalise' | 'inventory' | 'brd' | 'test_cases';
 
 const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }) => {
   const { token } = useAuth();
@@ -176,9 +176,10 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [testCasesGenerating, setTestCasesGenerating] = useState(false);
   const [testCasesError, setTestCasesError] = useState('');
 
-  // Chat
+  // Chat sidebar
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch functions ──────────────────────────────────────────────────────────
@@ -252,14 +253,14 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   useEffect(() => {
     fetchProject();
     fetchInventory(); // load count for badge immediately
-  }, [fetchProject, fetchInventory]);
+    fetchChat();      // chat sidebar is always visible
+  }, [fetchProject, fetchInventory, fetchChat]);
 
   useEffect(() => {
     if (activeTab === 'inventory') fetchInventory();
     if (activeTab === 'brd') fetchBrdDoc();
     if (activeTab === 'test_cases') fetchTestCasesDoc();
-    if (activeTab === 'chat') fetchChat();
-  }, [activeTab, fetchInventory, fetchBrdDoc, fetchTestCasesDoc, fetchChat]);
+  }, [activeTab, fetchInventory, fetchBrdDoc, fetchTestCasesDoc]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -542,11 +543,13 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     { id: 'inventory',  label: 'Inventory',   icon: '📋', badge: inventory.length || undefined },
     { id: 'brd',        label: 'BRD',         icon: '📄' },
     { id: 'test_cases', label: 'Test Cases',  icon: '✅' },
-    { id: 'chat',       label: 'Chat',        icon: '💬' },
   ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4">
+    <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 140px)' }}>
+      {/* ── Main content area (80%) ── */}
+      <div className="flex-1 min-w-0 overflow-y-auto space-y-4 pr-1">
+
       {/* Header */}
       <div className="flex items-center gap-3">
         <button onClick={onBack} className="text-sm text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 transition-colors">
@@ -1143,54 +1146,83 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
         </div>
       )}
 
-      {/* ── Chat tab ── */}
-      {activeTab === 'chat' && (
-        <div className={`${panelCls} flex flex-col`} style={{ height: '60vh' }}>
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            {messages.length === 0 && (
-              <div className="text-center text-sm text-slate-400 dark:text-slate-500 py-8">
-                Ask anything about this project — files, rationalise results, or implementation details.
-              </div>
-            )}
-            {messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-lg px-4 py-3 rounded-2xl text-sm whitespace-pre-wrap ${
-                  msg.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-br-sm'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm'
-                }`}>
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {chatLoading && (
-              <div className="flex justify-start">
-                <div className="px-4 py-3 rounded-2xl rounded-bl-sm bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-sm">
-                  Thinking...
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-          <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 p-4 flex gap-2">
-            <input
-              type="text"
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSendChat()}
-              placeholder="Ask about this project..."
-              className="flex-1 px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            <button
-              onClick={handleSendChat}
-              disabled={!chatInput.trim() || chatLoading}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
-            >
-              Send
-            </button>
-          </div>
+      </div>{/* end main content area */}
+
+      {/* ── Chat sidebar (always visible, 20% width) ── */}
+      <div className={`flex flex-col flex-shrink-0 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 transition-all duration-200 ${chatCollapsed ? 'w-10' : 'w-64'}`}>
+        {/* Sidebar header */}
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+          {!chatCollapsed && (
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Project Chat</span>
+          )}
+          <button
+            onClick={() => setChatCollapsed(prev => !prev)}
+            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded transition-colors ml-auto"
+            title={chatCollapsed ? 'Expand chat' : 'Collapse chat'}
+          >
+            <svg className={`w-4 h-4 transition-transform ${chatCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+            </svg>
+          </button>
         </div>
-      )}
+
+        {chatCollapsed ? (
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-xs text-slate-400 dark:text-slate-500 select-none" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+              💬 Chat
+            </span>
+          </div>
+        ) : (
+          <>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+              {messages.length === 0 && (
+                <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-8 leading-relaxed">
+                  Ask anything about this project — files, rationalise results, or implementation details.
+                </div>
+              )}
+              {messages.map(msg => (
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[90%] px-3 py-2 rounded-xl text-xs whitespace-pre-wrap leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-indigo-600 text-white rounded-br-sm'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm'
+                  }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="px-3 py-2 rounded-xl rounded-bl-sm bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs">
+                    Thinking...
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 p-3 space-y-2">
+              <textarea
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                placeholder="Ask about this project..."
+                rows={2}
+                className="w-full px-3 py-2 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                onClick={handleSendChat}
+                disabled={!chatInput.trim() || chatLoading}
+                className="w-full px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg disabled:opacity-50 transition-colors"
+              >
+                {chatLoading ? 'Sending…' : 'Send'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };

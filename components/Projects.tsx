@@ -401,78 +401,74 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="flex flex-col gap-3">
           {filtered.map(project => (
             <div key={project.id} className="flex flex-col">
-              <div
-                className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group cursor-pointer"
-                onClick={() => onOpenProject(project.id)}
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                        {project.name}
-                      </h3>
-                      <VisibilityBadge visibility={project.visibility ?? 'shared'} />
-                    </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-5 py-4 shadow-sm hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group">
+                <div className="flex items-center gap-4">
+                  {/* Left: name + description */}
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenProject(project.id)}>
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                      {project.name}
+                    </h3>
                     {project.description && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{project.description}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{project.description}</p>
                     )}
                   </div>
-                  <span className={`ml-2 flex-shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
-                    project.status === 'active'
-                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                  }`}>
-                    {project.status}
-                  </span>
-                </div>
 
-                <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 mt-3">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                  </svg>
-                  {project.fileCount ?? 0} files · Updated {new Date(project.updatedAt).toLocaleDateString()}
-                </div>
+                  {/* Middle: metadata chips */}
+                  <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+                    <VisibilityBadge visibility={project.visibility ?? 'shared'} />
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      project.status === 'active'
+                        ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                    }`}>
+                      {project.status}
+                    </span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                      {project.fileCount ?? 0} files · {new Date(project.updatedAt).toLocaleDateString()}
+                    </span>
+                  </div>
 
-                <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60">
-                  <button
-                    onClick={e => { e.stopPropagation(); onOpenProject(project.id); }}
-                    className="flex-1 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
-                  >
-                    Open
-                  </button>
-                  {/* Share button — only visible to project creator */}
-                  {project.createdBy === user?.id && (
+                  {/* Right: actions */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <button
-                      onClick={e => toggleSharePanel(e, project.id)}
-                      className={`p-1.5 rounded-lg transition-colors ${
-                        sharePanelFor === project.id
-                          ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300'
-                          : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
-                      }`}
-                      title="Share project"
+                      onClick={e => { e.stopPropagation(); onOpenProject(project.id); }}
+                      className="py-1.5 px-3 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
                     >
-                      <ShareIcon />
+                      Open
                     </button>
-                  )}
-                  <button
-                    onClick={e => handleArchive(e, project)}
-                    className="py-1.5 px-3 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                    title={project.status === 'active' ? 'Archive' : 'Restore'}
-                  >
-                    {project.status === 'active' ? 'Archive' : 'Restore'}
-                  </button>
-                  <button
-                    onClick={e => handleDelete(e, project)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    title="Delete project"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                    </svg>
-                  </button>
+                    {project.createdBy === user?.id && (
+                      <button
+                        onClick={e => toggleSharePanel(e, project.id)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          sharePanelFor === project.id
+                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300'
+                            : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
+                        }`}
+                        title="Share project"
+                      >
+                        <ShareIcon />
+                      </button>
+                    )}
+                    <button
+                      onClick={e => handleArchive(e, project)}
+                      className="py-1.5 px-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                      title={project.status === 'active' ? 'Archive' : 'Restore'}
+                    >
+                      {project.status === 'active' ? 'Archive' : 'Restore'}
+                    </button>
+                    <button
+                      onClick={e => handleDelete(e, project)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                      title="Delete project"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
 

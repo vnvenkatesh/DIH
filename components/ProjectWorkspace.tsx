@@ -1198,45 +1198,58 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
               {(fieldMappingDoc.content?.fields ?? []).length > 0 && (
                 <div className={`${panelCls} overflow-hidden`}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
-                          <th className="px-4 py-2.5 pr-3 font-medium">Field Name</th>
-                          <th className="px-2 py-2.5 pr-3 font-medium">Display Name</th>
-                          <th className="px-2 py-2.5 pr-3 font-medium">Type</th>
-                          <th className="px-2 py-2.5 pr-3 font-medium">Templates</th>
-                          <th className="px-2 py-2.5 pr-3 font-medium">Sample Value</th>
-                          <th className="px-2 py-2.5 pr-3 font-medium">Conditional</th>
-                          <th className="px-2 py-2.5 font-medium">XSD Path</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {(fieldMappingDoc.content.fields as any[]).map((f: any, i: number) => (
-                          <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
-                            <td className="px-4 py-2 pr-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">{f.fieldName}</td>
-                            <td className="px-2 py-2 pr-3 text-slate-700 dark:text-slate-300">{f.displayName}</td>
-                            <td className="px-2 py-2 pr-3 whitespace-nowrap">
-                              <span className={`px-1.5 py-0.5 rounded-full font-medium ${FIELD_TYPE_COLORS[f.dataType] ?? FIELD_TYPE_COLORS.text}`}>
+                  <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {(fieldMappingDoc.content.fields as any[]).length} fields mapped
+                    </span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">
+                      {(fieldMappingDoc.content.fields as any[]).filter((f: any) => f.isConditional).length} conditional
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {(fieldMappingDoc.content.fields as any[]).map((f: any, i: number) => (
+                      <div key={i} className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                        <div className="flex items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">{f.fieldName}</span>
+                              {f.displayName && f.displayName !== f.fieldName && (
+                                <span className="text-xs text-slate-400 dark:text-slate-500">({f.displayName})</span>
+                              )}
+                              <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${FIELD_TYPE_COLORS[f.dataType] ?? FIELD_TYPE_COLORS.text}`}>
                                 {f.dataType}
                               </span>
-                            </td>
-                            <td className="px-2 py-2 pr-3 text-slate-500 dark:text-slate-400 max-w-xs">
-                              {(f.templates ?? []).join(', ')}
-                            </td>
-                            <td className="px-2 py-2 pr-3 text-slate-600 dark:text-slate-400 font-mono">{f.sampleValue}</td>
-                            <td className="px-2 py-2 pr-3 text-center">
-                              {f.isConditional ? (
-                                <span title={f.conditionalLogic} className="text-amber-500 cursor-help">⚡</span>
-                              ) : (
-                                <span className="text-slate-300 dark:text-slate-600">—</span>
+                              {f.isConditional && (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">
+                                  ⚡ conditional
+                                </span>
                               )}
-                            </td>
-                            <td className="px-2 py-2 font-mono text-slate-400 dark:text-slate-500 text-xs max-w-xs truncate" title={f.xsdPath}>{f.xsdPath || '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            </div>
+                            {f.sampleValue && (
+                              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                <span className="text-slate-400 dark:text-slate-500">Sample: </span>
+                                <span className="font-mono text-slate-600 dark:text-slate-300">{f.sampleValue}</span>
+                              </div>
+                            )}
+                            {f.isConditional && f.conditionalLogic && (
+                              <div className="mt-1 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1">
+                                {f.conditionalLogic}
+                              </div>
+                            )}
+                            {f.xsdPath && f.xsdPath !== 'path not found' && (
+                              <div className="mt-1 font-mono text-xs text-slate-400 dark:text-slate-500 break-all">{f.xsdPath}</div>
+                            )}
+                          </div>
+                          {(f.templates ?? []).length > 0 && (
+                            <div className="shrink-0 flex flex-wrap gap-1 max-w-[200px] justify-end">
+                              {(f.templates as string[]).map((t, ti) => (
+                                <span key={ti} className="px-1.5 py-0.5 rounded text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 truncate max-w-[120px]" title={t}>{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

@@ -554,16 +554,19 @@ router.post('/:id/inventory', requireAuth as any, async (req: AuthRequest, res) 
     const { fileId, groupId = null, variantCount = 1, variations = [], businessDomain = '' } = req.body;
     if (!fileId || typeof fileId !== 'number') { res.status(400).json({ error: 'fileId (number) required' }); return; }
 
+    // Upsert: if already in inventory just return existing row (idempotent)
     const { rows } = await pool.query(`
       INSERT INTO final_inventory (project_id, file_id, group_id, variant_count, variations, business_domain, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (project_id, file_id) DO NOTHING
+      ON CONFLICT (project_id, file_id) DO UPDATE
+        SET group_id = EXCLUDED.group_id,
+            variant_count = EXCLUDED.variant_count,
+            variations = EXCLUDED.variations,
+            updated_at = NOW()
       RETURNING *
     `, [projectId, fileId, groupId, variantCount, JSON.stringify(variations), businessDomain, req.user!.id]);
 
-    if (!rows[0]) { res.status(409).json({ error: 'Template already in inventory' }); return; }
-
-    // Mark file as finalized — hidden from Files tab and Rationaliser
+    // Always ensure lifecycle is finalized (handles backfill for pre-existing rows)
     await pool.query(
       `UPDATE project_files SET lifecycle_status = 'finalized' WHERE id = $1 AND project_id = $2`,
       [fileId, projectId]

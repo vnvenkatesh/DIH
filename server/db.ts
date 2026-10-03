@@ -140,6 +140,14 @@ export async function initDb(): Promise<void> {
 
   await pool.query(`ALTER TABLE project_files ADD COLUMN IF NOT EXISTS lifecycle_status VARCHAR(20) DEFAULT 'original'`);
 
+  // Backfill: files already in final_inventory should be 'finalized'
+  await pool.query(`
+    UPDATE project_files pf
+    SET lifecycle_status = 'finalized'
+    WHERE EXISTS (SELECT 1 FROM final_inventory fi WHERE fi.file_id = pf.id)
+      AND pf.lifecycle_status != 'finalized'
+  `);
+
   // ── Project results ────────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS project_results (

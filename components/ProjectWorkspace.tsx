@@ -204,7 +204,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
       const res = await fetch(`/v1/projects/${projectId}/inventory`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
-        setInventory((data.items ?? data ?? []).map(mapInventoryItem));
+        setInventory((data.inventory ?? data.items ?? []).map(mapInventoryItem));
       }
     } catch { /* ignore */ }
     setInventoryLoading(false);

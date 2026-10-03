@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl as s3GetSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { BlobServiceClient } from '@azure/storage-blob';
 import { randomUUID } from 'crypto';
@@ -103,10 +103,14 @@ export async function getPresignedUploadUrl(
   const key = `projects/${projectId}/${randomUUID()}-${fileName}`;
 
   if (co.storage_provider === 's3') {
-    const client = new S3Client({
+    // Disable CRC32 checksum — newer SDK versions add it by default but browser fetch() cannot send it
+    const clientConfig: any = {
       region: co.storage_region || 'us-east-1',
       credentials: { accessKeyId: co.storage_access_key, secretAccessKey: co.storage_secret_key },
-    });
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    };
+    const client = new S3Client(clientConfig);
     const cmd = new PutObjectCommand({ Bucket: co.storage_bucket, Key: key, ContentType: mimeType });
     const uploadUrl = await s3GetSignedUrl(client, cmd, { expiresIn: 900 });
     return { uploadUrl, storageKey: key, method: 'PUT' };
@@ -163,6 +167,44 @@ export async function testStorageConnection(
     return { ok: false, provider, bucket, error: 'No storage provider configured' };
   } catch (e: any) {
     return { ok: false, provider, bucket, error: e.message };
+  }
+}
+
+export async function applyStorageCors(companyId: number, userId?: number): Promise<void> {
+  let co: CompanyStorage;
+  try { co = await getCompanyStorage(companyId, userId); } catch { return; }
+  if (!co.storage_provider) return;
+
+  if (co.storage_provider === 's3') {
+    const client = new S3Client({
+      region: co.storage_region || 'us-east-1',
+      credentials: { accessKeyId: co.storage_access_key, secretAccessKey: co.storage_secret_key },
+    });
+    await client.send(new PutBucketCorsCommand({
+      Bucket: co.storage_bucket,
+      CORSConfiguration: {
+        CORSRules: [{
+          AllowedHeaders: ['*'],
+          AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
+          AllowedOrigins: ['*'],
+          ExposeHeaders: ['ETag'],
+          MaxAgeSeconds: 3600,
+        }],
+      },
+    }));
+  }
+
+  if (co.storage_provider === 'azure') {
+    const blobServiceClient = BlobServiceClient.fromConnectionString(co.storage_azure_connection);
+    await blobServiceClient.setProperties({
+      cors: [{
+        allowedOrigins: '*',
+        allowedMethods: 'GET,PUT,POST,DELETE,HEAD,OPTIONS',
+        allowedHeaders: '*',
+        exposedHeaders: 'ETag',
+        maxAgeInSeconds: 3600,
+      }],
+    });
   }
 }
 

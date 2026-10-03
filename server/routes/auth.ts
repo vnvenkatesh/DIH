@@ -3,7 +3,7 @@ import { compare } from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../db.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
-import { testStorageConnection } from '../lib/cloudStorage.js';
+import { testStorageConnection, applyStorageCors } from '../lib/cloudStorage.js';
 
 const router = express.Router();
 
@@ -151,6 +151,16 @@ router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => 
        FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1`,
       [req.user!.id]
     );
+
+    // Non-fatally apply CORS policy when storage provider is saved
+    if (storage_provider) {
+      try {
+        await applyStorageCors(rows[0]?.company_id ?? 0, req.user!.id);
+      } catch (corsErr: any) {
+        console.warn('[preferences] CORS apply warning:', corsErr.message);
+      }
+    }
+
     res.json({ user: toClientUser(rows[0]) });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? 'Internal server error' });
@@ -160,20 +170,26 @@ router.put('/preferences', requireAuth as any, async (req: AuthRequest, res) => 
 router.post('/test-storage', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { rows } = await pool.query('SELECT company_id FROM users WHERE id = $1', [req.user!.id]);
-    const companyId = rows[0]?.company_id;
-    const result = await testStorageConnection(companyId ?? 0, req.user!.id);
+    const companyId = rows[0]?.company_id ?? 0;
+    const result = await testStorageConnection(companyId, req.user!.id);
+    if (result.ok) {
+      try { await applyStorageCors(companyId, req.user!.id); } catch {}
+    }
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ ok: false, error: err?.message ?? 'Connection test failed' });
   }
 });
 
-// POST /v1/auth/storage/test — verify cloud storage connectivity
+// POST /v1/auth/storage/test — alias for test-storage
 router.post('/storage/test', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const { rows } = await pool.query('SELECT company_id FROM users WHERE id = $1', [req.user!.id]);
     const companyId = rows[0]?.company_id ?? 0;
     const result = await testStorageConnection(companyId, req.user!.id);
+    if (result.ok) {
+      try { await applyStorageCors(companyId, req.user!.id); } catch {}
+    }
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ ok: false, provider: 'none', bucket: '', error: err.message });

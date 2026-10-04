@@ -91,7 +91,7 @@ interface ProjectWorkspaceProps {
   onBack: () => void;
 }
 
-type Tab = 'files' | 'rationalise' | 'inventory' | 'field_mapping' | 'brd' | 'test_cases';
+type Tab = 'home' | 'files' | 'rationalise' | 'inventory' | 'field_mapping' | 'brd' | 'test_cases';
 
 
 const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }) => {
@@ -99,7 +99,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [project, setProject] = useState<Project | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [messages, setMessages] = useState<ProjectMessage[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>('files');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
   const [loading, setLoading] = useState(true);
 
   // File upload (presigned URL flow)
@@ -708,6 +708,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   }
 
   const tabs: { id: Tab; label: string; icon: string; badge?: number }[] = [
+    { id: 'home',          label: 'Home',           icon: '🏠' },
     { id: 'files',         label: 'Files',          icon: '📁', badge: files.length || undefined },
     { id: 'rationalise',   label: 'Rationalise',    icon: '🔗' },
     { id: 'inventory',     label: 'Inventory',      icon: '📋', badge: inventory.length || undefined },
@@ -764,6 +765,198 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
       {/* ── Row split: tab content (left) + chat sidebar (right) ── */}
       <div className="flex flex-row flex-1 overflow-hidden min-h-0">
       <div className="flex-1 min-w-0 overflow-y-auto pb-10 space-y-4 pr-1 pt-4">
+
+      {/* ── Home tab ── */}
+      {activeTab === 'home' && (() => {
+        // Phase auto-detection
+        const phases = [
+          {
+            id: 1, label: 'Upload Files', desc: 'Add templates, XSD schemas, and reference documents.',
+            tab: 'files' as Tab, done: files.length > 0,
+            stat: `${files.length} file${files.length !== 1 ? 's' : ''}`,
+            action: 'Upload Files',
+          },
+          {
+            id: 2, label: 'Rationalise', desc: 'Group similar templates, remove duplicates, identify variations.',
+            tab: 'rationalise' as Tab, done: rGroups.length > 0 || inventory.length > 0,
+            stat: rGroups.length > 0 ? `${rGroups.length} group${rGroups.length !== 1 ? 's' : ''}` : 'Not run',
+            action: 'Run Rationalisation',
+          },
+          {
+            id: 3, label: 'Build Inventory', desc: 'Confirm the canonical set of templates for this project.',
+            tab: 'inventory' as Tab, done: inventory.length > 0,
+            stat: `${inventory.length} template${inventory.length !== 1 ? 's' : ''}`,
+            action: 'Add to Inventory',
+          },
+          {
+            id: 4, label: 'Fields Mapping', desc: 'Extract and map dynamic fields across all templates to XSD paths.',
+            tab: 'field_mapping' as Tab, done: fieldMappingDoc !== null,
+            stat: fieldMappingDoc ? `${(fieldMappingDoc.content as any)?.totalFields ?? 0} fields` : 'Not generated',
+            action: 'Generate Field Mapping',
+          },
+          {
+            id: 5, label: 'Business Rules', desc: 'Extract validation, conditional, and calculation rules from templates.',
+            tab: 'brd' as Tab, done: brdDoc !== null,
+            stat: brdDoc ? `${(brdDoc.content as any)?.rules?.length ?? 0} rules` : 'Not generated',
+            action: 'Generate BRD',
+          },
+          {
+            id: 6, label: 'Test Cases', desc: 'Generate categorised test cases (Happy Path, Boundary, Format…).',
+            tab: 'test_cases' as Tab, done: testCasesDoc !== null,
+            stat: testCasesDoc ? `${(testCasesDoc.content as any)?.testCases?.length ?? 0} cases` : 'Not generated',
+            action: 'Generate Test Cases',
+          },
+        ];
+        const completedCount = phases.filter(p => p.done).length;
+        const nextPhase = phases.find(p => !p.done);
+        const generatedDocCount = [fieldMappingDoc, brdDoc, testCasesDoc].filter(Boolean).length;
+        const activeTemplates = activeFiles.filter(f => f.role === 'template').length;
+
+        return (
+          <div className="space-y-5">
+            {/* Project info card */}
+            <div className={`${panelCls} p-5`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">{project?.name}</h2>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${project?.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
+                      {project?.status === 'active' ? 'Active' : 'Archived'}
+                    </span>
+                  </div>
+                  {project?.description && <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{project.description}</p>}
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                    Created {project?.createdAt ? new Date(project.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
+                    {project?.updatedAt && project.updatedAt !== project.createdAt ? ` · Updated ${new Date(project.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                  </p>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{completedCount}<span className="text-base font-normal text-slate-400">/{phases.length}</span></div>
+                  <div className="text-xs text-slate-400 mt-0.5">phases complete</div>
+                </div>
+              </div>
+              {/* Overall progress bar */}
+              <div className="mt-4">
+                <div className="flex justify-between text-xs text-slate-400 mb-1">
+                  <span>Overall Progress</span>
+                  <span>{Math.round((completedCount / phases.length) * 100)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-700"
+                    style={{ width: `${(completedCount / phases.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Stats row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Files',       value: files.length,         sub: `${activeFiles.length} active`,              color: 'text-indigo-600 dark:text-indigo-400',  tab: 'files' as Tab },
+                { label: 'Templates',         value: activeTemplates,      sub: `${inventory.length} in inventory`,          color: 'text-violet-600 dark:text-violet-400',  tab: 'inventory' as Tab },
+                { label: 'Business Rules',    value: (brdDoc?.content as any)?.rules?.length ?? 0, sub: brdDoc ? 'Extracted' : 'Pending', color: 'text-blue-600 dark:text-blue-400', tab: 'brd' as Tab },
+                { label: 'Generated Docs',    value: generatedDocCount,    sub: `of 3 available`,                            color: 'text-emerald-600 dark:text-emerald-400', tab: 'test_cases' as Tab },
+              ].map(s => (
+                <button key={s.label} onClick={() => setActiveTab(s.tab)} className={`${panelCls} p-4 text-left hover:shadow-md transition-shadow group`}>
+                  <div className={`text-2xl font-bold ${s.color} group-hover:scale-105 transition-transform`}>{s.value}</div>
+                  <div className="text-xs font-medium text-slate-600 dark:text-slate-300 mt-0.5">{s.label}</div>
+                  <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{s.sub}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* Phase pipeline */}
+            <div className={`${panelCls} p-5`}>
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-white mb-4">Implementation Phases</h3>
+              <div className="space-y-3">
+                {phases.map((phase, idx) => {
+                  const locked = idx > 0 && !phases[idx - 1].done;
+                  return (
+                    <div key={phase.id} className={`flex items-start gap-3 p-3 rounded-lg transition-colors ${phase.done ? 'bg-emerald-50 dark:bg-emerald-900/10' : locked ? 'opacity-40' : 'bg-indigo-50 dark:bg-indigo-900/10'}`}>
+                      {/* Phase indicator */}
+                      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 ${phase.done ? 'bg-emerald-500 text-white' : locked ? 'bg-slate-200 dark:bg-slate-600 text-slate-500' : 'bg-indigo-500 text-white'}`}>
+                        {phase.done ? (
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        ) : phase.id}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-sm font-medium ${phase.done ? 'text-emerald-800 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-200'}`}>{phase.label}</span>
+                          <span className={`text-xs flex-shrink-0 ${phase.done ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>{phase.stat}</span>
+                        </div>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{phase.desc}</p>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab(phase.tab)}
+                        disabled={locked}
+                        className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${phase.done ? 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/20' : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-30 disabled:cursor-not-allowed'}`}
+                      >
+                        {phase.done ? 'View' : 'Start'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Next recommended action */}
+            {nextPhase && (
+              <div className={`${panelCls} p-5 border-l-4 border-indigo-500`}>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-indigo-500 dark:text-indigo-400 font-medium uppercase tracking-wide mb-0.5">Recommended Next Step</p>
+                    <h4 className="text-sm font-semibold text-slate-800 dark:text-white">{nextPhase.action}</h4>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{nextPhase.desc}</p>
+                  </div>
+                  <button onClick={() => setActiveTab(nextPhase.tab)} className="flex-shrink-0 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors">
+                    Go to Phase {nextPhase.id}
+                  </button>
+                </div>
+              </div>
+            )}
+            {!nextPhase && (
+              <div className={`${panelCls} p-5 border-l-4 border-emerald-500`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">All phases complete!</h4>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Field Mapping, Business Rules, and Test Cases are ready to download from the Files tab.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* How it works */}
+            <details className={`${panelCls}`} open>
+              <summary className="p-5 text-sm font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none list-none flex items-center justify-between">
+                <span>How It Works</span>
+                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+              </summary>
+              <div className="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-100 dark:border-slate-700 pt-4">
+                {[
+                  { step: '1', title: 'Upload Files', body: 'Start by uploading all your CCM templates (DOCX/PDF), XSD schemas, and any reference files. All files are stored securely in your organisation\'s cloud storage.' },
+                  { step: '2', title: 'Rationalise', body: 'The Rationalise tab clusters similar templates using AI-powered similarity analysis. Identify duplicates, merge variations, and archive files you no longer need.' },
+                  { step: '3', title: 'Build Inventory', body: 'Promote the canonical set of templates into the Final Inventory. Each inventory item tracks its business domain, status, and any known variations.' },
+                  { step: '4', title: 'Map Fields', body: 'Automatically extract all dynamic field placeholders from your templates and map each one to its XSD path. Supports multi-template consolidation and deduplication.' },
+                  { step: '5', title: 'Extract Business Rules', body: 'AI reads your templates and extracts validation rules, conditional logic, and calculations — producing a structured BRD ready for review and download.' },
+                  { step: '6', title: 'Generate Test Cases', body: 'From the BRD, automatically generate categorised test cases covering Happy Path, Mandatory fields, Boundary values, Conditional logic, Format checks, and Calculations.' },
+                ].map(item => (
+                  <div key={item.step} className="flex gap-3">
+                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 text-xs font-bold flex items-center justify-center mt-0.5">{item.step}</div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{item.title}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 leading-relaxed">{item.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+        );
+      })()}
 
       {/* ── Files tab ── */}
       {activeTab === 'files' && (

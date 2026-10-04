@@ -411,6 +411,19 @@ router.post('/:id/chat', requireAuth as any, async (req: AuthRequest, res) => {
   }
 });
 
+// DELETE /v1/projects/:id/chat — clear all chat history for a project
+router.delete('/:id/chat', requireAuth as any, async (req: AuthRequest, res) => {
+  try {
+    const u = await getUserCompany(req.user!.id);
+    const projectId = parseInt(req.params.id, 10);
+    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    await pool.query('DELETE FROM project_messages WHERE project_id = $1', [projectId]);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
 // ── Project members ───────────────────────────────────────────────────────
 
 // GET /v1/projects/:id/members

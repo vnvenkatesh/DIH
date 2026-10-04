@@ -776,7 +776,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
       {/* ── Row split: tab content (left) + chat sidebar (right) ── */}
       <div className="flex flex-row flex-1 overflow-hidden min-h-0">
-      <div className="flex-1 min-w-0 overflow-y-auto pb-10 space-y-4 pr-1 pt-4">
+      <div className={activeTab === 'files' ? 'flex-1 min-w-0 flex flex-col overflow-hidden pr-1 pt-4' : 'flex-1 min-w-0 overflow-y-auto pb-10 space-y-4 pr-1 pt-4'}>
 
       {/* ── Home tab ── */}
       {activeTab === 'home' && (() => {
@@ -972,146 +972,12 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
       {/* ── Files tab ── */}
       {activeTab === 'files' && (
-        <div className="space-y-4">
-          <div className={`${panelCls} p-5`}>
-            {/* Header row */}
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Project Files</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{files.length} file{files.length !== 1 ? 's' : ''} · {activeFiles.length} active · {archivedFiles.length} archived</p>
-              </div>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadQueue.some(f => f.status === 'uploading')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                </svg>
-                {uploadQueue.some(f => f.status === 'uploading') ? 'Uploading...' : 'Upload Files'}
-              </button>
-              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => handleUpload(e.target.files)} accept=".pdf,.docx,.doc,.xsd,.csv,.xml,.gd" />
-            </div>
+        <div className="flex flex-col flex-1 min-h-0 gap-4">
 
-            {/* Upload progress */}
-            {uploadQueue.length > 0 && (
-              <div className="mb-3 space-y-1">
-                {uploadQueue.map((f, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700/50">
-                    {f.status === 'uploading' && <svg className="w-3 h-3 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>}
-                    {f.status === 'done' && <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
-                    {f.status === 'error' && <svg className="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>}
-                    <span className={f.status === 'error' ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>{f.name}</span>
-                    {f.status === 'uploading' && <span className="text-slate-400">Uploading directly to storage…</span>}
-                    {f.error && <span className="text-red-500 ml-1">{f.error}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Filter bar */}
-            {files.length > 0 && (
-              <div className="mb-4 space-y-2">
-                {/* Search */}
-                <div className="relative">
-                  <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-                  </svg>
-                  <input
-                    type="text"
-                    value={fileSearch}
-                    onChange={e => setFileSearch(e.target.value)}
-                    placeholder="Search files…"
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                  />
-                </div>
-                {/* Type + Tag filters — single row, wraps on small screens */}
-                <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Type:</span>
-                  {(['all', 'template', 'reference', 'xsd', 'csv'] as const).map(r => (
-                    <button key={r} onClick={() => setFileRoleFilter(r)}
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${fileRoleFilter === r ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
-                      {r === 'all' ? 'All' : ROLE_LABELS[r] ?? r}
-                    </button>
-                  ))}
-                  <span className="text-slate-300 dark:text-slate-600 select-none">|</span>
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tag:</span>
-                  {[
-                    { key: 'all',          label: 'All' },
-                    { key: 'in_inventory', label: 'In Inventory' },
-                    { key: 'rationalized', label: 'Rationalized' },
-                    { key: 'variation',    label: 'Variation' },
-                    { key: 'archived',     label: 'Archived' },
-                  ].map(({ key, label }) => (
-                    <button key={key} onClick={() => setFileTagFilter(key)}
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${fileTagFilter === key ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* File list */}
-            {files.length === 0 ? (
-              <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors" onClick={() => fileInputRef.current?.click()}>
-                <svg className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                </svg>
-                <p className="text-sm text-slate-500 dark:text-slate-400">No files yet. Click to upload templates, XSD schemas, or CSVs.</p>
-              </div>
-            ) : filteredFiles.length === 0 ? (
-              <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">No files match the current filters.</p>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                {filteredFiles.map(f => (
-                  <div key={f.id} className={`flex items-center justify-between py-3 gap-3 ${f.archived ? 'opacity-60' : f.lifecycleStatus === 'variation' ? 'bg-amber-50 dark:bg-amber-900/10 -mx-1 px-1 rounded' : ''}`}>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-sm font-medium truncate ${f.archived ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-white'}`}>{f.name}</span>
-                        {/* Role tag */}
-                        <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full ${ROLE_COLORS[f.role] ?? ROLE_COLORS.template}`}>
-                          {ROLE_LABELS[f.role] ?? f.role}
-                        </span>
-                        {/* Lifecycle tags */}
-                        {f.lifecycleStatus === 'rationalized' && (
-                          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rationalized</span>
-                        )}
-                        {f.lifecycleStatus === 'variation' && (
-                          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">Variation</span>
-                        )}
-                        {/* Inventory tag */}
-                        {inInventoryFileIds.has(f.id) && (
-                          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">In Inventory</span>
-                        )}
-                        {/* Archived tag */}
-                        {f.archived && (
-                          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">Archived</span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{formatBytes(f.sizeBytes)} · {new Date(f.createdAt).toLocaleDateString()}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {f.signedUrl && (
-                        <a href={f.signedUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300">Download</a>
-                      )}
-                      {f.archived ? (
-                        <button onClick={() => handleArchiveFile(f.id, false)} className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300">Restore</button>
-                      ) : (
-                        <button onClick={() => handleArchiveFile(f.id, true)} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">Archive</button>
-                      )}
-                      <button onClick={() => handleDeleteFile(f.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Generated Documents */}
+          {/* Generated Documents — pinned at top */}
           {(fieldMappingDoc || brdDoc || testCasesDoc) && (
-            <div className={`${panelCls} p-5`}>
-              <h3 className="text-sm font-semibold text-slate-800 dark:text-white mb-3">Generated Documents</h3>
+            <div className={`${panelCls} p-4 flex-shrink-0`}>
+              <h3 className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide mb-3">Generated Documents</h3>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   fieldMappingDoc ? { label: 'Field_Mapping.csv', desc: `${(fieldMappingDoc.content as any)?.totalFields ?? 0} fields`, onDownload: handleDownloadFieldMappingCsv, updated: fieldMappingDoc.updatedAt } : null,
@@ -1134,6 +1000,127 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
               </div>
             </div>
           )}
+
+          {/* Project Files — grows to fill remaining height, scrolls inside */}
+          <div className={`${panelCls} flex flex-col flex-1 min-h-0 overflow-hidden mb-10`}>
+            {/* Fixed header */}
+            <div className="flex-shrink-0 px-5 pt-5 pb-3">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Project Files</h3>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{files.length} file{files.length !== 1 ? 's' : ''} · {activeFiles.length} active · {archivedFiles.length} archived</p>
+                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadQueue.some(f => f.status === 'uploading')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                  </svg>
+                  {uploadQueue.some(f => f.status === 'uploading') ? 'Uploading...' : 'Upload Files'}
+                </button>
+                <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => handleUpload(e.target.files)} accept=".pdf,.docx,.doc,.xsd,.csv,.xml,.gd" />
+              </div>
+
+              {/* Upload progress */}
+              {uploadQueue.length > 0 && (
+                <div className="mb-3 space-y-1">
+                  {uploadQueue.map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700/50">
+                      {f.status === 'uploading' && <svg className="w-3 h-3 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>}
+                      {f.status === 'done' && <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+                      {f.status === 'error' && <svg className="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>}
+                      <span className={f.status === 'error' ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>{f.name}</span>
+                      {f.status === 'uploading' && <span className="text-slate-400">Uploading directly to storage…</span>}
+                      {f.error && <span className="text-red-500 ml-1">{f.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Filter bar */}
+              {files.length > 0 && (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={fileSearch}
+                      onChange={e => setFileSearch(e.target.value)}
+                      placeholder="Search files…"
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                  </div>
+                  <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Type:</span>
+                    {(['all', 'template', 'reference', 'xsd', 'csv'] as const).map(r => (
+                      <button key={r} onClick={() => setFileRoleFilter(r)}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${fileRoleFilter === r ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                        {r === 'all' ? 'All' : ROLE_LABELS[r] ?? r}
+                      </button>
+                    ))}
+                    <span className="text-slate-300 dark:text-slate-600 select-none">|</span>
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tag:</span>
+                    {[
+                      { key: 'all',          label: 'All' },
+                      { key: 'in_inventory', label: 'In Inventory' },
+                      { key: 'rationalized', label: 'Rationalized' },
+                      { key: 'variation',    label: 'Variation' },
+                      { key: 'archived',     label: 'Archived' },
+                    ].map(({ key, label }) => (
+                      <button key={key} onClick={() => setFileTagFilter(key)}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${fileTagFilter === key ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Scrollable file list */}
+            <div className="flex-1 overflow-y-auto border-t border-slate-100 dark:border-slate-700">
+              {files.length === 0 ? (
+                <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors m-5" onClick={() => fileInputRef.current?.click()}>
+                  <svg className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                  </svg>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No files yet. Click to upload templates, XSD schemas, or CSVs.</p>
+                </div>
+              ) : filteredFiles.length === 0 ? (
+                <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6">No files match the current filters.</p>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-700 px-5">
+                  {filteredFiles.map(f => (
+                    <div key={f.id} className={`flex items-center justify-between py-3 gap-3 ${f.archived ? 'opacity-60' : f.lifecycleStatus === 'variation' ? 'bg-amber-50 dark:bg-amber-900/10 -mx-1 px-1 rounded' : ''}`}>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-sm font-medium truncate ${f.archived ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-white'}`}>{f.name}</span>
+                          <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full ${ROLE_COLORS[f.role] ?? ROLE_COLORS.template}`}>{ROLE_LABELS[f.role] ?? f.role}</span>
+                          {f.lifecycleStatus === 'rationalized' && <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">Rationalized</span>}
+                          {f.lifecycleStatus === 'variation' && <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">Variation</span>}
+                          {inInventoryFileIds.has(f.id) && <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">In Inventory</span>}
+                          {f.archived && <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">Archived</span>}
+                        </div>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{formatBytes(f.sizeBytes)} · {new Date(f.createdAt).toLocaleDateString()}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {f.signedUrl && <a href={f.signedUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300">Download</a>}
+                        {f.archived
+                          ? <button onClick={() => handleArchiveFile(f.id, false)} className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300">Restore</button>
+                          : <button onClick={() => handleArchiveFile(f.id, true)} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">Archive</button>}
+                        <button onClick={() => handleDeleteFile(f.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
       )}
 

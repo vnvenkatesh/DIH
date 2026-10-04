@@ -13,6 +13,14 @@ interface RGroup {
   documents: { fileId: number; fileName: string; fileType: string }[];
 }
 
+interface ProjectMember {
+  id: number;
+  username: string;
+  company_name: string;
+  company_role: string;
+  access_type: 'owner' | 'company' | 'invited';
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function formatBytes(b: number) {
@@ -95,7 +103,7 @@ type Tab = 'home' | 'files' | 'rationalise' | 'inventory' | 'field_mapping' | 'b
 
 
 const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }) => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [messages, setMessages] = useState<ProjectMessage[]>([]);
@@ -140,6 +148,14 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [fileSearch, setFileSearch] = useState('');
   const [fileRoleFilter, setFileRoleFilter] = useState('all');
   const [fileTagFilter, setFileTagFilter] = useState('all');
+
+  // Share panel
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [inviteError, setInviteError] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   // Chat sidebar
   const [chatInput, setChatInput] = useState('');
@@ -618,6 +634,49 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     return { docxFiles, xsdFile, allFiles: validFiles };
   }, [token, inventory, files]);
 
+  // ── Share / members ──────────────────────────────────────────────────────────
+
+  const fetchMembers = useCallback(async () => {
+    if (!token) return;
+    setMembersLoading(true);
+    try {
+      const r = await fetch(`/v1/projects/${projectId}/members`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setMembers(d.members ?? []);
+    } catch { /* ignore */ } finally {
+      setMembersLoading(false);
+    }
+  }, [projectId, token]);
+
+  useEffect(() => { if (showSharePanel) fetchMembers(); }, [showSharePanel, fetchMembers]);
+
+  const handleInvite = async () => {
+    if (!inviteUsername.trim()) return;
+    setInviteError(''); setInviteLoading(true);
+    try {
+      const r = await fetch(`/v1/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ username: inviteUsername.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setInviteError(d.error ?? 'Failed to invite'); return; }
+      setInviteUsername('');
+      fetchMembers();
+    } catch { setInviteError('Network error'); } finally {
+      setInviteLoading(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId: number) => {
+    if (!token) return;
+    await fetch(`/v1/projects/${projectId}/members/${userId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    fetchMembers();
+  };
+
   // ── Chat handler ─────────────────────────────────────────────────────────────
 
   const handleClearChat = useCallback(async () => {
@@ -745,6 +804,17 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${project.status === 'active' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
           {project.status}
         </span>
+        <div className="ml-auto">
+          <button
+            onClick={() => setShowSharePanel(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+            </svg>
+            Share
+          </button>
+        </div>
       </div>
 
       {project.description && (
@@ -1859,6 +1929,92 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
         )}
       </div>
       </div>{/* end row split */}
+
+      {/* ── Share / Access modal ─────────────────────────────────────────────── */}
+      {showSharePanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowSharePanel(false)} />
+          <div className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-2xl shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800 dark:text-white">Project Access</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Share with users from any team</p>
+              </div>
+              <button onClick={() => setShowSharePanel(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            {/* Invite input — only shown to project owner */}
+            {project.createdBy === user?.id && (
+              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700/50">
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">Invite by username</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={inviteUsername}
+                    onChange={e => { setInviteUsername(e.target.value); setInviteError(''); }}
+                    onKeyDown={e => e.key === 'Enter' && handleInvite()}
+                    placeholder="Enter username…"
+                    className="flex-1 px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                  <button
+                    onClick={handleInvite}
+                    disabled={inviteLoading || !inviteUsername.trim()}
+                    className="px-4 py-2 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors"
+                  >
+                    {inviteLoading ? '…' : 'Invite'}
+                  </button>
+                </div>
+                {inviteError && <p className="text-xs text-red-500 mt-1.5">{inviteError}</p>}
+              </div>
+            )}
+
+            {/* Member list */}
+            <div className="px-6 py-4 max-h-80 overflow-y-auto">
+              {membersLoading ? (
+                <p className="text-xs text-slate-400 text-center py-4">Loading members…</p>
+              ) : members.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No members yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {members.map(m => (
+                    <div key={m.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-50 dark:bg-slate-700/40">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-xs font-semibold text-indigo-600 dark:text-indigo-300 flex-shrink-0">
+                          {m.username[0].toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{m.username}</p>
+                          <p className="text-xs text-slate-400 truncate">{m.company_name || 'No company'}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          m.access_type === 'owner'   ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' :
+                          m.access_type === 'company' ? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400' :
+                          'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                        }`}>
+                          {m.access_type === 'owner' ? 'Owner' : m.access_type === 'company' ? 'Team' : 'Invited'}
+                        </span>
+                        {project.createdBy === user?.id && m.access_type === 'invited' && m.id !== user?.id && (
+                          <button onClick={() => handleRemoveMember(m.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors ml-1">Remove</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-700">
+              <p className="text-xs text-slate-400">Team members always have access. Invited users can view and edit this project.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

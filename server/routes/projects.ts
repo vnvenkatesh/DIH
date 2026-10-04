@@ -11,19 +11,21 @@ async function getUserCompany(userId: number) {
 }
 
 async function assertProjectAccess(projectId: number, companyId: number, userId: number) {
-  const { rows } = await pool.query(`
-    SELECT p.id FROM projects p
-    WHERE p.id = $1 AND p.company_id = $2
-      AND (
-        p.visibility = 'shared'
-        OR p.created_by = $3
-        OR EXISTS (
-          SELECT 1 FROM project_members pm
-          WHERE pm.project_id = p.id AND pm.user_id = $3
-        )
-      )
-  `, [projectId, companyId, userId]);
+  const { rows } = await pool.query(
+    `SELECT id, created_by, company_id FROM projects WHERE id = $1`,
+    [projectId]
+  );
   if (!rows[0]) throw Object.assign(new Error('Project not found'), { status: 404 });
+  const p = rows[0];
+  // Allow: same company (shared project) OR owner OR explicitly invited cross-company
+  if (p.created_by === userId) return p;
+  if (p.company_id === companyId && p.visibility === 'shared') return p;
+  const { rows: mem } = await pool.query(
+    `SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2`,
+    [projectId, userId]
+  );
+  if (!mem.length) throw Object.assign(new Error('Project not found'), { status: 404 });
+  return p;
 }
 
 function toProjectRow(r: any) {
@@ -45,15 +47,15 @@ router.get('/', requireAuth as any, async (req: AuthRequest, res) => {
       SELECT p.*, COUNT(pf.id)::int AS file_count
       FROM projects p
       LEFT JOIN project_files pf ON pf.project_id = p.id AND pf.archived = false
-      WHERE p.company_id = $1
-        AND (
-          p.visibility = 'shared'
-          OR p.created_by = $2
-          OR EXISTS (
-            SELECT 1 FROM project_members pm
-            WHERE pm.project_id = p.id AND pm.user_id = $2
-          )
+      WHERE (
+        -- Same company (shared) or owner
+        (p.company_id = $1 AND (p.visibility = 'shared' OR p.created_by = $2))
+        -- OR explicitly invited (cross-company)
+        OR EXISTS (
+          SELECT 1 FROM project_members pm
+          WHERE pm.project_id = p.id AND pm.user_id = $2
         )
+      )
       GROUP BY p.id
       ORDER BY p.updated_at DESC
     `, [u.company_id, req.user!.id]);
@@ -426,34 +428,44 @@ router.delete('/:id/chat', requireAuth as any, async (req: AuthRequest, res) => 
 
 // ── Project members ───────────────────────────────────────────────────────
 
-// GET /v1/projects/:id/members
+// GET /v1/projects/:id/members — returns owner + company team + invited (deduplicated)
 router.get('/:id/members', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
 
     const { rows } = await pool.query(`
-      SELECT pm.user_id, u.username, pm.invited_by, pm.created_at
-      FROM project_members pm
-      JOIN users u ON u.id = pm.user_id
-      WHERE pm.project_id = $1
-      ORDER BY pm.created_at ASC
-    `, [projectId]);
+      SELECT DISTINCT ON (u.id)
+        u.id, u.username, c.name AS company_name, u.company_role,
+        CASE
+          WHEN u.id = $2 THEN 'owner'
+          WHEN u.company_id = $3 THEN 'company'
+          ELSE 'invited'
+        END AS access_type
+      FROM users u
+      LEFT JOIN companies c ON u.company_id = c.id
+      LEFT JOIN project_members pm ON pm.project_id = $1 AND pm.user_id = u.id
+      WHERE u.id = $2
+         OR (u.company_id = $3)
+         OR pm.user_id IS NOT NULL
+      ORDER BY u.id,
+        CASE WHEN u.id = $2 THEN 0 WHEN u.company_id = $3 THEN 1 ELSE 2 END,
+        u.username
+    `, [projectId, p.created_by, p.company_id]);
 
-    res.json({
-      members: rows.map(r => ({
-        userId: r.user_id, username: r.username,
-        invitedBy: r.invited_by, createdAt: r.created_at,
-      })),
-    });
+    res.json({ members: rows.map(r => ({
+      id: r.id, username: r.username,
+      company_name: r.company_name ?? '', company_role: r.company_role ?? '',
+      access_type: r.access_type,
+    })) });
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
   }
 });
 
-// POST /v1/projects/:id/members
+// POST /v1/projects/:id/members — invite any user by username (cross-company)
 router.post('/:id/members', requireAuth as any, async (req: AuthRequest, res) => {
   try {
     const u = await getUserCompany(req.user!.id);
@@ -462,8 +474,8 @@ router.post('/:id/members', requireAuth as any, async (req: AuthRequest, res) =>
 
     // Only the project creator can invite
     const { rows: projRows } = await pool.query(
-      'SELECT created_by FROM projects WHERE id = $1 AND company_id = $2',
-      [projectId, u.company_id]
+      'SELECT created_by, company_id FROM projects WHERE id = $1',
+      [projectId]
     );
     if (!projRows[0]) { res.status(404).json({ error: 'Project not found' }); return; }
     if (projRows[0].created_by !== req.user!.id) {
@@ -473,14 +485,21 @@ router.post('/:id/members', requireAuth as any, async (req: AuthRequest, res) =>
     const { username } = req.body;
     if (!username?.trim()) { res.status(400).json({ error: 'username required' }); return; }
 
-    // Look up target user in same company
+    // Look up target user from ANY company
     const { rows: targetRows } = await pool.query(
-      'SELECT id, username FROM users WHERE LOWER(username) = LOWER($1) AND company_id = $2',
-      [username.trim(), u.company_id]
+      `SELECT u.id, u.username, u.company_id AS user_company_id, c.name AS company_name
+       FROM users u LEFT JOIN companies c ON u.company_id = c.id
+       WHERE LOWER(u.username) = LOWER($1) LIMIT 1`,
+      [username.trim()]
     );
-    if (!targetRows[0]) { res.status(404).json({ error: 'User not found in your company' }); return; }
+    if (!targetRows[0]) { res.status(404).json({ error: 'User not found' }); return; }
     if (targetRows[0].id === req.user!.id) {
       res.status(400).json({ error: 'You are already the project owner' }); return;
+    }
+
+    // If user is already in the project's company, they already have access
+    if (targetRows[0].user_company_id === projRows[0].company_id) {
+      res.status(400).json({ error: 'User is already in the project team' }); return;
     }
 
     await pool.query(
@@ -490,8 +509,8 @@ router.post('/:id/members', requireAuth as any, async (req: AuthRequest, res) =>
 
     res.status(201).json({
       member: {
-        userId: targetRows[0].id, username: targetRows[0].username,
-        invitedBy: req.user!.id, createdAt: new Date().toISOString(),
+        id: targetRows[0].id, username: targetRows[0].username,
+        company_name: targetRows[0].company_name ?? '', access_type: 'invited',
       },
     });
   } catch (err: any) {
@@ -499,25 +518,27 @@ router.post('/:id/members', requireAuth as any, async (req: AuthRequest, res) =>
   }
 });
 
-// DELETE /v1/projects/:id/members/:userId
+// DELETE /v1/projects/:id/members/:userId — owner removes an explicitly invited member
 router.delete('/:id/members/:userId', requireAuth as any, async (req: AuthRequest, res) => {
   try {
-    const u = await getUserCompany(req.user!.id);
-    if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
+    const targetUserId = parseInt(req.params.userId);
 
     const { rows: projRows } = await pool.query(
-      'SELECT created_by FROM projects WHERE id = $1 AND company_id = $2',
-      [projectId, u.company_id]
+      'SELECT created_by FROM projects WHERE id = $1',
+      [projectId]
     );
     if (!projRows[0]) { res.status(404).json({ error: 'Project not found' }); return; }
     if (projRows[0].created_by !== req.user!.id) {
       res.status(403).json({ error: 'Only the project creator can remove members' }); return;
     }
+    if (targetUserId === req.user!.id) {
+      res.status(400).json({ error: 'Cannot remove yourself' }); return;
+    }
 
     await pool.query(
       'DELETE FROM project_members WHERE project_id = $1 AND user_id = $2',
-      [projectId, parseInt(req.params.userId)]
+      [projectId, targetUserId]
     );
     res.status(204).end();
   } catch (err: any) {

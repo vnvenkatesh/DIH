@@ -215,7 +215,7 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
     await assertProjectAccess(projectId, u.company_id, req.user!.id);
 
     const { rows } = await pool.query(
-      `SELECT * FROM project_files WHERE project_id = $1 AND COALESCE(lifecycle_status,'original') != 'finalized' ORDER BY created_at ASC`,
+      `SELECT * FROM project_files WHERE project_id = $1 ORDER BY created_at ASC`,
       [projectId]
     );
 

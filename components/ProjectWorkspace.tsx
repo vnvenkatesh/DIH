@@ -1025,21 +1025,19 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                     className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   />
                 </div>
-                {/* Type filter */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs text-slate-400 dark:text-slate-500 mr-0.5">Type:</span>
+                {/* Type + Tag filters — single row, wraps on small screens */}
+                <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Type:</span>
                   {(['all', 'template', 'reference', 'xsd', 'csv'] as const).map(r => (
                     <button key={r} onClick={() => setFileRoleFilter(r)}
                       className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${fileRoleFilter === r ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
-                      {r === 'all' ? 'All Types' : ROLE_LABELS[r] ?? r}
+                      {r === 'all' ? 'All' : ROLE_LABELS[r] ?? r}
                     </button>
                   ))}
-                </div>
-                {/* Tag filter */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs text-slate-400 dark:text-slate-500 mr-0.5">Tag:</span>
+                  <span className="text-slate-300 dark:text-slate-600 select-none">|</span>
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tag:</span>
                   {[
-                    { key: 'all',          label: 'All Tags' },
+                    { key: 'all',          label: 'All' },
                     { key: 'in_inventory', label: 'In Inventory' },
                     { key: 'rationalized', label: 'Rationalized' },
                     { key: 'variation',    label: 'Variation' },

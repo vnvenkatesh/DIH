@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import * as mammoth from 'mammoth';
 import { useAuth } from '../contexts/AuthContext';
-import type { Project, ProjectFile, ProjectMessage, InventoryItem } from '../types';
-import DataMappingGenerator, { type DataMappingGeneratorHandle } from './DataMappingGenerator';
-import BusinessRulesExtractor, { type BusinessRulesExtractorHandle } from './BusinessRulesExtractor';
-import TestCaseGenerator, { type TestCaseGeneratorHandle } from './TestCaseGenerator';
+import type { Project, ProjectFile, ProjectMessage, InventoryItem, ProjectDocument, DataMapping, ConsolidatedDataMapping, BusinessRule } from '../types';
+import { generateDataMap, extractBusinessRules, generateTestCases } from '../services/llmService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,6 +40,26 @@ function mapInventoryItem(r: any): InventoryItem {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+const RULE_TYPE_COLORS: Record<string, string> = {
+  Validation:   'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  Conditional:  'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+  Calculation:  'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+  Presentation: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+};
+const TC_CATEGORY_COLORS: Record<string, string> = {
+  'Happy Path':  'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300',
+  'Mandatory':   'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+  'Boundary':    'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
+  'Conditional': 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300',
+  'Format':      'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+  'Calculation': 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300',
+};
+const PRIORITY_COLORS: Record<string, string> = {
+  High:   'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800',
+  Medium: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800',
+  Low:    'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600',
+};
 
 const ROLE_COLORS: Record<string, string> = {
   template: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300',
@@ -97,10 +116,20 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const [editDomainValue, setEditDomainValue] = useState('');
   const [addingToInventory, setAddingToInventory] = useState<Set<number>>(new Set());
 
-  // Accelerator refs for project tabs
-  const dataMapRef = useRef<DataMappingGeneratorHandle>(null);
-  const brdRef = useRef<BusinessRulesExtractorHandle>(null);
-  const testCasesRef = useRef<TestCaseGeneratorHandle>(null);
+  const xsdInputRef = useRef<HTMLInputElement>(null);
+
+  // Generated project documents
+  const [fieldMappingDoc, setFieldMappingDoc] = useState<ProjectDocument | null>(null);
+  const [fieldMappingGenerating, setFieldMappingGenerating] = useState(false);
+  const [fieldMappingError, setFieldMappingError] = useState('');
+  const [brdDoc, setBrdDoc] = useState<ProjectDocument | null>(null);
+  const [brdGenerating, setBrdGenerating] = useState(false);
+  const [brdError, setBrdError] = useState('');
+  const [testCasesDoc, setTestCasesDoc] = useState<ProjectDocument | null>(null);
+  const [testCasesGenerating, setTestCasesGenerating] = useState(false);
+  const [testCasesError, setTestCasesError] = useState('');
+  const [tcFilter, setTcFilter] = useState('All');
+  const [brdFilter, setBrdFilter] = useState('All');
 
   // Chat sidebar
   const [chatInput, setChatInput] = useState('');
@@ -158,11 +187,18 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     fetchProject();
     fetchInventory(); // load count for badge immediately
     fetchChat();      // chat sidebar is always visible
-  }, [fetchProject, fetchInventory, fetchChat]);
+    // preload generated docs for Files tab tiles
+    fetchFieldMappingDoc();
+    fetchBrdDoc();
+    fetchTestCasesDoc();
+  }, [fetchProject, fetchInventory, fetchChat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeTab === 'inventory') fetchInventory();
-  }, [activeTab, fetchInventory]);
+    if (activeTab === 'field_mapping') fetchFieldMappingDoc();
+    if (activeTab === 'brd') fetchBrdDoc();
+    if (activeTab === 'test_cases') fetchTestCasesDoc();
+  }, [activeTab, fetchInventory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -349,6 +385,202 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
     setEditDomainId(null);
   };
 
+  // ── Doc generation helpers ─────────────────────────────────────────────────
+
+  const downloadFileFromUrl = useCallback(async (url: string, name: string): Promise<File> => {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return new File([blob], name);
+  }, []);
+
+  const fileToText = useCallback(async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    if (file.name.toLowerCase().endsWith('.docx') || file.name.toLowerCase().endsWith('.doc')) {
+      const result = await (mammoth as any).convertToHtml({ arrayBuffer });
+      const div = document.createElement('div');
+      div.innerHTML = result.value;
+      return div.textContent ?? '';
+    }
+    return new TextDecoder().decode(arrayBuffer);
+  }, []);
+
+  const consolidateMappings = useCallback((mappings: DataMapping[]): ConsolidatedDataMapping[] => {
+    const normalize = (s: string) => s.toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const byKey = new Map<string, ConsolidatedDataMapping>();
+    for (const m of mappings) {
+      const key = normalize(m.field);
+      if (!byKey.has(key)) {
+        byKey.set(key, { field: m.field, xsdPath: m.xsdPath, sampleValue: m.sampleValue, templateCount: 0, templates: [] });
+      }
+      const ex = byKey.get(key)!;
+      if (!ex.templates.includes(m.templateName)) { ex.templates.push(m.templateName); ex.templateCount++; }
+      if ((!ex.xsdPath || ex.xsdPath === 'path not found') && m.xsdPath && m.xsdPath !== 'path not found') ex.xsdPath = m.xsdPath;
+      if (!ex.sampleValue && m.sampleValue) ex.sampleValue = m.sampleValue;
+    }
+    return Array.from(byKey.values()).sort((a, b) => b.templateCount - a.templateCount);
+  }, []);
+
+  const saveDocument = useCallback(async (docType: string, content: Record<string, unknown>) => {
+    if (!token) return null;
+    const res = await fetch(`/v1/projects/${projectId}/documents/${docType}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    return data.document ?? data;
+  }, [token, projectId]);
+
+  const fetchFieldMappingDoc = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`/v1/projects/${projectId}/documents/field_mapping`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) { const d = await res.json(); setFieldMappingDoc(d.document ?? null); }
+  }, [token, projectId]);
+
+  const fetchBrdDoc = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`/v1/projects/${projectId}/documents/brd`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) { const d = await res.json(); setBrdDoc(d.document ?? null); }
+  }, [token, projectId]);
+
+  const fetchTestCasesDoc = useCallback(async () => {
+    if (!token) return;
+    const res = await fetch(`/v1/projects/${projectId}/documents/test_cases`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) { const d = await res.json(); setTestCasesDoc(d.document ?? null); }
+  }, [token, projectId]);
+
+  const handleGenerateFieldMapping = useCallback(async (updateOnly = false) => {
+    if (!token) return;
+    const processedIds: number[] = (fieldMappingDoc?.content as any)?.processedFileIds ?? [];
+    const existingFields: ConsolidatedDataMapping[] = (fieldMappingDoc?.content as any)?.fields ?? [];
+    const invFileIds = new Set(inventory.map(i => i.fileId));
+    const invPFs = files.filter(f => invFileIds.has(f.id) && f.signedUrl && !f.archived);
+    const toProcess = invPFs.filter(f =>
+      (f.name.toLowerCase().endsWith('.docx') || f.name.toLowerCase().endsWith('.doc')) &&
+      (!updateOnly || !processedIds.includes(f.id))
+    );
+    const xsdPf = files.find(f => f.name.toLowerCase().endsWith('.xsd') && !f.archived && f.signedUrl);
+    if (!xsdPf) { setFieldMappingError('No XSD file found in project files. Upload an .xsd file using "Upload XSD" above.'); return; }
+    if (toProcess.length === 0) { setFieldMappingError(updateOnly ? 'No new templates to process — all inventory templates already mapped.' : 'No DOCX templates found in inventory.'); return; }
+    setFieldMappingGenerating(true); setFieldMappingError('');
+    try {
+      const xsdFile = await downloadFileFromUrl(xsdPf.signedUrl!, xsdPf.name);
+      const xsdContent = await fileToText(xsdFile);
+      const newMappings: DataMapping[] = [];
+      for (const pf of toProcess) {
+        const file = await downloadFileFromUrl(pf.signedUrl!, pf.name);
+        const docxContent = await fileToText(file);
+        const result = await generateDataMap(docxContent, xsdContent, pf.name);
+        newMappings.push(...result.mappings);
+      }
+      const existingAsMappings: DataMapping[] = existingFields.flatMap(f =>
+        (f.templates ?? []).map(t => ({ field: f.field, xsdPath: f.xsdPath, sampleValue: f.sampleValue, templateName: t, pageNumber: '' }))
+      );
+      const consolidated = consolidateMappings([...existingAsMappings, ...newMappings]);
+      const newProcessedIds = [...new Set([...processedIds, ...toProcess.map(f => f.id)])];
+      const saved = await saveDocument('field_mapping', {
+        fields: consolidated,
+        processedFileIds: newProcessedIds,
+        totalFields: consolidated.length,
+        summary: `${consolidated.length} unique fields across ${newProcessedIds.length} template(s).`,
+      });
+      if (saved) setFieldMappingDoc(saved);
+    } catch (err: any) {
+      setFieldMappingError(err.message ?? 'Generation failed.');
+    } finally {
+      setFieldMappingGenerating(false);
+    }
+  }, [token, fieldMappingDoc, inventory, files, saveDocument, downloadFileFromUrl, fileToText, consolidateMappings]);
+
+  const handleGenerateBrd = useCallback(async (updateOnly = false) => {
+    if (!token) return;
+    const processedIds: number[] = (brdDoc?.content as any)?.processedFileIds ?? [];
+    const existingRules: BusinessRule[] = (brdDoc?.content as any)?.rules ?? [];
+    const invFileIds = new Set(inventory.map(i => i.fileId));
+    const invPFs = files.filter(f => invFileIds.has(f.id) && f.signedUrl && !f.archived);
+    const toProcess = invPFs.filter(f =>
+      (f.name.toLowerCase().endsWith('.docx') || f.name.toLowerCase().endsWith('.doc')) &&
+      (!updateOnly || !processedIds.includes(f.id))
+    );
+    if (toProcess.length === 0) { setBrdError(updateOnly ? 'No new templates to process.' : 'No DOCX templates found in inventory.'); return; }
+    setBrdGenerating(true); setBrdError('');
+    try {
+      const newRules: BusinessRule[] = [];
+      for (const pf of toProcess) {
+        const file = await downloadFileFromUrl(pf.signedUrl!, pf.name);
+        const text = await fileToText(file);
+        const result = await extractBusinessRules(text);
+        newRules.push(...result.rules);
+      }
+      const allRules = [...existingRules, ...newRules];
+      const seen = new Set<string>();
+      const deduped = allRules.filter(r => {
+        const key = `${r.fieldName}|${r.ruleType}|${r.condition}`;
+        if (seen.has(key)) return false; seen.add(key); return true;
+      });
+      const newProcessedIds = [...new Set([...processedIds, ...toProcess.map(f => f.id)])];
+      const saved = await saveDocument('brd', { rules: deduped, processedFileIds: newProcessedIds, totalRules: deduped.length });
+      if (saved) setBrdDoc(saved);
+    } catch (err: any) {
+      setBrdError(err.message ?? 'Extraction failed.');
+    } finally {
+      setBrdGenerating(false);
+    }
+  }, [token, brdDoc, inventory, files, saveDocument, downloadFileFromUrl, fileToText]);
+
+  const handleGenerateTestCases = useCallback(async () => {
+    const rules: BusinessRule[] = (brdDoc?.content as any)?.rules ?? [];
+    if (!rules.length) { setTestCasesError('Generate BRD first to provide business rules.'); return; }
+    setTestCasesGenerating(true); setTestCasesError('');
+    try {
+      const rulesText = rules.map((r, i) => [
+        `Rule ${i + 1}:`,
+        `  Field: ${r.fieldName}`,
+        `  Type: ${r.ruleType}`,
+        r.condition ? `  Condition: ${r.condition}` : '',
+        r.actionFormula ? `  Action/Formula: ${r.actionFormula}` : '',
+        `  Priority: ${r.priority ?? 'Medium'}`,
+      ].filter(Boolean).join('\n')).join('\n\n');
+      const result = await generateTestCases(`--- BUSINESS RULES ---\n\n${rulesText}\n\n--- ADDITIONAL HINTS ---\n\nNone provided.`);
+      const indexed = result.testCases.map((tc, i) => ({ ...tc, id: `TC-${String(i + 1).padStart(3, '0')}` }));
+      const saved = await saveDocument('test_cases', { testCases: indexed, generatedAt: new Date().toISOString(), sourceVersion: brdDoc?.version ?? 1 });
+      if (saved) setTestCasesDoc(saved);
+    } catch (err: any) {
+      setTestCasesError(err.message ?? 'Generation failed.');
+    } finally {
+      setTestCasesGenerating(false);
+    }
+  }, [brdDoc, saveDocument]);
+
+  const downloadBlob = (content: string, filename: string, mime: string) => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([content], { type: mime }));
+    a.download = filename; a.click();
+  };
+  const escCsv = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+  const handleDownloadFieldMappingCsv = () => {
+    const fields: ConsolidatedDataMapping[] = (fieldMappingDoc?.content as any)?.fields ?? [];
+    if (!fields.length) return;
+    const header = ['Field', 'XSD Path', 'Sample Value', 'Templates', 'Template Count'];
+    const rows = fields.map(f => [f.field, f.xsdPath, f.sampleValue, (f.templates ?? []).join('; '), f.templateCount].map(escCsv).join(','));
+    downloadBlob([header.join(','), ...rows].join('\n'), 'Field_Mapping.csv', 'text/csv');
+  };
+  const handleDownloadBrdCsv = () => {
+    const rules: BusinessRule[] = (brdDoc?.content as any)?.rules ?? [];
+    if (!rules.length) return;
+    const header = ['Field Name', 'Source Reference', 'Rule Type', 'Condition', 'Action / Formula', 'Error Message', 'Dependent Fields', 'Priority', 'Page Ref'];
+    const rows = rules.map(r => [r.fieldName, r.sourceReference ?? '', r.ruleType, r.condition, r.actionFormula, r.errorMessage, r.dependentFields, r.priority, r.pageReference ?? ''].map(escCsv).join(','));
+    downloadBlob([header.join(','), ...rows].join('\n'), 'Business_Rules.csv', 'text/csv');
+  };
+  const handleDownloadTestCasesCsv = () => {
+    const cases: any[] = (testCasesDoc?.content as any)?.testCases ?? [];
+    if (!cases.length) return;
+    const header = ['Test Case ID', 'Field Section', 'Category', 'Description', 'Input Data', 'Expected Result', 'Priority', 'Preconditions', 'Test Steps'];
+    const rows = cases.map((tc: any) => [tc.id, tc.fieldSection, tc.category, tc.testDescription, tc.inputData, tc.expectedResult, tc.priority, tc.preconditions, tc.testSteps].map(escCsv).join(','));
+    downloadBlob([header.join(','), ...rows].join('\n'), 'Test_Cases.csv', 'text/csv');
+  };
+
   // ── Inventory file loader for accelerator tabs ───────────────────────────────
 
   const loadInventoryFilesFromStorage = useCallback(async (): Promise<{ docxFiles: File[]; xsdFile: File | null; allFiles: File[] }> => {
@@ -394,36 +626,33 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
     if (isFieldMapping) {
       setActiveTab('field_mapping');
-      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: 'Loading inventory files for Dynamic Fields Mapping...', createdAt: new Date().toISOString() }]);
-      const { docxFiles: invDocx, xsdFile: invXsd } = await loadInventoryFilesFromStorage();
-      if (invDocx.length) {
-        dataMapRef.current?.preloadFiles(invDocx, invXsd);
-        setTimeout(() => dataMapRef.current?.generate(invDocx, invXsd), 50);
-        setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: `✅ Loaded ${invDocx.length} template(s)${invXsd ? ' + XSD' : ''}. Generation started in the Fields Mapping tab.`, createdAt: new Date().toISOString() }]);
-      } else {
-        setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: 'No DOCX files found in inventory. Add DOCX templates to the Final Inventory first.', createdAt: new Date().toISOString() }]);
+      const hasXsd = files.some(f => f.name.toLowerCase().endsWith('.xsd') && !f.archived);
+      const msg = hasXsd ? 'Starting field mapping from inventory…' : 'No XSD found in project files — please upload an .xsd file first.';
+      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: msg, createdAt: new Date().toISOString() }]);
+      if (hasXsd) {
+        await handleGenerateFieldMapping(fieldMappingDoc !== null);
+        setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: '✅ Field mapping complete — see the Fields Mapping tab for results.', createdAt: new Date().toISOString() }]);
       }
       setChatLoading(false);
       return;
     }
     if (isBrd) {
       setActiveTab('brd');
-      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: 'Loading inventory files for Business Rules Extractor...', createdAt: new Date().toISOString() }]);
-      const { allFiles } = await loadInventoryFilesFromStorage();
-      const docs = allFiles.filter(f => f.name.toLowerCase().endsWith('.docx') || f.name.toLowerCase().endsWith('.doc'));
-      if (docs.length) {
-        brdRef.current?.preloadFiles(docs);
-        setTimeout(() => brdRef.current?.extract(docs[0]), 50);
-        setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: `✅ Loaded ${docs.length} template(s). Business Rules extraction started in the BRD tab.`, createdAt: new Date().toISOString() }]);
-      } else {
-        setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: 'No DOCX files found in inventory. Add DOCX templates to the Final Inventory first.', createdAt: new Date().toISOString() }]);
-      }
+      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: 'Extracting business rules from inventory templates…', createdAt: new Date().toISOString() }]);
+      await handleGenerateBrd(brdDoc !== null);
+      setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: '✅ BRD extraction complete — see the BRD tab for results.', createdAt: new Date().toISOString() }]);
       setChatLoading(false);
       return;
     }
     if (isTestCases) {
       setActiveTab('test_cases');
-      setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: 'Switched to Test Cases tab. Upload a CSV exported from the BRD tab, then click Generate.', createdAt: new Date().toISOString() }]);
+      if (!((brdDoc?.content as any)?.rules?.length)) {
+        setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: 'Please generate BRD first — test cases are derived from the extracted business rules.', createdAt: new Date().toISOString() }]);
+      } else {
+        setMessages(prev => [...prev, { id: Date.now() + 1, projectId, userId: 0, role: 'assistant', content: 'Generating test cases from BRD rules…', createdAt: new Date().toISOString() }]);
+        await handleGenerateTestCases();
+        setMessages(prev => [...prev, { id: Date.now() + 2, projectId, userId: 0, role: 'assistant', content: '✅ Test cases generated — see the Test Cases tab for results.', createdAt: new Date().toISOString() }]);
+      }
       setChatLoading(false);
       return;
     }
@@ -448,6 +677,7 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
   const inInventoryFileIds = new Set(inventory.map(i => i.fileId));
   const activeFiles = files.filter(f => !f.archived);
   const archivedFiles = files.filter(f => f.archived);
+  const detectedXsd = files.find(f => f.name.toLowerCase().endsWith('.xsd') && !f.archived) ?? null;
 
   if (loading) {
     return <div className="max-w-6xl mx-auto py-8 text-sm text-slate-500 dark:text-slate-400">Loading project...</div>;
@@ -601,6 +831,33 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
                 ))}
               </div>
             </details>
+          )}
+
+          {/* Generated Documents */}
+          {(fieldMappingDoc || brdDoc || testCasesDoc) && (
+            <div className={`${panelCls} p-5`}>
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-white mb-3">Generated Documents</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  fieldMappingDoc ? { label: 'Field_Mapping.csv', desc: `${(fieldMappingDoc.content as any)?.totalFields ?? 0} fields`, onDownload: handleDownloadFieldMappingCsv, updated: fieldMappingDoc.updatedAt } : null,
+                  brdDoc ? { label: 'Business_Rules.csv', desc: `${(brdDoc.content as any)?.rules?.length ?? 0} rules`, onDownload: handleDownloadBrdCsv, updated: brdDoc.updatedAt } : null,
+                  testCasesDoc ? { label: 'Test_Cases.csv', desc: `${(testCasesDoc.content as any)?.testCases?.length ?? 0} test cases`, onDownload: handleDownloadTestCasesCsv, updated: testCasesDoc.updatedAt } : null,
+                ].filter(Boolean).map((doc: any, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-700/30">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <svg className="w-5 h-5 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                      </svg>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">{doc.label}</p>
+                        <p className="text-xs text-slate-400">{doc.desc} · {new Date(doc.updated).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <button onClick={doc.onDownload} className="ml-2 flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Download</button>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -954,70 +1211,297 @@ const ProjectWorkspace: React.FC<ProjectWorkspaceProps> = ({ projectId, onBack }
 
       {/* ── Fields Mapping tab ── */}
       {activeTab === 'field_mapping' && (
-        <div className="space-y-3">
-          <div className={`${panelCls} p-4`}>
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
+        <div className="space-y-4">
+          <div className={`${panelCls} p-5`}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Dynamic Fields Mapping</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Map unique fields across all finalised inventory templates.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Identifies all unique variable fields across finalised inventory templates and maps them to XSD paths.</p>
               </div>
-              <button
-                onClick={async () => {
-                  if (!inventory.length) return;
-                  const { docxFiles, xsdFile } = await loadInventoryFilesFromStorage();
-                  if (!docxFiles.length) { alert('No DOCX files found in inventory.'); return; }
-                  dataMapRef.current?.preloadFiles(docxFiles, xsdFile);
-                }}
-                disabled={inventory.length === 0}
-                className="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-600 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-40 transition-colors"
-              >
-                Load from Inventory
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                {detectedXsd ? (
+                  <span className="flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                    {detectedXsd.name}
+                    <button onClick={() => xsdInputRef.current?.click()} className="ml-1 text-emerald-500 hover:text-emerald-700" title="Replace XSD">↺</button>
+                  </span>
+                ) : (
+                  <button onClick={() => xsdInputRef.current?.click()} className="px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-600 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
+                    Upload XSD
+                  </button>
+                )}
+                <input ref={xsdInputRef} type="file" className="hidden" accept=".xsd" onChange={e => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ''; }} />
+                <button
+                  onClick={() => handleGenerateFieldMapping(fieldMappingDoc !== null)}
+                  disabled={fieldMappingGenerating || !detectedXsd || inventory.length === 0}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {fieldMappingGenerating ? (
+                    <span className="flex items-center gap-1.5"><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Processing…</span>
+                  ) : fieldMappingDoc ? 'Update Mapping' : 'Generate Mapping'}
+                </button>
+                {fieldMappingDoc && <button onClick={handleDownloadFieldMappingCsv} className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Download CSV</button>}
+              </div>
             </div>
+            {!detectedXsd && (
+              <div className="mt-3 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+                No XSD schema found in project files. Upload an .xsd file above or from the Files tab to enable mapping.
+              </div>
+            )}
+            {inventory.length === 0 && (
+              <div className="mt-3 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
+                No templates in inventory yet. Add templates to the <button onClick={() => setActiveTab('inventory')} className="underline font-medium text-indigo-600 dark:text-indigo-400">Inventory tab</button> first.
+              </div>
+            )}
+            {fieldMappingDoc && (
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-400 dark:text-slate-500 flex-wrap">
+                <span>{(fieldMappingDoc.content as any)?.totalFields ?? 0} unique fields</span>
+                <span>{((fieldMappingDoc.content as any)?.processedFileIds ?? []).length} / {inventory.length} templates processed</span>
+                <span>v{fieldMappingDoc.version} · {new Date(fieldMappingDoc.updatedAt).toLocaleDateString()}</span>
+              </div>
+            )}
+            {fieldMappingError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{fieldMappingError}</p>}
           </div>
-          <DataMappingGenerator ref={dataMapRef} />
+
+          {fieldMappingGenerating && (
+            <div className={`${panelCls} p-6 text-center`}>
+              <svg className="w-6 h-6 animate-spin text-indigo-500 mx-auto mb-2" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Analysing templates and mapping fields…</p>
+            </div>
+          )}
+
+          {!fieldMappingGenerating && ((fieldMappingDoc?.content as any)?.fields ?? []).length > 0 && (
+            <div className={`${panelCls} overflow-hidden`}>
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {((fieldMappingDoc!.content as any).fields as ConsolidatedDataMapping[]).length} fields
+                </span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">sorted by template frequency</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
+                      <th className="px-4 py-2.5 font-medium">Field Name</th>
+                      <th className="px-3 py-2.5 font-medium">XSD Path</th>
+                      <th className="px-3 py-2.5 font-medium">Sample Value</th>
+                      <th className="px-3 py-2.5 font-medium">Templates</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {((fieldMappingDoc!.content as any).fields as ConsolidatedDataMapping[]).map((f, i) => (
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                        <td className="px-4 py-2.5 font-mono font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{f.field}</td>
+                        <td className="px-3 py-2.5 font-mono text-slate-400 dark:text-slate-500 text-xs max-w-xs break-all">{f.xsdPath || '—'}</td>
+                        <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 font-mono">{f.sampleValue || '—'}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-wrap gap-1">
+                            {(f.templates ?? []).map((t, ti) => (
+                              <span key={ti} className="px-1.5 py-0.5 rounded text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 truncate max-w-[120px]" title={t}>{t}</span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {!fieldMappingGenerating && !fieldMappingDoc && (
+            <div className={`${panelCls} p-8 text-center`}>
+              <svg className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z" /></svg>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">No field mapping yet</h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{detectedXsd && inventory.length > 0 ? 'Click "Generate Mapping" to start.' : 'Add templates to inventory and upload an XSD schema first.'}</p>
+            </div>
+          )}
         </div>
       )}
 
       {/* ── BRD tab ── */}
       {activeTab === 'brd' && (
-        <div className="space-y-3">
-          <div className={`${panelCls} p-4`}>
-            <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="space-y-4">
+          <div className={`${panelCls} p-5`}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Business Rules</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Extract and analyse business rules from inventory documents.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Extracts and consolidates business rules, validations, and conditional logic from all inventory templates.</p>
               </div>
-              <button
-                onClick={async () => {
-                  if (!inventory.length) return;
-                  const { allFiles } = await loadInventoryFilesFromStorage();
-                  if (!allFiles.length) { alert('No files found in inventory.'); return; }
-                  brdRef.current?.preloadFiles(allFiles);
-                }}
-                disabled={inventory.length === 0}
-                className="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-600 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20 disabled:opacity-40 transition-colors"
-              >
-                Load from Inventory
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleGenerateBrd(brdDoc !== null)}
+                  disabled={brdGenerating || inventory.length === 0}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {brdGenerating ? (
+                    <span className="flex items-center gap-1.5"><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Extracting…</span>
+                  ) : brdDoc ? 'Update BRD' : 'Generate BRD'}
+                </button>
+                {brdDoc && <button onClick={handleDownloadBrdCsv} className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Download CSV</button>}
+              </div>
             </div>
+            {inventory.length === 0 && (
+              <div className="mt-3 text-xs text-slate-500 bg-slate-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
+                No templates in inventory. Add templates to the <button onClick={() => setActiveTab('inventory')} className="underline font-medium text-indigo-600">Inventory tab</button> first.
+              </div>
+            )}
+            {brdDoc && (
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                <span>{((brdDoc.content as any)?.rules ?? []).length} rules extracted</span>
+                <span>{((brdDoc.content as any)?.processedFileIds ?? []).length} / {inventory.length} templates processed</span>
+                <span>v{brdDoc.version} · {new Date(brdDoc.updatedAt).toLocaleDateString()}</span>
+              </div>
+            )}
+            {brdError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{brdError}</p>}
           </div>
-          <BusinessRulesExtractor ref={brdRef} />
+
+          {brdDoc && (
+            <div className={`${panelCls} overflow-hidden`}>
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2 flex-wrap">
+                {(['All', 'Validation', 'Conditional', 'Calculation', 'Presentation'] as const).map(f => (
+                  <button key={f} onClick={() => setBrdFilter(f)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${brdFilter === f ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                    {f} {f !== 'All' ? `(${((brdDoc.content as any)?.rules ?? []).filter((r: BusinessRule) => r.ruleType === f).length})` : `(${((brdDoc.content as any)?.rules ?? []).length})`}
+                  </button>
+                ))}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
+                      <th className="px-4 py-2.5 font-medium">Field Name</th>
+                      <th className="px-3 py-2.5 font-medium">Rule Type</th>
+                      <th className="px-3 py-2.5 font-medium">Condition</th>
+                      <th className="px-3 py-2.5 font-medium">Action / Formula</th>
+                      <th className="px-3 py-2.5 font-medium">Priority</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {(((brdDoc.content as any)?.rules ?? []) as BusinessRule[])
+                      .filter(r => brdFilter === 'All' || r.ruleType === brdFilter)
+                      .map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                          <td className="px-4 py-2.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{r.fieldName}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${RULE_TYPE_COLORS[r.ruleType] ?? ''}`}>{r.ruleType}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 max-w-xs">{r.condition || '—'}</td>
+                          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-300 max-w-xs">{r.actionFormula || '—'}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[r.priority] ?? PRIORITY_COLORS.Low}`}>{r.priority}</span>
+                          </td>
+                        </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {!brdGenerating && !brdDoc && (
+            <div className={`${panelCls} p-8 text-center`}>
+              <svg className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m6.75 12H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">No BRD yet</h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{inventory.length > 0 ? 'Click "Generate BRD" to extract business rules from inventory templates.' : 'Add templates to inventory first.'}</p>
+            </div>
+          )}
         </div>
       )}
 
       {/* ── Test Cases tab ── */}
       {activeTab === 'test_cases' && (
-        <div className="space-y-3">
-          <div className={`${panelCls} p-4`}>
-            <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="space-y-4">
+          <div className={`${panelCls} p-5`}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Test Cases</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Generate categorised test cases from a business rules CSV. Upload a CSV with <span className="font-mono">Field Name</span> and <span className="font-mono">Rule Type</span> columns, then click Generate.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Generates categorised test cases (Happy Path, Mandatory, Boundary, Conditional, Format, Calculation) from the BRD business rules.</p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={handleGenerateTestCases}
+                  disabled={testCasesGenerating || !((brdDoc?.content as any)?.rules?.length)}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {testCasesGenerating ? (
+                    <span className="flex items-center gap-1.5"><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Generating…</span>
+                  ) : testCasesDoc ? 'Regenerate Test Cases' : 'Generate Test Cases'}
+                </button>
+                {testCasesDoc && <button onClick={handleDownloadTestCasesCsv} className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Download CSV</button>}
               </div>
             </div>
+            {!brdDoc && (
+              <div className="mt-3 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+                Generate BRD first — Test Cases are derived from the extracted business rules.
+              </div>
+            )}
+            {testCasesDoc && (
+              <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-400 flex-wrap">
+                <span>{((testCasesDoc.content as any)?.testCases ?? []).length} test cases</span>
+                <span>v{testCasesDoc.version} · {new Date(testCasesDoc.updatedAt).toLocaleDateString()}</span>
+              </div>
+            )}
+            {testCasesError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{testCasesError}</p>}
           </div>
-          <TestCaseGenerator ref={testCasesRef} />
+
+          {testCasesDoc && (
+            <div className={`${panelCls} overflow-hidden`}>
+              <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2 flex-wrap">
+                {(['All', 'Happy Path', 'Mandatory', 'Boundary', 'Conditional', 'Format', 'Calculation'] as const).map(f => {
+                  const count = f === 'All' ? ((testCasesDoc.content as any)?.testCases ?? []).length : ((testCasesDoc.content as any)?.testCases ?? []).filter((tc: any) => tc.category === f).length;
+                  return (
+                    <button key={f} onClick={() => setTcFilter(f)}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${tcFilter === f ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+                      {f} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50">
+                      <th className="px-4 py-2.5 font-medium w-20">ID</th>
+                      <th className="px-3 py-2.5 font-medium">Category</th>
+                      <th className="px-3 py-2.5 font-medium">Field</th>
+                      <th className="px-3 py-2.5 font-medium">Description</th>
+                      <th className="px-3 py-2.5 font-medium">Input Data</th>
+                      <th className="px-3 py-2.5 font-medium">Expected Result</th>
+                      <th className="px-3 py-2.5 font-medium">Priority</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {(((testCasesDoc.content as any)?.testCases ?? []) as any[])
+                      .filter((tc: any) => tcFilter === 'All' || tc.category === tcFilter)
+                      .map((tc: any, i: number) => (
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                          <td className="px-4 py-2.5 font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{tc.id}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${TC_CATEGORY_COLORS[tc.category] ?? ''}`}>{tc.category}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300 whitespace-nowrap">{tc.fieldSection}</td>
+                          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 max-w-xs">{tc.testDescription}</td>
+                          <td className="px-3 py-2.5 font-mono text-slate-600 dark:text-slate-400 max-w-xs">{tc.inputData}</td>
+                          <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 max-w-xs">{tc.expectedResult}</td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${PRIORITY_COLORS[tc.priority] ?? PRIORITY_COLORS.Low}`}>{tc.priority}</span>
+                          </td>
+                        </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {!testCasesGenerating && !testCasesDoc && (
+            <div className={`${panelCls} p-8 text-center`}>
+              <svg className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" /></svg>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">No test cases yet</h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{brdDoc ? 'Click "Generate Test Cases" to create categorised test cases from BRD rules.' : 'Generate BRD first — test cases are derived from the extracted business rules.'}</p>
+            </div>
+          )}
         </div>
       )}
 

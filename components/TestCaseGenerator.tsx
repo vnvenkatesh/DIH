@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useImperativeHandle } from 'react';
 import { generateTestCases } from '../services/llmService';
 import type { TestCase } from '../types';
 import FileUploader from './FileUploader';
@@ -136,7 +136,12 @@ function toCsv(cases: IndexedTestCase[]): string {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-const TestCaseGenerator: React.FC = () => {
+export interface TestCaseGeneratorHandle {
+    generate: () => void;
+    preloadCsv: (file: File) => void;
+}
+
+const TestCaseGenerator = React.forwardRef<TestCaseGeneratorHandle, Record<string, never>>((_props, ref) => {
     const [file, setFile] = useState<File | null>(null);
     const [rules, setRules] = useState<ParsedRule[]>([]);
     const [parseError, setParseError] = useState('');
@@ -165,7 +170,7 @@ const TestCaseGenerator: React.FC = () => {
         }
     };
 
-    const handleGenerate = async () => {
+    const handleGenerate = useCallback(async () => {
         if (!rules.length) return;
         setLoading(true);
         setError('');
@@ -186,7 +191,12 @@ const TestCaseGenerator: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [rules, hints]);
+
+    useImperativeHandle(ref, () => ({
+        generate: handleGenerate,
+        preloadCsv: (csvFile) => handleFileChange(csvFile),
+    }), [handleGenerate]);
 
     const countFor = (cat: string) => cases.filter(tc => tc.category === cat).length;
     const visible = activeFilter === 'All' ? cases : cases.filter(tc => tc.category === activeFilter);
@@ -419,6 +429,6 @@ const TestCaseGenerator: React.FC = () => {
             )}
         </div>
     );
-};
+});
 
 export default TestCaseGenerator;

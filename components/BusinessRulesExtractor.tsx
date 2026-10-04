@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useImperativeHandle } from 'react';
 import mammoth from 'mammoth';
 import { BusinessRule, BusinessRulesResult } from '../types';
 import { extractBusinessRules } from '../services/llmService';
@@ -165,7 +165,12 @@ function rulesToCsv(rules: BusinessRule[]): string {
 
 const FILTERS: RuleTypeFilter[] = ['All', 'Validation', 'Conditional', 'Calculation', 'Presentation'];
 
-const BusinessRulesExtractor: React.FC = () => {
+export interface BusinessRulesExtractorHandle {
+    extract: (fileOverride?: File) => void;
+    preloadFiles: (files: File[]) => void;
+}
+
+const BusinessRulesExtractor = React.forwardRef<BusinessRulesExtractorHandle, Record<string, never>>((_props, ref) => {
     const [file, setFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -181,13 +186,14 @@ const BusinessRulesExtractor: React.FC = () => {
         }
     }, []);
 
-    const handleExtract = async () => {
-        if (!file) return;
+    const handleExtract = useCallback(async (fileOverride?: File) => {
+        const doc = fileOverride ?? file;
+        if (!doc) return;
         setLoading(true);
         setError('');
         setResult(null);
         try {
-            const text = await extractDocxText(file);
+            const text = await extractDocxText(doc);
             if (!text.trim()) throw new Error('Could not extract text from the document. Ensure it is a valid DOCX file.');
             const data = await extractBusinessRules(text);
             setResult(data);
@@ -196,7 +202,14 @@ const BusinessRulesExtractor: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [file]);
+
+    useImperativeHandle(ref, () => ({
+        extract: (fileOverride) => handleExtract(fileOverride),
+        preloadFiles: (files) => {
+            if (files[0]) { setFile(files[0]); setResult(null); setError(''); setActiveFilter('All'); }
+        },
+    }), [handleExtract]);
 
     const visibleRules = result
         ? (activeFilter === 'All' ? result.rules : result.rules.filter(r => r.ruleType === activeFilter))
@@ -374,6 +387,6 @@ const BusinessRulesExtractor: React.FC = () => {
             )}
         </div>
     );
-};
+});
 
 export default BusinessRulesExtractor;

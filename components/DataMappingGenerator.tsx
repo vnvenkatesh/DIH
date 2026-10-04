@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useImperativeHandle } from 'react';
 import * as mammoth from 'mammoth';
 import { DataMapping, DataMappingResult, ConsolidatedDataMapping } from '../types';
 import { generateDataMap } from '../services/llmService';
@@ -228,7 +228,12 @@ const TemplatesBadge: React.FC<{ mapping: ConsolidatedDataMapping; total: number
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-const DataMappingGenerator: React.FC = () => {
+export interface DataMappingGeneratorHandle {
+  generate: (docxOverride?: File[], xsdOverride?: File | null) => void;
+  preloadFiles: (docxFiles: File[], xsdFile?: File | null) => void;
+}
+
+const DataMappingGenerator = React.forwardRef<DataMappingGeneratorHandle, Record<string, never>>((_props, ref) => {
   const [docxFiles, setDocxFiles] = useState<File[]>([]);
   const [xsdFile, setXsdFile] = useState<File | null>(null);
   const [fileProgress, setFileProgress] = useState<FileProgress[]>([]);
@@ -250,8 +255,10 @@ const DataMappingGenerator: React.FC = () => {
   const removeDocxFile = (name: string) =>
     setDocxFiles(prev => prev.filter(f => f.name !== name));
 
-  const handleProcess = useCallback(async () => {
-    if (docxFiles.length === 0 || !xsdFile) {
+  const handleProcess = useCallback(async (docxOverride?: File[], xsdOverride?: File | null) => {
+    const docs = docxOverride ?? docxFiles;
+    const xsd = xsdOverride !== undefined ? xsdOverride : xsdFile;
+    if (docs.length === 0 || !xsd) {
       setError('Please select at least one DOCX file and one XSD schema file.');
       return;
     }
@@ -261,19 +268,19 @@ const DataMappingGenerator: React.FC = () => {
     setConsolidated(null);
     setGeneratedXml('');
 
-    const initialProgress: FileProgress[] = docxFiles.map(f => ({
+    const initialProgress: FileProgress[] = docs.map(f => ({
       name: f.name, status: 'pending', fieldCount: 0,
     }));
     setFileProgress(initialProgress);
 
-    const xsdContent = await fileToString(xsdFile);
+    const xsdContent = await fileToString(xsd);
     const allMappings: DataMapping[] = [];
     let firstXml = '';
     const perFileErrors: string[] = [];
 
-    for (let i = 0; i < docxFiles.length; i++) {
-      const file = docxFiles[i];
-      setLoadingMessage(`Processing ${i + 1} of ${docxFiles.length}: ${file.name}`);
+    for (let i = 0; i < docs.length; i++) {
+      const file = docs[i];
+      setLoadingMessage(`Processing ${i + 1} of ${docs.length}: ${file.name}`);
 
       setFileProgress(prev =>
         prev.map((p, idx) => idx === i ? { ...p, status: 'processing' } : p)
@@ -317,6 +324,14 @@ const DataMappingGenerator: React.FC = () => {
     setConsolidated(consolidateMappings(allMappings));
     setGeneratedXml(firstXml);
   }, [docxFiles, xsdFile]);
+
+  useImperativeHandle(ref, () => ({
+    generate: (docxOverride, xsdOverride) => handleProcess(docxOverride, xsdOverride),
+    preloadFiles: (docs, xsd) => {
+      if (docs.length) setDocxFiles(docs);
+      if (xsd !== undefined) setXsdFile(xsd ?? null);
+    },
+  }), [handleProcess]);
 
   const handleReset = () => {
     setDocxFiles([]);
@@ -608,6 +623,6 @@ const DataMappingGenerator: React.FC = () => {
       )}
     </div>
   );
-};
+});
 
 export default DataMappingGenerator;

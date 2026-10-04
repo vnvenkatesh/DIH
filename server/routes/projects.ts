@@ -6,7 +6,13 @@ import { getPresignedUploadUrl, getSignedUrl, deleteFile } from '../lib/cloudSto
 const router = express.Router();
 
 async function getUserCompany(userId: number) {
-  const { rows } = await pool.query('SELECT company_id, company_role FROM users WHERE id = $1', [userId]);
+  const { rows } = await pool.query(
+    `SELECT u.company_id, u.company_role, u.storage_provider,
+            c.storage_provider AS company_storage_provider
+     FROM users u LEFT JOIN companies c ON u.company_id = c.id
+     WHERE u.id = $1`,
+    [userId]
+  );
   return rows[0];
 }
 
@@ -77,6 +83,12 @@ router.post('/', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(400).json({ error: 'Must be in a company to create projects' }); return; }
 
+    const hasStorage = Boolean(u.storage_provider) || Boolean(u.company_storage_provider);
+    if (!hasStorage) {
+      res.status(400).json({ error: 'Storage not configured. Please set up cloud storage in Settings before creating a project.' });
+      return;
+    }
+
     const { name, description = '', visibility = 'shared' } = req.body;
     if (!name?.trim()) { res.status(400).json({ error: 'Project name required' }); return; }
     if (!['private', 'shared'].includes(visibility)) { res.status(400).json({ error: 'visibility must be private or shared' }); return; }
@@ -143,11 +155,12 @@ router.delete('/:id', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { rows: files } = await pool.query('SELECT storage_key FROM project_files WHERE project_id = $1', [projectId]);
     for (const f of files) {
-      try { await deleteFile(u.company_id, f.storage_key, req.user!.id); } catch { /* best effort */ }
+      try { await deleteFile(projectCompanyId, f.storage_key, req.user!.id); } catch { /* best effort */ }
     }
 
     await pool.query('DELETE FROM projects WHERE id = $1', [projectId]);
@@ -163,12 +176,13 @@ router.post('/:id/files/presign', requireAuth as any, async (req: AuthRequest, r
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { fileName, mimeType } = req.body;
     if (!fileName || !mimeType) { res.status(400).json({ error: 'fileName and mimeType required' }); return; }
 
-    const result = await getPresignedUploadUrl(u.company_id, projectId, fileName, mimeType, req.user!.id);
+    const result = await getPresignedUploadUrl(projectCompanyId, projectId, fileName, mimeType, req.user!.id);
     res.json(result);
   } catch (err: any) {
     res.status(err.status ?? 500).json({ error: err.message });
@@ -214,7 +228,8 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { rows } = await pool.query(
       `SELECT * FROM project_files WHERE project_id = $1 ORDER BY created_at ASC`,
@@ -223,7 +238,7 @@ router.get('/:id/files', requireAuth as any, async (req: AuthRequest, res) => {
 
     const filesWithUrls = await Promise.all(rows.map(async (r) => {
       let signedUrl: string | undefined;
-      try { signedUrl = await getSignedUrl(u.company_id, r.storage_key, 3600, req.user!.id); } catch { /* no storage */ }
+      try { signedUrl = await getSignedUrl(projectCompanyId, r.storage_key, 3600, req.user!.id); } catch { /* no storage */ }
       return {
         id: r.id, projectId: r.project_id, uploadedBy: r.uploaded_by,
         name: r.name, fileType: r.file_type, role: r.role,
@@ -277,12 +292,13 @@ router.delete('/:id/files/:fileId', requireAuth as any, async (req: AuthRequest,
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { rows } = await pool.query('SELECT * FROM project_files WHERE id = $1 AND project_id = $2', [req.params.fileId, projectId]);
     if (!rows[0]) { res.status(404).json({ error: 'File not found' }); return; }
 
-    try { await deleteFile(u.company_id, rows[0].storage_key, req.user!.id); } catch { /* best effort */ }
+    try { await deleteFile(projectCompanyId, rows[0].storage_key, req.user!.id); } catch { /* best effort */ }
     await pool.query('DELETE FROM project_files WHERE id = $1', [req.params.fileId]);
     res.status(204).end();
   } catch (err: any) {
@@ -787,7 +803,8 @@ router.post('/:id/documents/brd/generate', requireAuth as any, async (req: AuthR
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { rows: invRows } = await pool.query(`
       SELECT fi.*, pf.name, pf.file_type, pf.storage_key
@@ -805,7 +822,7 @@ router.post('/:id/documents/brd/generate', requireAuth as any, async (req: AuthR
     for (const item of invRows) {
       let text = '';
       try {
-        const signedUrl = await getSignedUrl(u.company_id, item.storage_key, 3600, req.user!.id);
+        const signedUrl = await getSignedUrl(projectCompanyId, item.storage_key, 3600, req.user!.id);
         const resp = await fetch(signedUrl);
         if (resp.ok) {
           const buf = Buffer.from(await resp.arrayBuffer());
@@ -896,7 +913,8 @@ router.post('/:id/documents/test-cases/generate', requireAuth as any, async (req
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { rows: invRows } = await pool.query(`
       SELECT fi.*, pf.name, pf.file_type, pf.storage_key
@@ -913,7 +931,7 @@ router.post('/:id/documents/test-cases/generate', requireAuth as any, async (req
     for (const item of invRows) {
       let text = '';
       try {
-        const signedUrl = await getSignedUrl(u.company_id, item.storage_key, 3600, req.user!.id);
+        const signedUrl = await getSignedUrl(projectCompanyId, item.storage_key, 3600, req.user!.id);
         const resp = await fetch(signedUrl);
         if (resp.ok) {
           const buf = Buffer.from(await resp.arrayBuffer());
@@ -1015,7 +1033,8 @@ router.post('/:id/documents/field-mapping/generate', requireAuth as any, async (
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { rows: invRows } = await pool.query(`
       SELECT fi.*, pf.name, pf.file_type, pf.storage_key
@@ -1032,7 +1051,7 @@ router.post('/:id/documents/field-mapping/generate', requireAuth as any, async (
     for (const item of invRows) {
       let text = '';
       try {
-        const signedUrl = await getSignedUrl(u.company_id, item.storage_key, 3600, req.user!.id);
+        const signedUrl = await getSignedUrl(projectCompanyId, item.storage_key, 3600, req.user!.id);
         const resp = await fetch(signedUrl);
         if (resp.ok) {
           const buf = Buffer.from(await resp.arrayBuffer());
@@ -1117,7 +1136,8 @@ router.post('/:id/rationalise', requireAuth as any, async (req: AuthRequest, res
     const u = await getUserCompany(req.user!.id);
     if (!u?.company_id) { res.status(403).json({ error: 'Not in a company' }); return; }
     const projectId = parseInt(req.params.id);
-    await assertProjectAccess(projectId, u.company_id, req.user!.id);
+    const p = await assertProjectAccess(projectId, u.company_id, req.user!.id) as any;
+    const projectCompanyId = p.company_id;
 
     const { mode = 'semantic', threshold = 75 } = req.body;
     if (!['exact', 'semantic'].includes(mode)) {
@@ -1146,7 +1166,7 @@ router.post('/:id/rationalise', requireAuth as any, async (req: AuthRequest, res
       }
       let text = '';
       try {
-        const signedUrl = await getSignedUrl(u.company_id, f.storage_key, 3600, req.user!.id);
+        const signedUrl = await getSignedUrl(projectCompanyId, f.storage_key, 3600, req.user!.id);
         const resp = await fetch(signedUrl);
         if (resp.ok) {
           const buf = Buffer.from(await resp.arrayBuffer());

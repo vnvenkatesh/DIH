@@ -167,14 +167,15 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
   const [sharePanelFor, setSharePanelFor] = useState<number | null>(null);
 
   const isGeneralUser = !user?.companyId || user?.companyName === 'General';
-  const isLocked =
+  // cannotCreate: user has no storage → can VIEW invited projects but cannot create new ones
+  const cannotCreate =
     user?.role !== 'Admin' &&
     (isGeneralUser ? !user?.hasStorage : !user?.companyHasStorage);
 
   const authHeader = { Authorization: `Bearer ${token ?? ''}`, 'Content-Type': 'application/json' };
 
   const fetchProjects = useCallback(async () => {
-    if (!token || isLocked) return;
+    if (!token) return;
     setLoading(true);
     try {
       const res = await fetch('/v1/projects', { headers: authHeader });
@@ -182,9 +183,12 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
       setProjects(data.projects ?? []);
     } catch { /* ignore */ }
     setLoading(false);
-  }, [token, isLocked]);
+  }, [token]);
 
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
+
+  // Show storage lock screen only if user truly has nothing (no projects, no storage, done loading)
+  const showLockScreen = cannotCreate && !loading && projects.length === 0;
 
   const handleCreate = async () => {
     if (!newName.trim() || !token) return;
@@ -239,8 +243,8 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
     filter === 'all' ? true : p.status === filter
   );
 
-  // ── Lock screen ───────────────────────────────────────────────────────────
-  if (isLocked) {
+  // ── Lock screen — only shown when user has no projects AND no storage ─────
+  if (showLockScreen) {
     const storageLabel = isGeneralUser ? 'Storage Settings' : 'Company Storage';
     return (
       <div className="max-w-lg mx-auto mt-16 text-center space-y-6">
@@ -283,15 +287,30 @@ const Projects: React.FC<ProjectsProps> = ({ onOpenProject, onGoToStorage }) => 
             Persistent workspaces for your document implementation projects.
           </p>
         </div>
-        <button
-          onClick={() => { setShowCreate(true); setNewName(''); setNewDesc(''); setNewVisibility('shared'); setError(''); }}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          New Project
-        </button>
+        <div className="relative group inline-block">
+          <button
+            onClick={cannotCreate ? undefined : () => { setShowCreate(true); setNewName(''); setNewDesc(''); setNewVisibility('shared'); setError(''); }}
+            disabled={cannotCreate}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              cannotCreate
+                ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New Project
+          </button>
+          {cannotCreate && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-56 z-10 pointer-events-none">
+              <div className="bg-slate-800 text-white text-xs rounded-lg px-3 py-2 text-center shadow-lg">
+                Configure cloud storage in Settings to create projects
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Filter tabs */}

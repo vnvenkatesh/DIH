@@ -151,7 +151,7 @@ function rdiConvertToSpoolXml(raw: string): string {
 type ContentBlock = { mimeType: string; data: string; encoding: 'base64' | 'text'; label?: string };
 
 function findContentBlocks(json: unknown, depth = 0): ContentBlock[] {
-    if (depth > 8 || !json || typeof json !== 'object') return [];
+    if (depth > 12 || !json || typeof json !== 'object') return [];
     if (Array.isArray(json)) return json.flatMap(item => findContentBlocks(item, depth + 1));
     const obj = json as Record<string, unknown>;
     if (typeof obj.mimeType === 'string' && obj.mimeType.length > 0) {
@@ -163,8 +163,10 @@ function findContentBlocks(json: unknown, depth = 0): ContentBlock[] {
             return [{ mimeType: obj.mimeType, data: raw, encoding: isBase64 ? 'base64' : 'text', label }];
         }
     }
+    // Only skip data/content/body/value when they are strings (leaf payloads already captured above).
+    // When they are objects or arrays they must be walked — e.g. "data": [{...}] or "content": {...}
     return Object.entries(obj)
-        .filter(([k]) => !['data', 'content', 'body', 'value'].includes(k))
+        .filter(([k, v]) => !(['data', 'content', 'body', 'value'].includes(k) && typeof v === 'string'))
         .flatMap(([, v]) => findContentBlocks(v, depth + 1));
 }
 

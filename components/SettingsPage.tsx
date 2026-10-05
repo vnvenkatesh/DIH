@@ -475,8 +475,8 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
     if (companies.length > 0) return;
     if (isAppAdmin) {
       fetch('/v1/companies', { headers: authHeader })
-        .then(r => r.ok ? r.json() : [])
-        .then((rows: any[]) => setCompanies(rows.map(r => ({ id: r.id, name: r.name }))))
+        .then(r => r.ok ? r.json() : { companies: [] })
+        .then((data: any) => setCompanies((data.companies ?? []).map((r: any) => ({ id: r.id, name: r.name }))))
         .catch(() => {});
     } else if (isCompanyAdmin && (currentUser as any).companyId) {
       setCompanies([{ id: (currentUser as any).companyId, name: (currentUser as any).companyName ?? 'My Company' }]);

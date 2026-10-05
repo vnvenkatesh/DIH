@@ -1054,22 +1054,15 @@ const FetchDoc: React.FC = () => {
                                                     RDI print-stream data detected
                                                 </p>
                                                 <p className="text-xs text-amber-600 dark:text-amber-300 mb-3">
-                                                    Used by OpenText Exstream, SAP, and other CCM platforms. Convert to XML before sending?
+                                                    Used by OpenText Exstream, SAP, and other CCM platforms. Convert to Flat XML before sending?
                                                 </p>
                                                 <div className="flex gap-2 flex-wrap">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => dispatch({ type: 'apply-rdi-flat' })}
-                                                        className="px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-colors"
-                                                    >
-                                                        Flat XML
-                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => dispatch({ type: 'apply-rdi-spool' })}
                                                         className="px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-md transition-colors"
                                                     >
-                                                        Spool XML
+                                                        Convert to Flat XML
                                                     </button>
                                                     <button
                                                         type="button"

@@ -147,6 +147,53 @@ function rdiConvertToSpoolXml(raw: string): string {
     return `<?xml version="1.0" encoding="UTF-8"?>${renderN({ kind: 'container', tag: 'SPOOL', children: spoolChildren })}`;
 }
 
+// ── Content block extraction ───────────────────────────────────────────────
+type ContentBlock = { mimeType: string; data: string; encoding: 'base64' | 'text'; label?: string };
+
+function findContentBlocks(json: unknown, depth = 0): ContentBlock[] {
+    if (depth > 8 || !json || typeof json !== 'object') return [];
+    if (Array.isArray(json)) return json.flatMap(item => findContentBlocks(item, depth + 1));
+    const obj = json as Record<string, unknown>;
+    if (typeof obj.mimeType === 'string' && obj.mimeType.length > 0) {
+        const raw = obj.data ?? obj.content ?? obj.body ?? obj.value ?? '';
+        if (typeof raw === 'string' && raw.length > 0) {
+            const isBase64 = obj.encoding === 'base64' || obj.transferEncoding === 'base64'
+                || obj.contentEncoding === 'base64' || raw.startsWith('JVBERi0');
+            const label = [obj.name, obj.fileName, obj.filename].find(v => typeof v === 'string') as string | undefined;
+            return [{ mimeType: obj.mimeType, data: raw, encoding: isBase64 ? 'base64' : 'text', label }];
+        }
+    }
+    return Object.entries(obj)
+        .filter(([k]) => !['data', 'content', 'body', 'value'].includes(k))
+        .flatMap(([, v]) => findContentBlocks(v, depth + 1));
+}
+
+function mimeToExt(mimeType: string): string {
+    const map: Record<string, string> = {
+        'application/pdf': '.pdf', 'application/json': '.json', 'application/xml': '.xml',
+        'text/plain': '.txt', 'text/html': '.html', 'text/xml': '.xml',
+        'application/zip': '.zip', 'application/x-exstream.messagefile': '.msg',
+    };
+    return map[mimeType] ?? ('.' + (mimeType.split('/')[1]?.split('+')[0]?.split('.').pop() ?? 'bin'));
+}
+
+function downloadBlock(block: ContentBlock, filename: string) {
+    let blob: Blob;
+    if (block.encoding === 'base64') {
+        try {
+            const binary = atob(block.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            blob = new Blob([bytes], { type: block.mimeType });
+        } catch { blob = new Blob([block.data], { type: block.mimeType }); }
+    } else {
+        blob = new Blob([block.data], { type: block.mimeType });
+    }
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 const PROFILES_STORAGE_KEY = 'dih_fetchdoc_profiles';
 
@@ -399,6 +446,7 @@ const FetchDoc: React.FC = () => {
     const abortRef = useRef<AbortController | null>(null);
     const timerRef = useRef<number | null>(null);
     const pdfObjectUrlRef = useRef<string | null>(null);
+    const pdfBlockUrlRef = useRef<string | null>(null);
 
     // Profiles state
     const [profiles, setProfiles] = useState<SavedProfile[]>(() => {
@@ -473,6 +521,7 @@ const FetchDoc: React.FC = () => {
     useEffect(() => {
         return () => {
             if (pdfObjectUrlRef.current) URL.revokeObjectURL(pdfObjectUrlRef.current);
+            if (pdfBlockUrlRef.current) URL.revokeObjectURL(pdfBlockUrlRef.current);
             if (timerRef.current) clearInterval(timerRef.current);
         };
     }, []);
@@ -619,6 +668,39 @@ const FetchDoc: React.FC = () => {
         pdfObjectUrlRef.current = url;
         return url;
     }, [response]);
+
+    // Extract structured content blocks from JSON (or JSON-like text) responses
+    const contentBlocks = React.useMemo((): ContentBlock[] | null => {
+        if (response.status !== 'success' || response.bodyEncoding !== 'text') return null;
+        const trimmed = response.body.trimStart();
+        if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+        try {
+            const parsed = JSON.parse(response.body);
+            const blocks = findContentBlocks(parsed);
+            return blocks.length > 0 ? blocks : null;
+        } catch { return null; }
+    }, [response]);
+
+    // Create object URL for the PDF content block (if any)
+    const pdfBlockSrc = React.useMemo((): string | null => {
+        if (pdfBlockUrlRef.current) { URL.revokeObjectURL(pdfBlockUrlRef.current); pdfBlockUrlRef.current = null; }
+        if (!contentBlocks) return null;
+        const pdfBlock = contentBlocks.find(b => b.mimeType === 'application/pdf');
+        if (!pdfBlock) return null;
+        try {
+            let bytes: Uint8Array;
+            if (pdfBlock.encoding === 'base64') {
+                const binary = atob(pdfBlock.data);
+                bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            } else {
+                bytes = new TextEncoder().encode(pdfBlock.data);
+            }
+            const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            pdfBlockUrlRef.current = url;
+            return url;
+        } catch { return null; }
+    }, [contentBlocks]);
 
     const showRdiBanner = React.useMemo(() => {
         if (state.bodyMode !== 'raw') return false;
@@ -1114,6 +1196,74 @@ const FetchDoc: React.FC = () => {
 
                         {response.status === 'success' && (() => {
                             const ct = response.contentType.toLowerCase();
+
+                            // ── Multi-block JSON response ──────────────────────────────
+                            if (contentBlocks && contentBlocks.length > 0) {
+                                const pdfBlock = contentBlocks.find(b => b.mimeType === 'application/pdf');
+                                const otherBlocks = contentBlocks.filter(b => b.mimeType !== 'application/pdf');
+                                return (
+                                    <div className="flex flex-col h-full min-h-0">
+                                        {/* Download tiles for non-PDF blocks */}
+                                        {otherBlocks.length > 0 && (
+                                            <div className="flex-shrink-0 px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 flex flex-wrap gap-2">
+                                                <span className="w-full text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Content Blocks</span>
+                                                {otherBlocks.map((block, i) => {
+                                                    const ext = mimeToExt(block.mimeType);
+                                                    const filename = block.label ?? `content-block-${i + 1}${ext}`;
+                                                    return (
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            onClick={() => downloadBlock(block, filename)}
+                                                            className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700 text-left transition-colors"
+                                                        >
+                                                            <svg className="w-5 h-5 text-indigo-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                                                            </svg>
+                                                            <div>
+                                                                <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{filename}</p>
+                                                                <p className="text-xs text-slate-400 dark:text-slate-500">{block.mimeType}{block.encoding === 'base64' ? ' · base64 decoded' : ''}</p>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                                {/* PDF download tile when PDF is also present */}
+                                                {pdfBlock && pdfBlockSrc && (
+                                                    <a
+                                                        href={pdfBlockSrc}
+                                                        download="response.pdf"
+                                                        className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700 text-left transition-colors"
+                                                    >
+                                                        <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                                        </svg>
+                                                        <div>
+                                                            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">response.pdf</p>
+                                                            <p className="text-xs text-slate-400 dark:text-slate-500">application/pdf · Download</p>
+                                                        </div>
+                                                    </a>
+                                                )}
+                                            </div>
+                                        )}
+                                        {/* PDF viewer */}
+                                        {pdfBlock && pdfBlockSrc ? (
+                                            <div className="flex-1 flex flex-col p-3 min-h-0">
+                                                <div className="flex gap-3 mb-2 flex-shrink-0">
+                                                    <a href={pdfBlockSrc} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">Open in new tab ↗</a>
+                                                    <a href={pdfBlockSrc} download="response.pdf" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">Download PDF ↓</a>
+                                                </div>
+                                                <iframe src={pdfBlockSrc} title="PDF response" className="flex-1 w-full rounded border border-slate-200 dark:border-slate-700" style={{ minHeight: '400px' }} />
+                                            </div>
+                                        ) : !pdfBlock && otherBlocks.length === 0 ? (
+                                            <pre className="p-4 text-xs font-mono text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words leading-relaxed">
+                                                {prettyJson(response.body)}
+                                            </pre>
+                                        ) : null}
+                                    </div>
+                                );
+                            }
+
+                            // ── Single binary/PDF response ─────────────────────────────
                             if (ct.includes('application/pdf') && pdfSrc) {
                                 return (
                                     <div className="flex flex-col gap-2 p-3 h-full">

@@ -444,6 +444,8 @@ interface DBUser {
 }
 
 const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boolean }> = ({ currentUser, token, isAppAdmin }) => {
+  const isCompanyAdmin = !isAppAdmin && (currentUser as any).companyRole === 'admin' && (currentUser as any).companyName !== 'General';
+
   const [users, setUsers]       = useState<DBUser[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
@@ -468,16 +470,34 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
 
   useEffect(() => { fetchUsers(); }, []);
 
+  // Load company list once per session (on first modal open)
   useEffect(() => {
-    if (isAppAdmin && showModal && companies.length === 0) {
+    if (companies.length > 0) return;
+    if (isAppAdmin) {
       fetch('/v1/companies', { headers: authHeader })
         .then(r => r.ok ? r.json() : [])
         .then((rows: any[]) => setCompanies(rows.map(r => ({ id: r.id, name: r.name }))))
         .catch(() => {});
+    } else if (isCompanyAdmin && (currentUser as any).companyId) {
+      setCompanies([{ id: (currentUser as any).companyId, name: (currentUser as any).companyName ?? 'My Company' }]);
     }
-  }, [showModal, isAppAdmin]);
+  }, [isAppAdmin, isCompanyAdmin]);
 
-  const openAdd  = () => { setEditTarget(null); setForm({ username: '', password: '', role: 'AppUser', company_id: '' }); setFormError(''); setShowModal(true); };
+  // Auto-default new users to General when App Admin opens the add modal
+  useEffect(() => {
+    if (showModal && !editTarget && isAppAdmin && form.company_id === '' && companies.length > 0) {
+      const general = companies.find(c => c.name === 'General');
+      if (general) setForm(f => ({ ...f, company_id: general.id }));
+    }
+  }, [companies, showModal]);
+
+  const openAdd = () => {
+    const defaultCompany: number | '' = isCompanyAdmin ? ((currentUser as any).companyId ?? '') : '';
+    setEditTarget(null);
+    setForm({ username: '', password: '', role: 'AppUser', company_id: defaultCompany });
+    setFormError('');
+    setShowModal(true);
+  };
   const openEdit = (u: DBUser) => { setEditTarget(u); setForm({ username: u.username, password: '', role: u.role, company_id: u.company_id ?? '' }); setFormError(''); setShowModal(true); };
 
   const handleSave = async () => {
@@ -607,11 +627,15 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
                   </select>
                 </div>
               )}
-              {isAppAdmin && (
+              {(isAppAdmin || isCompanyAdmin) && companies.length > 0 && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Company</label>
-                  <select value={form.company_id} onChange={(e) => setForm(f => ({ ...f, company_id: e.target.value === '' ? '' : Number(e.target.value) }))} className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                    <option value="">— No company —</option>
+                  <select
+                    value={form.company_id}
+                    disabled={isCompanyAdmin}
+                    onChange={(e) => setForm(f => ({ ...f, company_id: e.target.value === '' ? '' : Number(e.target.value) }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
                     {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>

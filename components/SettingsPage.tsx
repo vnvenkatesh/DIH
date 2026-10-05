@@ -449,9 +449,10 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
   const [error, setError]       = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<DBUser | null>(null);
-  const [form, setForm] = useState({ username: '', password: '', role: 'AppUser' as 'Admin' | 'AppUser' });
+  const [form, setForm] = useState({ username: '', password: '', role: 'AppUser' as 'Admin' | 'AppUser', company_id: '' as number | '' });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [companies, setCompanies] = useState<{ id: number; name: string }[]>([]);
 
   const authHeader = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -467,8 +468,17 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
 
   useEffect(() => { fetchUsers(); }, []);
 
-  const openAdd  = () => { setEditTarget(null); setForm({ username: '', password: '', role: 'AppUser' }); setFormError(''); setShowModal(true); };
-  const openEdit = (u: DBUser) => { setEditTarget(u); setForm({ username: u.username, password: '', role: u.role }); setFormError(''); setShowModal(true); };
+  useEffect(() => {
+    if (isAppAdmin && showModal && companies.length === 0) {
+      fetch('/v1/companies', { headers: authHeader })
+        .then(r => r.ok ? r.json() : [])
+        .then((rows: any[]) => setCompanies(rows.map(r => ({ id: r.id, name: r.name }))))
+        .catch(() => {});
+    }
+  }, [showModal, isAppAdmin]);
+
+  const openAdd  = () => { setEditTarget(null); setForm({ username: '', password: '', role: 'AppUser', company_id: '' }); setFormError(''); setShowModal(true); };
+  const openEdit = (u: DBUser) => { setEditTarget(u); setForm({ username: u.username, password: '', role: u.role, company_id: u.company_id ?? '' }); setFormError(''); setShowModal(true); };
 
   const handleSave = async () => {
     if (!form.username.trim()) { setFormError('Username is required'); return; }
@@ -477,6 +487,7 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
     try {
       const body: any = { username: form.username.trim(), role: form.role };
       if (form.password) body.password = form.password;
+      if (isAppAdmin) body.company_id = form.company_id === '' ? null : form.company_id;
       const res = editTarget
         ? await fetch(`/v1/users/${editTarget.id}`, { method: 'PUT',    headers: authHeader, body: JSON.stringify(body) })
         : await fetch('/v1/users',                    { method: 'POST',   headers: authHeader, body: JSON.stringify(body) });
@@ -593,6 +604,15 @@ const UsersTab: React.FC<{ currentUser: AuthUser; token: string; isAppAdmin: boo
                   <select value={form.role} onChange={(e) => setForm(f => ({ ...f, role: e.target.value as 'Admin' | 'AppUser' }))} className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="AppUser">AppUser</option>
                     <option value="Admin">Admin</option>
+                  </select>
+                </div>
+              )}
+              {isAppAdmin && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Company</label>
+                  <select value={form.company_id} onChange={(e) => setForm(f => ({ ...f, company_id: e.target.value === '' ? '' : Number(e.target.value) }))} className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="">— No company —</option>
+                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               )}

@@ -110,22 +110,22 @@ router.put('/:id', requireAuth as any, async (req: AuthRequest, res) => {
       }
     }
 
-    const { username, role, password } = req.body;
+    const { username, role, password, company_id } = req.body;
     if (!username) { res.status(400).json({ error: 'username is required' }); return; }
 
     const effectiveRole: string = ctx.appAdmin ? (role ?? 'AppUser') : 'AppUser';
-    if (password) {
-      const passwordHash = await hash(password, 10);
-      await pool.query(
-        'UPDATE users SET username=$1, role=$2, password_hash=$3, updated_at=NOW() WHERE id=$4',
-        [username, effectiveRole, passwordHash, req.params.id]
-      );
-    } else {
-      await pool.query(
-        'UPDATE users SET username=$1, role=$2, updated_at=NOW() WHERE id=$3',
-        [username, effectiveRole, req.params.id]
-      );
-    }
+    // App Admins may reassign a user's company; company admins cannot change company
+    const effectiveCompanyId: number | null | undefined = ctx.appAdmin
+      ? (company_id === '' || company_id === null ? null : company_id != null ? Number(company_id) : undefined)
+      : undefined;
+
+    const sets: string[] = ['username=$1', 'role=$2', 'updated_at=NOW()'];
+    const params: any[] = [username, effectiveRole];
+    let idx = 3;
+    if (password) { const passwordHash = await hash(password, 10); sets.push(`password_hash=$${idx++}`); params.push(passwordHash); }
+    if (effectiveCompanyId !== undefined) { sets.push(`company_id=$${idx++}`); params.push(effectiveCompanyId); }
+    params.push(req.params.id);
+    await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE id=$${idx}`, params);
     const { rows } = await pool.query(
       `SELECT u.id, u.username, u.role, u.company_id, u.company_role, c.name AS company_name, u.created_at
        FROM users u LEFT JOIN companies c ON u.company_id = c.id WHERE u.id = $1`,

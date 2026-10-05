@@ -897,8 +897,8 @@ const FetchDoc: React.FC = () => {
                 )}
             </div>
 
-            {/* Workspace */}
-            <div className="flex gap-4 flex-col lg:flex-row" style={{ minHeight: '520px' }}>
+            {/* Workspace — fills remaining window height with 40px bottom gap */}
+            <div className="flex gap-4 flex-col lg:flex-row" style={{ height: 'calc(100vh - 220px)', minHeight: '480px' }}>
                 {/* Left: Request Builder */}
                 <div className="lg:w-80 xl:w-96 flex-shrink-0 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden">
                     <div className="flex border-b border-slate-200 dark:border-slate-700 px-1">

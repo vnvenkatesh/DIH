@@ -573,12 +573,47 @@ const FetchDoc: React.FC = () => {
 
     const pdfSrc = React.useMemo(() => {
         if (response.status !== 'success') return null;
-        if (!response.contentType.includes('application/pdf')) return null;
-        if (response.bodyEncoding !== 'base64') return null;
         if (pdfObjectUrlRef.current) URL.revokeObjectURL(pdfObjectUrlRef.current);
-        const binary = atob(response.body);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+        let bytes: Uint8Array | null = null;
+
+        // Case 1: server identified binary PDF (Content-Type: application/pdf, base64-encoded body)
+        if (response.contentType.includes('application/pdf') && response.bodyEncoding === 'base64') {
+            try {
+                const binary = atob(response.body);
+                bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            } catch { /* invalid base64 */ }
+        }
+
+        // Case 2: body is a raw base64 string returned as text (Content-Type may be text/plain etc.)
+        // Detect by checking if the trimmed body starts with the base64 encoding of "%PDF-"
+        if (!bytes && response.bodyEncoding === 'text') {
+            const trimmed = response.body.trim();
+            if (trimmed.startsWith('JVBERi0')) {
+                try {
+                    const binary = atob(trimmed);
+                    if (binary.startsWith('%PDF-')) {
+                        bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                    }
+                } catch { /* not valid base64 */ }
+            }
+        }
+
+        // Case 3: binary body (base64 encoded) whose content type wasn't recognised as PDF
+        // but the decoded bytes start with the PDF magic bytes
+        if (!bytes && response.bodyEncoding === 'base64') {
+            try {
+                const binary = atob(response.body);
+                if (binary.startsWith('%PDF-')) {
+                    bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                }
+            } catch { /* invalid base64 */ }
+        }
+
+        if (!bytes) return null;
         const blob = new Blob([bytes], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         pdfObjectUrlRef.current = url;

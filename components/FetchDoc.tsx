@@ -784,15 +784,21 @@ const FetchDoc: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setShowProfiles(v => !v)}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                                loadedProfileId
+                                    ? 'border-indigo-400 dark:border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50'
+                                    : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                            }`}
+                            title={loadedProfileId ? `Profile: ${profiles.find(p => p.id === loadedProfileId)?.name ?? ''}` : 'Saved profiles'}
                         >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 1 1 0-4h14a2 2 0 1 1 0 4M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
                             </svg>
                             Profiles
-                            {profiles.length > 0 && (
-                                <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">({profiles.length})</span>
-                            )}
+                            {loadedProfileId
+                                ? <span className="w-2 h-2 rounded-full bg-indigo-500 dark:bg-indigo-400 flex-shrink-0" />
+                                : profiles.length > 0 && <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">({profiles.length})</span>
+                            }
                         </button>
                         {showProfiles && (
                             <div className="absolute right-0 top-full mt-1.5 w-80 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-30 p-3 flex flex-col gap-2.5">

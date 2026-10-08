@@ -263,7 +263,8 @@ type Action =
     | { type: 'apply-rdi-flat' }
     | { type: 'apply-rdi-spool' }
     | { type: 'dismiss-rdi-prompt' }
-    | { type: 'load-profile'; profile: SavedProfile };
+    | { type: 'load-profile'; profile: SavedProfile }
+    | { type: 'reset' };
 
 function newEntry(enabled = false): UiEntry {
     return { id: crypto.randomUUID(), enabled, key: '', value: '' };
@@ -349,6 +350,7 @@ function reducer(state: State, action: Action): State {
                 validationError: undefined,
             };
         }
+        case 'reset': return { ...initialState };
         default: return state;
     }
 }
@@ -613,6 +615,20 @@ const FetchDoc: React.FC = () => {
         setResponse({ status: 'idle' });
     };
 
+    const handleReset = useCallback(() => {
+        if (abortRef.current) abortRef.current.abort();
+        if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+        if (pdfObjectUrlRef.current) { URL.revokeObjectURL(pdfObjectUrlRef.current); pdfObjectUrlRef.current = null; }
+        dispatch({ type: 'reset' });
+        setResponse({ status: 'idle' });
+        setIsLoading(false);
+        setElapsed(0);
+        setCopied(false);
+        setShowHeaders(false);
+        setLoadedProfileId(null);
+        setSaveName('');
+    }, []);
+
     const handleCopy = async () => {
         if (response.status !== 'success') return;
         try {
@@ -811,7 +827,7 @@ const FetchDoc: React.FC = () => {
                                                     ) : (
                                                         <button
                                                             type="button"
-                                                            onClick={() => { dispatch({ type: 'load-profile', profile: p }); setLoadedProfileId(p.id); setShowProfiles(false); }}
+                                                            onClick={() => { dispatch({ type: 'load-profile', profile: p }); setLoadedProfileId(p.id); setShowProfiles(false); setResponse({ status: 'idle' }); setShowHeaders(false); }}
                                                             className="flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
                                                         >
                                                             Load
@@ -880,16 +896,29 @@ const FetchDoc: React.FC = () => {
                             Cancel
                         </button>
                     ) : (
-                        <button
-                            type="button"
-                            onClick={() => void handleSend()}
-                            className="flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors"
-                        >
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M3 10a.75.75 0 0 1 .75-.75h10.638L10.23 5.29a.75.75 0 1 1 1.04-1.08l5.5 5.25a.75.75 0 0 1 0 1.08l-5.5 5.25a.75.75 0 1 1-1.04-1.08l4.158-3.96H3.75A.75.75 0 0 1 3 10Z" />
-                            </svg>
-                            Send
-                        </button>
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => void handleSend()}
+                                className="flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M3 10a.75.75 0 0 1 .75-.75h10.638L10.23 5.29a.75.75 0 1 1 1.04-1.08l5.5 5.25a.75.75 0 0 1 0 1.08l-5.5 5.25a.75.75 0 1 1-1.04-1.08l4.158-3.96H3.75A.75.75 0 0 1 3 10Z" />
+                                </svg>
+                                Send
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleReset}
+                                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold rounded-lg transition-colors border border-slate-300 dark:border-slate-600"
+                                title="Reset form and clear response"
+                            >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                </svg>
+                                Clear
+                            </button>
+                        </>
                     )}
                 </div>
                 {state.validationError && (

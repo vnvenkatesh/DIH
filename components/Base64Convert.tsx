@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 type Mode = 'encode' | 'decode';
 
@@ -202,7 +202,17 @@ const DecodePanel: React.FC = () => {
   const [error, setError] = useState('');
   const [decoded, setDecoded] = useState<Uint8Array | null>(null);
   const [mimeType, setMimeType] = useState('application/octet-stream');
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Create a fresh blob URL whenever decoded changes; revoke on cleanup.
+  useEffect(() => {
+    if (!decoded) { setDownloadUrl(null); return; }
+    const blob = new Blob([decoded], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    setDownloadUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [decoded, mimeType]);
 
   const guessExtension = (bytes: Uint8Array): { ext: string; mime: string } => {
     const h = (n: number) => bytes[n];
@@ -248,18 +258,6 @@ const DecodePanel: React.FC = () => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const handleDownload = () => {
-    if (!decoded) return;
-    const blob = new Blob([decoded], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName || 'decoded-file';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
 
   return (
     <div className="space-y-5">
@@ -381,15 +379,18 @@ const DecodePanel: React.FC = () => {
               </div>
             )}
 
-            <button
-              onClick={handleDownload}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              Download {fileName}
-            </button>
+            {downloadUrl && (
+              <a
+                href={downloadUrl}
+                download={fileName || 'decoded-file'}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm text-center"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download {fileName}
+              </a>
+            )}
           </div>
         </div>
       )}

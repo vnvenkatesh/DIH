@@ -175,8 +175,10 @@ const EncodePanel: React.FC = () => {
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = `${file!.name}.b64.txt`;
+                document.body.appendChild(a);
                 a.click();
-                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
               }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
             >
@@ -253,8 +255,10 @@ const DecodePanel: React.FC = () => {
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName || 'decoded-file';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (

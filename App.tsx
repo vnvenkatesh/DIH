@@ -28,6 +28,7 @@ import TestCaseGenerator from './components/TestCaseGenerator';
 import TestCaseIcon from './components/icons/TestCaseIcon';
 import GhostDraftGenerator from './components/GhostDraftGenerator';
 import PdfValidator from './components/PdfValidator';
+import Base64Convert from './components/Base64Convert';
 import Flow from './components/Flow';
 import FetchDoc from './components/FetchDoc';
 import Projects from './components/Projects';
@@ -40,7 +41,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'settings' | 'help';
+type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'base64Convert' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -79,7 +80,7 @@ const ACCELERATOR_TOOLS: Tool[] = [
 ];
 
 // Tools that should NOT show the LLM warning banner
-const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs'];
+const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs', 'base64Convert'];
 
 const App: React.FC = () => {
   const { user, logout, isLoading } = useAuth();
@@ -186,7 +187,7 @@ const App: React.FC = () => {
     { tool: 'layoutRecommendation', label: 'Layout Recommendation', description: 'AI layout suggestions', icon: <DevicePhoneMobileIcon className="w-5 h-5" /> },
     {
       type: 'group' as const,
-      label: 'Forms Analysis',
+      label: 'Forms Utilities',
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
@@ -208,6 +209,16 @@ const App: React.FC = () => {
           label: 'Accessibility Check',
           description: 'Score PDF accessibility compliance',
           icon: <AccessibilityIcon className="w-5 h-5" />,
+        },
+        {
+          tool: 'base64Convert' as Tool,
+          label: 'Base64 Convert',
+          description: 'Encode files to base64 or decode base64 to files',
+          icon: (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m6.75 7.5 3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+          ),
         },
       ],
     },
@@ -473,6 +484,9 @@ const App: React.FC = () => {
           </div>
           <div className={activeTool === 'pdfValidator' ? '' : 'hidden'}>
             <PdfValidator />
+          </div>
+          <div className={activeTool === 'base64Convert' ? '' : 'hidden'}>
+            <Base64Convert />
           </div>
           <div className={activeTool === 'apiDocs' ? '' : 'hidden'}>
             <ApiDocs />

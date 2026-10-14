@@ -200,45 +200,69 @@ const DecodePanel: React.FC = () => {
   const [input, setInput] = useState('');
   const [fileName, setFileName] = useState('decoded-file');
   const [error, setError] = useState('');
-  const [decoded, setDecoded] = useState<Uint8Array | null>(null);
-  const [mimeType, setMimeType] = useState('application/octet-stream');
-  // Blob URL created once at decode time; stored in state so the <a> can reference it.
+  const [isDecoding, setIsDecoding] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [decodedSize, setDecodedSize] = useState(0);
+  const [mimeType, setMimeType] = useState('application/octet-stream');
+  const [previewText, setPreviewText] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevBlobUrl = useRef<string | null>(null);
 
-  const guessExtension = (bytes: Uint8Array): { ext: string; mime: string } => {
-    const h = (n: number) => bytes[n];
-    if (h(0) === 0x25 && h(1) === 0x50 && h(2) === 0x44 && h(3) === 0x46) return { ext: 'pdf', mime: 'application/pdf' };
-    if (h(0) === 0x89 && h(1) === 0x50 && h(2) === 0x4e && h(3) === 0x47) return { ext: 'png', mime: 'image/png' };
-    if (h(0) === 0xff && h(1) === 0xd8) return { ext: 'jpg', mime: 'image/jpeg' };
-    if (h(0) === 0x47 && h(1) === 0x49 && h(2) === 0x46) return { ext: 'gif', mime: 'image/gif' };
+  const guessType = (header: Uint8Array): { ext: string; mime: string } => {
+    const h = (n: number) => header[n];
+    if (h(0) === 0x25 && h(1) === 0x50 && h(2) === 0x44 && h(3) === 0x46) return { ext: 'pdf',  mime: 'application/pdf' };
+    if (h(0) === 0x89 && h(1) === 0x50 && h(2) === 0x4e && h(3) === 0x47) return { ext: 'png',  mime: 'image/png' };
+    if (h(0) === 0xff && h(1) === 0xd8)                                    return { ext: 'jpg',  mime: 'image/jpeg' };
+    if (h(0) === 0x47 && h(1) === 0x49 && h(2) === 0x46)                  return { ext: 'gif',  mime: 'image/gif' };
     if (h(0) === 0x52 && h(1) === 0x49 && h(2) === 0x46 && h(3) === 0x46) return { ext: 'webp', mime: 'image/webp' };
-    if (h(0) === 0x50 && h(1) === 0x4b) return { ext: 'zip', mime: 'application/zip' };
-    if (h(0) === 0x3c) return { ext: 'xml', mime: 'application/xml' };
-    try { new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(0, 512)); return { ext: 'txt', mime: 'text/plain' }; } catch { /* binary */ }
+    if (h(0) === 0x50 && h(1) === 0x4b)                                    return { ext: 'zip',  mime: 'application/zip' };
+    if (h(0) === 0x3c)                                                      return { ext: 'xml',  mime: 'application/xml' };
     return { ext: 'bin', mime: 'application/octet-stream' };
   };
 
-  const handleDecode = () => {
-    // Revoke any previous blob URL before creating a new one.
-    if (blobUrl) { URL.revokeObjectURL(blobUrl); setBlobUrl(null); }
+  const reset = () => {
+    if (prevBlobUrl.current) { URL.revokeObjectURL(prevBlobUrl.current); prevBlobUrl.current = null; }
+    setBlobUrl(null);
+    setPreviewText(null);
     setError('');
-    setDecoded(null);
+    setDecodedSize(0);
+  };
+
+  // Use fetch with a data URL — the browser's native base64 decoder, fully async,
+  // no manual byte loop, no UI freeze for large inputs.
+  const handleDecode = async () => {
+    reset();
     const cleaned = input.replace(/\s/g, '');
     if (!cleaned) { setError('Paste a base64 string first.'); return; }
+
+    setIsDecoding(true);
     try {
-      const binary = atob(cleaned);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const { ext, mime } = guessExtension(bytes);
-      // Create the blob URL immediately in the event handler — no useEffect, no timing issues.
-      const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
-      setDecoded(bytes);
-      setMimeType(mime);
+      const res = await fetch(`data:application/octet-stream;base64,${cleaned}`);
+      const blob = await res.blob();
+
+      // Peek at the first 8 bytes to guess the file type.
+      const header = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+      const { ext, mime } = guessType(header);
+
+      // Re-wrap with the correct MIME so the browser downloads with the right type.
+      const typedBlob = mime === 'application/octet-stream' ? blob : blob.slice(0, blob.size, mime);
+      const url = URL.createObjectURL(typedBlob);
+      prevBlobUrl.current = url;
+
       setBlobUrl(url);
+      setMimeType(mime);
+      setDecodedSize(blob.size);
       if (!fileName || fileName === 'decoded-file') setFileName(`decoded-file.${ext}`);
+
+      // Text / XML preview (read first 2 KB only).
+      if (mime === 'text/plain' || mime === 'application/xml') {
+        const preview = await typedBlob.slice(0, 2000).text();
+        setPreviewText(blob.size > 2000 ? preview + '\n\n… (truncated)' : preview);
+      }
     } catch {
       setError('Invalid base64 — check for missing padding or unexpected characters.');
+    } finally {
+      setIsDecoding(false);
     }
   };
 
@@ -248,10 +272,10 @@ const DecodePanel: React.FC = () => {
     reader.readAsText(f);
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const formatSize = (n: number) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
@@ -279,7 +303,7 @@ const DecodePanel: React.FC = () => {
             </button>
             {input && (
               <button
-                onClick={() => { setInput(''); setDecoded(null); setError(''); }}
+                onClick={() => { setInput(''); reset(); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors"
               >
                 Clear
@@ -289,7 +313,7 @@ const DecodePanel: React.FC = () => {
         </div>
         <textarea
           value={input}
-          onChange={(e) => { setInput(e.target.value); setDecoded(null); setError(''); }}
+          onChange={(e) => { setInput(e.target.value); reset(); }}
           rows={8}
           placeholder="Paste base64-encoded string here…"
           className="w-full px-4 py-3 text-xs font-mono text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 resize-none focus:outline-none leading-relaxed placeholder:text-slate-400 dark:placeholder:text-slate-600"
@@ -300,13 +324,25 @@ const DecodePanel: React.FC = () => {
           </span>
           <button
             onClick={handleDecode}
-            disabled={!input.trim()}
+            disabled={!input.trim() || isDecoding}
             className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white disabled:text-slate-400 dark:disabled:text-slate-500 transition-colors shadow-sm"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
-            Decode
+            {isDecoding ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Decoding…
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+                Decode
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -322,24 +358,21 @@ const DecodePanel: React.FC = () => {
       )}
 
       {/* Result */}
-      {decoded && !error && (
+      {blobUrl && !error && (
         <div className="rounded-xl border border-emerald-200 dark:border-emerald-700 bg-white dark:bg-slate-800 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-emerald-100 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Decoded successfully</p>
-                <p className="text-xs text-emerald-600 dark:text-emerald-500">{formatSize(decoded.length)} · {mimeType}</p>
-              </div>
+          <div className="flex items-center px-4 py-3 border-b border-emerald-100 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Decoded successfully</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-500">{formatSize(decodedSize)} · {mimeType}</p>
             </div>
           </div>
 
           <div className="p-4 space-y-4">
-            {/* File name input */}
             <div>
               <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Output filename</label>
               <input
@@ -351,41 +384,34 @@ const DecodePanel: React.FC = () => {
               />
             </div>
 
-            {/* Preview for text/XML */}
-            {(mimeType === 'text/plain' || mimeType === 'application/xml') && (
+            {/* Text / XML preview */}
+            {previewText && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Preview</label>
                 <pre className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-700 dark:text-slate-300 overflow-auto max-h-40 whitespace-pre-wrap break-all leading-relaxed">
-                  {new TextDecoder().decode(decoded.slice(0, 2000))}
-                  {decoded.length > 2000 && '\n\n… (truncated for preview)'}
+                  {previewText}
                 </pre>
               </div>
             )}
 
             {/* Image preview */}
-            {(mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/gif' || mimeType === 'image/webp') && blobUrl && (
+            {(mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/gif' || mimeType === 'image/webp') && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Preview</label>
-                <img
-                  src={blobUrl}
-                  alt="decoded"
-                  className="max-h-48 rounded-lg border border-slate-200 dark:border-slate-700 object-contain bg-slate-100 dark:bg-slate-900"
-                />
+                <img src={blobUrl} alt="decoded" className="max-h-48 rounded-lg border border-slate-200 dark:border-slate-700 object-contain bg-slate-100 dark:bg-slate-900" />
               </div>
             )}
 
-            {blobUrl && (
-              <a
-                href={blobUrl}
-                download={fileName || 'decoded-file'}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                </svg>
-                Download {fileName}
-              </a>
-            )}
+            <a
+              href={blobUrl}
+              download={fileName || 'decoded-file'}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Download {fileName}
+            </a>
           </div>
         </div>
       )}

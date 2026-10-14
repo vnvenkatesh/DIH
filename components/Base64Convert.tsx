@@ -202,6 +202,8 @@ const DecodePanel: React.FC = () => {
   const [error, setError] = useState('');
   const [decoded, setDecoded] = useState<Uint8Array | null>(null);
   const [mimeType, setMimeType] = useState('application/octet-stream');
+  // Blob URL created once at decode time; stored in state so the <a> can reference it.
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const guessExtension = (bytes: Uint8Array): { ext: string; mime: string } => {
@@ -213,12 +215,13 @@ const DecodePanel: React.FC = () => {
     if (h(0) === 0x52 && h(1) === 0x49 && h(2) === 0x46 && h(3) === 0x46) return { ext: 'webp', mime: 'image/webp' };
     if (h(0) === 0x50 && h(1) === 0x4b) return { ext: 'zip', mime: 'application/zip' };
     if (h(0) === 0x3c) return { ext: 'xml', mime: 'application/xml' };
-    // Try UTF-8 text
     try { new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(0, 512)); return { ext: 'txt', mime: 'text/plain' }; } catch { /* binary */ }
     return { ext: 'bin', mime: 'application/octet-stream' };
   };
 
   const handleDecode = () => {
+    // Revoke any previous blob URL before creating a new one.
+    if (blobUrl) { URL.revokeObjectURL(blobUrl); setBlobUrl(null); }
     setError('');
     setDecoded(null);
     const cleaned = input.replace(/\s/g, '');
@@ -228,8 +231,11 @@ const DecodePanel: React.FC = () => {
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const { ext, mime } = guessExtension(bytes);
+      // Create the blob URL immediately in the event handler — no useEffect, no timing issues.
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
       setDecoded(bytes);
       setMimeType(mime);
+      setBlobUrl(url);
       if (!fileName || fileName === 'decoded-file') setFileName(`decoded-file.${ext}`);
     } catch {
       setError('Invalid base64 — check for missing padding or unexpected characters.');
@@ -247,12 +253,6 @@ const DecodePanel: React.FC = () => {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
-
-  // Build a data URL directly from the already-decoded base64 input.
-  // No createObjectURL, no simulated click — a rendered <a> handles it natively.
-  const downloadHref = decoded
-    ? `data:${mimeType};base64,${input.replace(/\s/g, '')}`
-    : null;
 
   return (
     <div className="space-y-5">
@@ -362,29 +362,29 @@ const DecodePanel: React.FC = () => {
               </div>
             )}
 
-            {/* Preview for images — use data URL to avoid object URL lifecycle issues */}
-            {(mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/gif' || mimeType === 'image/webp') && downloadHref && (
+            {/* Image preview */}
+            {(mimeType === 'image/png' || mimeType === 'image/jpeg' || mimeType === 'image/gif' || mimeType === 'image/webp') && blobUrl && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Preview</label>
                 <img
-                  src={downloadHref}
+                  src={blobUrl}
                   alt="decoded"
                   className="max-h-48 rounded-lg border border-slate-200 dark:border-slate-700 object-contain bg-slate-100 dark:bg-slate-900"
                 />
               </div>
             )}
 
-            {downloadHref && (
-            <a
-              href={downloadHref}
-              download={fileName || 'decoded-file'}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              Download {fileName}
-            </a>
+            {blobUrl && (
+              <a
+                href={blobUrl}
+                download={fileName || 'decoded-file'}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download {fileName}
+              </a>
             )}
           </div>
         </div>

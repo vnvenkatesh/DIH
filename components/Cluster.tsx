@@ -519,6 +519,149 @@ const ClauseCard: React.FC<{ match: ClauseMatch }> = ({ match }) => {
     );
 };
 
+// ─── Complexity scoring ───────────────────────────────────────────────────────
+//
+// All signals are extracted from the already-lowercased pdfjs text and the
+// page count, so this runs entirely client-side with zero extra API calls.
+
+type ComplexityTier = 'Static' | 'Simple' | 'Medium' | 'Complex' | 'Very Complex';
+
+interface ComplexityResult {
+    tier: ComplexityTier;
+    fieldCount: number;  // detected dynamic-field signals
+    pageCount: number;
+    tableScore: number;  // weighted table signals
+    logicScore: number;  // weighted business-logic signals
+}
+
+interface ProcessedDocumentWithComplexity extends ProcessedDocument {
+    complexity: ComplexityResult;
+}
+
+const TIER_ORDER: ComplexityTier[] = ['Static', 'Simple', 'Medium', 'Complex', 'Very Complex'];
+
+const TIER_META: Record<ComplexityTier, {
+    dot: string; pillBg: string; pillText: string; pillBorder: string;
+    expandBg: string; expandBorder: string;
+}> = {
+    'Static':       { dot: 'bg-slate-400',  pillBg: 'bg-slate-100 dark:bg-slate-700',     pillText: 'text-slate-700 dark:text-slate-300',   pillBorder: 'border-slate-300 dark:border-slate-600',  expandBg: 'bg-slate-50 dark:bg-slate-700/50',   expandBorder: 'border-slate-200 dark:border-slate-600'   },
+    'Simple':       { dot: 'bg-green-500',  pillBg: 'bg-green-50 dark:bg-green-900/30',   pillText: 'text-green-700 dark:text-green-300',   pillBorder: 'border-green-300 dark:border-green-700',  expandBg: 'bg-green-50 dark:bg-green-900/20',   expandBorder: 'border-green-200 dark:border-green-800'   },
+    'Medium':       { dot: 'bg-amber-500',  pillBg: 'bg-amber-50 dark:bg-amber-900/30',   pillText: 'text-amber-700 dark:text-amber-300',   pillBorder: 'border-amber-300 dark:border-amber-700',  expandBg: 'bg-amber-50 dark:bg-amber-900/20',   expandBorder: 'border-amber-200 dark:border-amber-800'   },
+    'Complex':      { dot: 'bg-orange-500', pillBg: 'bg-orange-50 dark:bg-orange-900/30', pillText: 'text-orange-700 dark:text-orange-300', pillBorder: 'border-orange-300 dark:border-orange-700', expandBg: 'bg-orange-50 dark:bg-orange-900/20', expandBorder: 'border-orange-200 dark:border-orange-800'  },
+    'Very Complex': { dot: 'bg-red-500',    pillBg: 'bg-red-50 dark:bg-red-900/30',       pillText: 'text-red-700 dark:text-red-300',       pillBorder: 'border-red-300 dark:border-red-700',      expandBg: 'bg-red-50 dark:bg-red-900/20',       expandBorder: 'border-red-200 dark:border-red-800'       },
+};
+
+function scoreComplexity(text: string, pageCount: number): ComplexityResult {
+    // ── Dynamic field signals ─────────────────────────────────────────────────
+    // Underscore blanks: ___, __________
+    const underscoreFields = (text.match(/_{3,}/g) ?? []).length;
+    // Bracket / brace / angle placeholders — 2–40 chars, lowercase after extraction
+    const bracketFields =
+        (text.match(/\[[a-z0-9][a-z0-9_\s]{1,38}[a-z0-9]\]/g) ?? []).length +
+        (text.match(/\{[a-z0-9][a-z0-9_\s]{1,38}[a-z0-9]\}/g) ?? []).length +
+        (text.match(/<<[a-z0-9][a-z0-9_\s]{1,38}[a-z0-9]>>/g) ?? []).length;
+    // Common CCM fill-in trigger phrases
+    const fillPhrases = (text.match(
+        /\b(fill in|enter your|please enter|please provide|insert here|your name|date of birth|account no|policy no|reference no|claim no|member id)\b/g
+    ) ?? []).length;
+    const fieldCount = underscoreFields + bracketFields + Math.min(fillPhrases, 8);
+
+    // ── Table signals ─────────────────────────────────────────────────────────
+    const tableKeywords = (text.match(/\b(subtotal|grand total|total amount|net amount|amount due)\b/g) ?? []).length;
+    const currencyValues  = (text.match(/\$[\d,]+\.?\d{0,2}/g) ?? []).length;
+    const tableScore = Math.min(tableKeywords * 3 + Math.floor(currencyValues / 3), 12);
+
+    // ── Business logic / conditional density ──────────────────────────────────
+    const formalLogic = (text.match(
+        /\b(subject to|provided that|in the event|where applicable|notwithstanding|calculated as|rate of|percentage of|not to exceed|must not|shall not|required to|eligible for|not eligible|based on)\b/g
+    ) ?? []).length;
+    // Bare conditionals counted at ⅓ weight to avoid over-scoring plain prose
+    const bareLogic = Math.floor((text.match(/\bif\b|\bunless\b|\bexcept\b|\botherwise\b/g) ?? []).length / 3);
+    const logicScore = Math.min(formalLogic + bareLogic, 20);
+
+    // ── Tier assignment ───────────────────────────────────────────────────────
+    let tier: ComplexityTier;
+    if      (fieldCount === 0  && tableScore === 0  && logicScore <= 1)  tier = 'Static';
+    else if (fieldCount <= 5   && pageCount  <= 3   && tableScore <= 1  && logicScore <= 2)  tier = 'Simple';
+    else if (fieldCount <= 15  && pageCount  <= 10  && tableScore <= 4  && logicScore <= 6)  tier = 'Medium';
+    else if (fieldCount <= 30  && pageCount  <= 20  && tableScore <= 8  && logicScore <= 12) tier = 'Complex';
+    else tier = 'Very Complex';
+
+    return { tier, fieldCount, pageCount, tableScore, logicScore };
+}
+
+// ─── Complexity summary sub-component ────────────────────────────────────────
+
+const ComplexitySummary: React.FC<{ complexityMap: Record<string, ComplexityResult> }> = ({ complexityMap }) => {
+    const [expandedTier, setExpandedTier] = useState<ComplexityTier | null>(null);
+
+    const entries = Object.entries(complexityMap) as [string, ComplexityResult][];
+    const byTier = TIER_ORDER.reduce((acc, tier) => {
+        acc[tier] = entries
+            .filter(([, r]) => r.tier === tier)
+            .map(([name, r]) => ({ name, r }));
+        return acc;
+    }, {} as Record<ComplexityTier, Array<{ name: string; r: ComplexityResult }>>);
+
+    const total = Object.keys(complexityMap).length;
+    const activeTiers = TIER_ORDER.filter(t => byTier[t].length > 0);
+
+    return (
+        <div className="mb-6 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    Complexity Distribution — {total} document{total !== 1 ? 's' : ''}
+                </span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">Click a tier to expand</span>
+            </div>
+
+            {/* Tier pills */}
+            <div className="flex flex-wrap gap-2">
+                {activeTiers.map(tier => {
+                    const m = TIER_META[tier];
+                    const active = expandedTier === tier;
+                    return (
+                        <button
+                            key={tier}
+                            onClick={() => setExpandedTier(active ? null : tier)}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${m.pillBg} ${m.pillText} ${m.pillBorder} ${active ? 'ring-2 ring-current ring-offset-1' : 'hover:opacity-80'}`}
+                        >
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${m.dot}`} />
+                            {tier}
+                            <span className="font-bold tabular-nums">{byTier[tier].length}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Expanded file list */}
+            {expandedTier && byTier[expandedTier].length > 0 && (() => {
+                const m = TIER_META[expandedTier];
+                return (
+                    <div className={`mt-3 rounded-lg border p-3 ${m.expandBg} ${m.expandBorder}`}>
+                        <div className="space-y-2">
+                            {byTier[expandedTier].map(({ name, r }) => (
+                                <div key={name} className="flex items-center justify-between gap-4 text-xs">
+                                    <span className={`truncate font-medium ${m.pillText}`} title={name}>{name}</span>
+                                    <div className="flex items-center gap-2 flex-shrink-0 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                        <span title="Pages"><strong>{r.pageCount}</strong>p</span>
+                                        <span className="text-slate-300 dark:text-slate-600">·</span>
+                                        <span title="Dynamic field signals"><strong>{r.fieldCount}</strong> fields</span>
+                                        <span className="text-slate-300 dark:text-slate-600">·</span>
+                                        <span title="Table signals">{r.tableScore > 0 ? `${r.tableScore} tbl` : 'no tables'}</span>
+                                        <span className="text-slate-300 dark:text-slate-600">·</span>
+                                        <span title="Business logic signals"><strong>{r.logicScore}</strong> logic</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
+        </div>
+    );
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const LARGE_BATCH_THRESHOLD = 20;
@@ -537,6 +680,8 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
     const [activeTab, setActiveTab] = useState<'groups' | 'clauses'>('groups');
     const [clauseSort, setClauseSort] = useState<'frequency' | 'count'>('frequency');
 
+    const [complexityMap, setComplexityMap] = useState<Record<string, ComplexityResult> | null>(null);
+
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
     const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
@@ -546,7 +691,7 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/build/pdf.worker.min.mjs`;
     }, []);
 
-    const processPdf = async (file: File): Promise<ProcessedDocument> => {
+    const processPdf = async (file: File): Promise<ProcessedDocumentWithComplexity> => {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         const numPages = pdf.numPages || 0;
@@ -588,8 +733,9 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
             }
         }
 
+        const complexity = scoreComplexity(fullText, numPages);
         await pdf.destroy();
-        return { file, text: fullText, thumbnail };
+        return { file, text: fullText, thumbnail, complexity };
     };
 
     const handleProcess = useCallback(async () => {
@@ -616,7 +762,7 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
         setProgress({ current: 0, total: totalSteps });
 
         try {
-            const processedDocs: ProcessedDocument[] = [];
+            const processedDocs: ProcessedDocumentWithComplexity[] = [];
             for (let i = 0; i < files.length; i++) {
                 setLoadingMessage(`Processing document ${i + 1} of ${files.length}: ${files[i].name}`);
                 processedDocs.push(await processPdf(files[i]));
@@ -707,6 +853,11 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
                 summaries[group.id] = generateGroupSummary(group, uniqueData[group.id] ?? {});
             }
 
+            // Build per-document complexity map (purely additive, no effect on grouping)
+            const compMap: Record<string, ComplexityResult> = {};
+            for (const doc of processedDocs) compMap[doc.file.name] = doc.complexity;
+            setComplexityMap(compMap);
+
             setTotalDocCount(processedDocs.length);
             setResults(sortedGroups);
             setRepeatedClauses(clauseMatches);
@@ -729,6 +880,7 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
         setRepeatedClauses(null);
         setUniqueClausesByGroup(null);
         setGroupSummaries(null);
+        setComplexityMap(null);
         setTotalDocCount(0);
         setActiveTab('groups');
         setProgress(null);
@@ -899,6 +1051,9 @@ const Cluster: React.FC<ClusterProps> = ({ onCompareRequest }) => {
                     {/* ── Document Groups tab ── */}
                     {activeTab === 'groups' && (
                         <div>
+                            {complexityMap && Object.keys(complexityMap).length > 0 && (
+                                <ComplexitySummary complexityMap={complexityMap} />
+                            )}
                             <div className="text-center mb-6">
                                 <h3 className="text-xl font-bold">Document Groups</h3>
                                 {results && results.length > 0 ? (

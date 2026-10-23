@@ -88,6 +88,7 @@ const App: React.FC = () => {
   const [activeTool, setActiveTool] = useState<Tool>('home');
   const [filesToCompare, setFilesToCompare] = useState<[File, File] | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(!user);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
 
   // Hydrate SettingsContext (and localStorage) from the user's DB preferences on login.
@@ -106,8 +107,12 @@ const App: React.FC = () => {
         claudeModel: user.claudeModel,
         openaiModel: user.openaiModel,
       });
+      setSidebarCollapsed(false);
     }
-    if (!user) hydratedUserId.current = null;
+    if (!user) {
+      hydratedUserId.current = null;
+      setSidebarCollapsed(true);
+    }
   }, [user?.id]);
 
   // Public Home: unauthenticated visitors see Home only; any other navigation opens Login
@@ -300,116 +305,208 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen flex font-sans text-slate-800 dark:text-slate-200">
       {/* ── Left Sidebar ── */}
-      <aside className="w-72 flex-shrink-0 flex flex-col bg-slate-900 dark:bg-slate-950 text-white h-screen sticky top-0">
+      <aside className={`${sidebarCollapsed ? 'w-16' : 'w-72'} flex-shrink-0 flex flex-col bg-slate-900 dark:bg-slate-950 text-white h-screen sticky top-0 overflow-hidden transition-[width] duration-300 ease-in-out`}>
 
         {/* Branding */}
-        <div className="px-4 pt-6 pb-5 border-b border-slate-700">
-          <button
-            onClick={() => { if (user) setActiveTool('home'); }}
-            className="flex items-center gap-3 w-full text-left group"
-            aria-label="Go to home"
-          >
-            <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-900/50 group-hover:bg-indigo-400 transition-colors">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.414 2.798H4.213c-1.444 0-2.414-1.798-1.414-2.798L4.8 15.3" />
-              </svg>
+        <div className={`flex-shrink-0 border-b border-slate-700 ${sidebarCollapsed ? 'px-2 pt-4 pb-3' : 'px-4 pt-6 pb-5'}`}>
+          {sidebarCollapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <button
+                onClick={() => { if (user) setActiveTool('home'); }}
+                className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-900/50 hover:bg-indigo-400 transition-colors"
+                aria-label="Go to home"
+              >
+                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.414 2.798H4.213c-1.444 0-2.414-1.798-1.414-2.798L4.8 15.3" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                className="w-8 h-6 rounded flex items-center justify-center text-slate-500 hover:text-white hover:bg-slate-800 transition-colors"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7" />
+                </svg>
+              </button>
             </div>
-            <h1 className="text-lg font-extrabold text-white leading-snug group-hover:text-indigo-200 transition-colors">
-              Document<br />
-              <span className="whitespace-nowrap"><span className="text-amber-400 group-hover:text-amber-300 transition-colors">Intelligence</span> Hub</span>
-            </h1>
-          </button>
-          <p className="mt-3 text-xs text-slate-400 leading-relaxed">
-            AI-powered tools for customer communication management.
-          </p>
+          ) : (
+            <>
+              <div className="flex items-start">
+                <button
+                  onClick={() => { if (user) setActiveTool('home'); }}
+                  className="flex items-center gap-3 flex-1 text-left group"
+                  aria-label="Go to home"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-900/50 group-hover:bg-indigo-400 transition-colors">
+                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.414 2.798H4.213c-1.444 0-2.414-1.798-1.414-2.798L4.8 15.3" />
+                    </svg>
+                  </div>
+                  <h1 className="text-lg font-extrabold text-white leading-snug group-hover:text-indigo-200 transition-colors">
+                    Document<br />
+                    <span className="whitespace-nowrap"><span className="text-amber-400 group-hover:text-amber-300 transition-colors">Intelligence</span> Hub</span>
+                  </h1>
+                </button>
+                <button
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="flex-shrink-0 w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-white hover:bg-slate-800 transition-colors mt-1.5"
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7" />
+                  </svg>
+                </button>
+              </div>
+              <p className="mt-3 text-xs text-slate-400 leading-relaxed">
+                AI-powered tools for customer communication management.
+              </p>
+            </>
+          )}
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navEntries.map((entry, idx) => {
-            if ('type' in entry && (entry as NavGroup).type === 'group') {
-              const group = entry as NavGroup;
-              const childTools = group.children.map(c => c.tool);
-              const isExpanded = expandedGroups.has(group.label) || childTools.includes(activeTool);
-              return (
-                <div key={`group-${group.label}`}>
+        <nav className={`flex-1 overflow-y-auto py-4 space-y-1 ${sidebarCollapsed ? 'px-2' : 'px-3'}`}>
+          {sidebarCollapsed ? (
+            navEntries.map((entry) => {
+              if ('type' in entry && (entry as NavGroup).type === 'group') {
+                const group = entry as NavGroup;
+                const childTools = group.children.map(c => c.tool);
+                const isActive = childTools.includes(activeTool);
+                return (
                   <button
+                    key={`group-${group.label}`}
                     onClick={() => {
-                      if (!user) { goTo(null); return; }
-                      setExpandedGroups(prev => {
-                        const next = new Set(prev);
-                        if (next.has(group.label)) next.delete(group.label); else next.add(group.label);
-                        return next;
-                      });
+                      setSidebarCollapsed(false);
+                      setExpandedGroups(prev => { const next = new Set(prev); next.add(group.label); return next; });
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group text-slate-400 hover:bg-slate-800 hover:text-white"
+                    className={`w-full flex items-center justify-center p-3 rounded-lg transition-all duration-150 ${
+                      isActive ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
+                    title={group.label}
                   >
-                    <span className="mt-0.5 flex-shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors">
-                      {group.icon}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium leading-tight">{group.label}</span>
-                    </span>
-                    <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    {group.icon}
                   </button>
-                  {isExpanded && (
-                    <div className="mt-0.5 ml-2 pl-2 border-l-2 border-slate-700 space-y-0.5">
-                      {group.children.map(({ tool, label, description, icon }) => (
-                        <button
-                          key={tool}
-                          onClick={() => goTo(tool)}
-                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 group ${
-                            activeTool === tool
-                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
-                              : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                          }`}
-                          title={description}
-                          aria-current={activeTool === tool ? 'page' : undefined}
-                        >
-                          <span className={`flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
-                            {icon}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block text-sm font-medium leading-tight">{label}</span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-            const { tool, label, description, icon } = entry as NavItem;
-            return (
-              <button
-                key={tool}
-                onClick={() => goTo(tool)}
-                className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
-                  activeTool === tool
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                }`}
-                title={description}
-                aria-current={activeTool === tool ? 'page' : undefined}
-              >
-                <span className={`flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                );
+              }
+              const { tool, label, description, icon } = entry as NavItem;
+              return (
+                <button
+                  key={tool}
+                  onClick={() => goTo(tool)}
+                  className={`w-full flex items-center justify-center p-3 rounded-lg transition-all duration-150 ${
+                    activeTool === tool ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  }`}
+                  title={description || label}
+                  aria-current={activeTool === tool ? 'page' : undefined}
+                >
                   {icon}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium leading-tight">{label}</span>
-                </span>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          ) : (
+            navEntries.map((entry, idx) => {
+              if ('type' in entry && (entry as NavGroup).type === 'group') {
+                const group = entry as NavGroup;
+                const childTools = group.children.map(c => c.tool);
+                const isExpanded = expandedGroups.has(group.label) || childTools.includes(activeTool);
+                return (
+                  <div key={`group-${group.label}`}>
+                    <button
+                      onClick={() => {
+                        if (!user) { goTo(null); return; }
+                        setExpandedGroups(prev => {
+                          const next = new Set(prev);
+                          if (next.has(group.label)) next.delete(group.label); else next.add(group.label);
+                          return next;
+                        });
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group text-slate-400 hover:bg-slate-800 hover:text-white"
+                    >
+                      <span className="mt-0.5 flex-shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors">
+                        {group.icon}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium leading-tight">{group.label}</span>
+                      </span>
+                      <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                    {isExpanded && (
+                      <div className="mt-0.5 ml-2 pl-2 border-l-2 border-slate-700 space-y-0.5">
+                        {group.children.map(({ tool, label, description, icon }) => (
+                          <button
+                            key={tool}
+                            onClick={() => goTo(tool)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 group ${
+                              activeTool === tool
+                                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                            }`}
+                            title={description}
+                            aria-current={activeTool === tool ? 'page' : undefined}
+                          >
+                            <span className={`flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                              {icon}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-sm font-medium leading-tight">{label}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              const { tool, label, description, icon } = entry as NavItem;
+              return (
+                <button
+                  key={tool}
+                  onClick={() => goTo(tool)}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
+                    activeTool === tool
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  }`}
+                  title={description}
+                  aria-current={activeTool === tool ? 'page' : undefined}
+                >
+                  <span className={`flex-shrink-0 transition-colors ${activeTool === tool ? 'text-indigo-200' : 'text-slate-500 group-hover:text-indigo-400'}`}>
+                    {icon}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium leading-tight">{label}</span>
+                  </span>
+                </button>
+              );
+            })
+          )}
         </nav>
 
-        {/* Sidebar Footer — branding only */}
-        <div className="px-4 py-3 border-t border-slate-700">
-          <span className="text-xs text-slate-500">Designed by Deloitte</span>
+        {/* Sidebar Footer */}
+        <div className={`flex-shrink-0 border-t border-slate-700 ${sidebarCollapsed ? 'px-2 py-3 flex justify-center' : 'px-4 py-3'}`}>
+          {sidebarCollapsed ? (
+            <span className="text-[10px] text-slate-600" title="Designed by Deloitte">D</span>
+          ) : (
+            <span className="text-xs text-slate-500">Designed by Deloitte</span>
+          )}
         </div>
       </aside>
+
+      {/* ── Floating title — visible when sidebar is collapsed ── */}
+      {sidebarCollapsed && (
+        <div className="fixed left-[72px] top-5 z-30 pointer-events-none select-none">
+          <h1 className="text-xs font-extrabold leading-snug tracking-wide text-slate-700 dark:text-white">
+            Document<br />
+            <span className="text-amber-500 dark:text-amber-400">Intelligence</span>{' '}
+            <span>Hub</span>
+          </h1>
+        </div>
+      )}
 
       {/* ── Fixed top-right controls ── */}
       <div className="fixed top-3 right-4 z-40 flex items-center gap-2">

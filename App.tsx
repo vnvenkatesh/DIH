@@ -499,7 +499,7 @@ const App: React.FC = () => {
 
       {/* ── Floating title — visible when sidebar is collapsed ── */}
       {sidebarCollapsed && (
-        <div className="fixed left-[72px] top-5 z-30 pointer-events-none select-none">
+        <div className="fixed left-[72px] top-4 z-30 pointer-events-none select-none">
           <h1 className="text-lg font-extrabold leading-snug text-slate-700 dark:text-white">
             Document<br />
             <span className="text-amber-500 dark:text-amber-400">Intelligence</span>{' '}

@@ -14,7 +14,7 @@ const EyeSlashIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const Login: React.FC = () => {
+const Login: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const { login } = useAuth();
 
   // Login screen is always light — remove dark class regardless of user preference
@@ -155,6 +155,16 @@ const Login: React.FC = () => {
           </button>
         </form>
       </div>
+
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-5 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+        >
+          ← Back to home
+        </button>
+      )}
 
       <p className="mt-6 text-xs text-slate-500">Designed by Deloitte</p>
     </div>

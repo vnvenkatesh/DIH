@@ -110,6 +110,30 @@ const App: React.FC = () => {
     if (!user) hydratedUserId.current = null;
   }, [user?.id]);
 
+  // Public Home: unauthenticated visitors see Home only; any other navigation opens Login
+  // and, after a successful sign-in, lands on the tool they asked for.
+  const [showLogin, setShowLogin] = useState(false);
+  const [pendingTool, setPendingTool] = useState<Tool | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      if (pendingTool) setActiveTool(pendingTool);
+    } else {
+      setActiveTool('home');
+    }
+    setPendingTool(null);
+    setShowLogin(false);
+  }, [user?.id]);
+
+  const goTo = (tool: Tool | null) => {
+    if (!user) {
+      setPendingTool(tool && tool !== 'home' ? tool : null);
+      setShowLogin(true);
+      return;
+    }
+    if (tool) setActiveTool(tool);
+  };
+
   const handleCompareRequest = (files: [File, File]) => {
     setFilesToCompare(files);
     setActiveTool('pdfCompare');
@@ -269,8 +293,8 @@ const App: React.FC = () => {
     );
   }
 
-  if (!user) {
-    return <Login />;
+  if (!user && showLogin) {
+    return <Login onBack={() => { setShowLogin(false); setPendingTool(null); }} />;
   }
 
   return (
@@ -281,7 +305,7 @@ const App: React.FC = () => {
         {/* Branding */}
         <div className="px-4 pt-6 pb-5 border-b border-slate-700">
           <button
-            onClick={() => setActiveTool('home')}
+            onClick={() => { if (user) setActiveTool('home'); }}
             className="flex items-center gap-3 w-full text-left group"
             aria-label="Go to home"
           >
@@ -310,11 +334,14 @@ const App: React.FC = () => {
               return (
                 <div key={`group-${group.label}`}>
                   <button
-                    onClick={() => setExpandedGroups(prev => {
-                      const next = new Set(prev);
-                      if (next.has(group.label)) next.delete(group.label); else next.add(group.label);
-                      return next;
-                    })}
+                    onClick={() => {
+                      if (!user) { goTo(null); return; }
+                      setExpandedGroups(prev => {
+                        const next = new Set(prev);
+                        if (next.has(group.label)) next.delete(group.label); else next.add(group.label);
+                        return next;
+                      });
+                    }}
                     className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group text-slate-400 hover:bg-slate-800 hover:text-white"
                   >
                     <span className="mt-0.5 flex-shrink-0 text-slate-500 group-hover:text-indigo-400 transition-colors">
@@ -332,7 +359,7 @@ const App: React.FC = () => {
                       {group.children.map(({ tool, label, description, icon }) => (
                         <button
                           key={tool}
-                          onClick={() => setActiveTool(tool)}
+                          onClick={() => goTo(tool)}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 group ${
                             activeTool === tool
                               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
@@ -358,7 +385,7 @@ const App: React.FC = () => {
             return (
               <button
                 key={tool}
-                onClick={() => setActiveTool(tool)}
+                onClick={() => goTo(tool)}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all duration-150 group ${
                   activeTool === tool
                     ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40'
@@ -386,14 +413,25 @@ const App: React.FC = () => {
 
       {/* ── Fixed top-right controls ── */}
       <div className="fixed top-3 right-4 z-40 flex items-center gap-2">
-        <AiInUseIndicator />
-        <UserMenu
-          user={user}
-          onSettings={() => setActiveTool('settings')}
-          onApiDocs={() => setActiveTool('apiDocs')}
-          onHelp={() => setActiveTool('help')}
-          onLogout={logout}
-        />
+        {user ? (
+          <>
+            <AiInUseIndicator />
+            <UserMenu
+              user={user}
+              onSettings={() => setActiveTool('settings')}
+              onApiDocs={() => setActiveTool('apiDocs')}
+              onHelp={() => setActiveTool('help')}
+              onLogout={logout}
+            />
+          </>
+        ) : (
+          <button
+            onClick={() => goTo(null)}
+            className="px-4 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow transition-colors"
+          >
+            Sign in
+          </button>
+        )}
       </div>
 
       {/* ── Right Content Area ── */}
@@ -419,13 +457,14 @@ const App: React.FC = () => {
         {/* Tool Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {/* LLM warning — shown for accelerator tools when no key is configured */}
-          {!NO_LLM_TOOLS.includes(activeTool) && (
+          {user && !NO_LLM_TOOLS.includes(activeTool) && (
             <LLMWarning onGoToSettings={() => setActiveTool('settings')} />
           )}
 
           <div className={activeTool === 'home' ? '' : 'hidden'}>
-            <Home onNavigate={(tool) => setActiveTool(tool as Tool)} />
+            <Home onNavigate={(tool) => goTo(tool as Tool)} />
           </div>
+          {user && (<>
           <div className={activeTool === 'projects' ? '' : 'hidden'}>
             <Projects
               onOpenProject={(id) => { setActiveProjectId(id); setActiveTool('projectWorkspace'); }}
@@ -493,6 +532,7 @@ const App: React.FC = () => {
           </div>
           {activeTool === 'settings' && <SettingsPage />}
           {activeTool === 'help' && <HelpPage />}
+          </>)}
         </main>
       </div>
     </div>

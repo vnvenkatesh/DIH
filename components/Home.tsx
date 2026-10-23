@@ -46,8 +46,8 @@ const accelerators = [
     name: 'Cluster',
     tagline: 'Cut through document redundancy',
     description:
-      'Upload a collection of PDFs and let AI automatically cluster duplicates and near-duplicates. What used to take days of manual side-by-side review is reduced to a single click.',
-    benefit: 'Eliminate redundant templates before they reach production',
+      'Upload a collection of PDFs and let AI automatically cluster duplicates and near-duplicates. Every document is also scored for complexity — Static, Simple, Medium, Complex or Very Complex — from its dynamic fields, tables and business logic, so migration effort is visible up front.',
+    benefit: 'Eliminate redundant templates and size migration effort before build starts',
     accent: { bg: 'bg-indigo-50 dark:bg-indigo-900/20', icon: 'bg-indigo-100 dark:bg-indigo-800/60 text-indigo-600 dark:text-indigo-300', border: 'border-indigo-100 dark:border-indigo-800/50', tag: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
   },
   {
@@ -190,6 +190,20 @@ const accelerators = [
     benefit: 'Retrieve live documents and data without switching to an external client',
     accent: { bg: 'bg-sky-50 dark:bg-sky-900/20', icon: 'bg-sky-100 dark:bg-sky-800/60 text-sky-600 dark:text-sky-300', border: 'border-sky-100 dark:border-sky-800/50', tag: 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300' },
   },
+  {
+    id: 'base64Convert',
+    Icon: ({ className }: { className?: string }) => (
+      <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+      </svg>
+    ),
+    name: 'Base64 Convert',
+    tagline: 'File ⇄ Base64 · No AI',
+    description:
+      'Encode any file to a Base64 string, or paste a Base64 payload and decode it back into a downloadable file. Handy for preparing API request bodies and for inspecting documents returned inside JSON or XML responses.',
+    benefit: 'Handle Base64 document payloads in-browser — nothing leaves your machine',
+    accent: { bg: 'bg-stone-50 dark:bg-stone-700/40', icon: 'bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300', border: 'border-stone-200 dark:border-stone-600', tag: 'bg-stone-100 dark:bg-stone-700 text-stone-700 dark:text-stone-300' },
+  },
 ];
 
 const securityPoints = [
@@ -277,7 +291,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '14', label: 'Accelerators', sub: '12 AI-powered, 2 AI-free' },
+          { value: '15', label: 'Accelerators', sub: '12 AI-powered, 3 AI-free' },
           { value: '4', label: 'AI Providers', sub: 'Gemini · Claude · OpenAI · Grok' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
           { value: '3', label: 'Storage options', sub: 'None · S3 · Azure Blob' },
@@ -436,7 +450,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Cluster', 'Template Analyser'], detail: 'Rapidly assess and cluster an existing template library to identify duplicates and near-duplicates. Use Template Analyser to extract metadata, regulatory requirements, tone, and sentiment from each document before migration.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Dynamic Fields', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build', 'FetchDoc'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings. Use FetchDoc to retrieve live data payloads or call downstream APIs during build and integration testing.' },
+              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build', 'FetchDoc', 'Base64 Convert'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings. Use FetchDoc to retrieve live data payloads or call downstream APIs during build and integration testing. Use Base64 Convert to encode files into API request payloads or decode Base64 documents returned by an API.' },
               { phase: 'QA & Review', tools: ['Output Validator', 'PDF AI Compare', 'PDF Visual Compare', 'FetchDoc'], detail: 'Close the loop with Output Validator: upload the rendered PDF, input XML/JSON, and test cases CSV to automatically validate every field, conditional rule, and format check — with a colour-coded annotated PDF as evidence. Use Visual Compare for a fast, AI-free structural and pixel diff between iterations; switch to AI Compare when you need to catch intent shifts that wording alone hides. Use FetchDoc to fetch rendered output directly from an API endpoint for immediate validation.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },

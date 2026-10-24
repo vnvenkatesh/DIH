@@ -14,26 +14,26 @@ async function launchBrowser() {
   );
 
   if (isServerless) {
-    console.log('[pdf-render] serverless env detected — using @sparticuz/chromium');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const chromium = require('@sparticuz/chromium');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const puppeteerCore = require('puppeteer-core');
+    console.log('[pdf-render] serverless env — using @sparticuz/chromium');
+    const chromiumMod = await import('@sparticuz/chromium');
+    const chromium = (chromiumMod as any).default ?? chromiumMod;
+    const puppeteerCoreMod = await import('puppeteer-core');
+    const puppeteerCore = (puppeteerCoreMod as any).default ?? puppeteerCoreMod;
 
     const execPath = await chromium.executablePath();
-    console.log('[pdf-render] chromium executablePath:', execPath);
+    console.log('[pdf-render] executablePath:', execPath);
 
     return puppeteerCore.launch({
-      args: [...chromium.args, '--disable-gpu', '--no-zygote'],
-      defaultViewport: chromium.defaultViewport,
+      args: [...(chromium.args ?? []), '--disable-gpu', '--no-zygote'],
+      defaultViewport: chromium.defaultViewport ?? { width: 1280, height: 720 },
       executablePath: execPath,
       headless: true,
     });
   }
 
   console.log('[pdf-render] local env — using puppeteer');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const puppeteer = require('puppeteer');
+  const puppeteerMod = await import('puppeteer');
+  const puppeteer = (puppeteerMod as any).default ?? puppeteerMod;
   return puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],

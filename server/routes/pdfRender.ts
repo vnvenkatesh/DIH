@@ -92,10 +92,19 @@ router.post('/:templateId', requireApiKey, async (req: Request, res: Response) =
     const rules = rRows.map((r: any) => ({
       blockId: r.block_id,
       ruleType: r.rule_type as 'condition' | 'loop',
-      ruleConfig: r.rule_config,
+      // pg returns JSONB as object, but guard against it arriving as a string
+      ruleConfig: typeof r.rule_config === 'string' ? JSON.parse(r.rule_config) : r.rule_config,
     }));
 
-    const filledHtml = renderTemplate(tRows[0].html_content, rules, mergedData);
+    const debugMode = req.query.debug === '1';
+    const rendered = renderTemplate(tRows[0].html_content, rules, mergedData, debugMode);
+
+    // ?debug=1 → return JSON with processing details instead of PDF
+    if (debugMode) {
+      return res.json(rendered);
+    }
+
+    const filledHtml = rendered as string;
 
     // Launch browser and render PDF
     let browser: any;

@@ -17,6 +17,10 @@ interface Rule {
   ruleConfig: RuleConfig;
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function resolvePath(data: Record<string, any>, path: string): any {
   return path.split('.').reduce((obj, key) => {
     if (obj == null) return undefined;
@@ -31,9 +35,9 @@ function evaluateCondition(config: RuleConfig, data: Record<string, any>): boole
   const actual = resolvePath(data, config.field);
   const expected = config.value;
   switch (config.operator) {
-    case 'equals':     return String(actual) === String(expected);
-    case 'not_equals': return String(actual) !== String(expected);
-    case 'contains':   return String(actual).includes(String(expected));
+    case 'equals':     return String(actual ?? '') === String(expected ?? '');
+    case 'not_equals': return String(actual ?? '') !== String(expected ?? '');
+    case 'contains':   return String(actual ?? '').includes(String(expected ?? ''));
     case 'not_empty':  return actual != null && actual !== '';
     case 'is_empty':   return actual == null || actual === '';
     case 'gt':         return Number(actual) > Number(expected);
@@ -42,14 +46,20 @@ function evaluateCondition(config: RuleConfig, data: Record<string, any>): boole
   }
 }
 
-// Find a <div data-block-id="blockId"> using depth counting (handles nested divs correctly)
+/**
+ * Find a <div data-block-id="blockId"> using brace-depth counting.
+ * Handles nested divs correctly regardless of depth.
+ */
 function findBlock(
   html: string,
   blockId: string
 ): { start: number; end: number; inner: string } | null {
-  const openPattern = new RegExp(`<div[^>]*\\bdata-block-id="${blockId}"[^>]*>`, 'i');
+  const openPattern = new RegExp(`<div[^>]*\\bdata-block-id="${escapeRegex(blockId)}"[^>]*>`, 'i');
   const match = openPattern.exec(html);
-  if (!match) return null;
+  if (!match) {
+    console.warn(`[templateEngine] findBlock: no match for blockId="${blockId}"`);
+    return null;
+  }
 
   const openStart = match.index;
   let pos = openStart + match[0].length;
@@ -62,26 +72,31 @@ function findBlock(
 
     if (nextOpen !== -1 && nextOpen < nextClose) {
       depth++;
-      pos = nextOpen + 4; // skip past '<div'
+      pos = nextOpen + 4;
     } else {
       depth--;
       if (depth === 0) {
-        const end = nextClose + 6; // '</div>'.length === 6
+        const end = nextClose + 6;
         return { start: openStart, end, inner: html.slice(openStart + match[0].length, nextClose) };
       }
       pos = nextClose + 6;
     }
   }
+
+  console.warn(`[templateEngine] findBlock: depth never reached 0 for blockId="${blockId}"`);
   return null;
 }
 
-// The WYSIWYG editor prepends a visual header div (contenteditable="false") inside each block.
-// Strip it so it doesn't appear in the rendered PDF.
+/**
+ * The WYSIWYG editor prepends a visual header div (contenteditable="false") inside each block.
+ * Also wraps content in a padding div. Strip both so only real content reaches Puppeteer.
+ */
 function stripBlockHeader(inner: string): string {
+  // Remove the visual header: first inner div with contenteditable="false"
   return inner.replace(/^\s*<div[^>]*\bcontenteditable="false"[^>]*>[\s\S]*?<\/div>\s*/i, '');
 }
 
-// Replace placeholder chip spans with resolved data values (removes amber styling too)
+/** Replace placeholder chip spans with resolved data values (removes chip styling too) */
 function fillPlaceholders(html: string, data: Record<string, any>): string {
   return html.replace(
     /<span[^>]*\bdata-placeholder="([^"]+)"[^>]*>[^<]*<\/span>/gi,
@@ -92,21 +107,34 @@ function fillPlaceholders(html: string, data: Record<string, any>): string {
   );
 }
 
-// Remove blocks where the condition evaluates to false
+/** Remove blocks where the condition evaluates to false */
 function applyConditions(html: string, rules: Rule[], data: Record<string, any>): string {
   for (const rule of rules.filter(r => r.ruleType === 'condition')) {
-    if (!evaluateCondition(rule.ruleConfig, data)) {
+    const show = evaluateCondition(rule.ruleConfig, data);
+    console.log(
+      `[templateEngine] condition blockId="${rule.blockId}" ` +
+      `field="${rule.ruleConfig.field}" op="${rule.ruleConfig.operator}" ` +
+      `expected="${rule.ruleConfig.value}" actual="${resolvePath(data, rule.ruleConfig.field ?? '')}" ` +
+      `→ show=${show}`
+    );
+    if (!show) {
       const block = findBlock(html, rule.blockId);
-      if (block) html = html.slice(0, block.start) + html.slice(block.end);
+      if (block) {
+        console.log(`[templateEngine] removing block "${rule.blockId}" (start=${block.start} end=${block.end})`);
+        html = html.slice(0, block.start) + html.slice(block.end);
+      } else {
+        console.warn(`[templateEngine] block "${rule.blockId}" not found in HTML — cannot hide`);
+      }
     }
   }
   return html;
 }
 
-// Repeat block content for each item in an array field
+/** Repeat block content for each item in an array field */
 function expandLoops(html: string, rules: Rule[], data: Record<string, any>): string {
   for (const rule of rules.filter(r => r.ruleType === 'loop')) {
     const items: any[] = resolvePath(data, rule.ruleConfig.arrayField ?? '') ?? [];
+    console.log(`[templateEngine] loop blockId="${rule.blockId}" items=${items.length}`);
     const block = findBlock(html, rule.blockId);
     if (!block) continue;
     const innerContent = stripBlockHeader(block.inner);
@@ -118,13 +146,13 @@ function expandLoops(html: string, rules: Rule[], data: Record<string, any>): st
   return html;
 }
 
-// Unwrap all remaining data-block-id divs: strip wrapper + visual header, keep content
+/** Unwrap all remaining data-block-id divs: strip wrapper + visual header, keep content */
 function unwrapBlocks(html: string): string {
   while (/\bdata-block-id="/.test(html)) {
     const match = /<div[^>]*\bdata-block-id="([^"]*)"[^>]*>/.exec(html);
     if (!match) break;
     const block = findBlock(html, match[1]);
-    if (!block) break; // safety guard — avoid infinite loop on malformed HTML
+    if (!block) break; // safety — avoid infinite loop on malformed HTML
     html = html.slice(0, block.start) + stripBlockHeader(block.inner) + html.slice(block.end);
   }
   return html;
@@ -144,15 +172,21 @@ const BASE_STYLES = `
 export function renderTemplate(
   htmlContent: string,
   rules: Rule[],
-  data: Record<string, any>
-): string {
-  let html = htmlContent;
-  html = expandLoops(html, rules, data);     // expand loops first (they may contain conditions)
-  html = applyConditions(html, rules, data); // remove hidden blocks
-  html = fillPlaceholders(html, data);       // substitute remaining placeholders
-  html = unwrapBlocks(html);                 // strip block wrappers + visual editor headers
+  data: Record<string, any>,
+  debug = false
+): string | { html: string; steps: Record<string, any> } {
+  // Log what blocks exist in the HTML vs what rules reference
+  const htmlBlockIds = [...htmlContent.matchAll(/\bdata-block-id="([^"]+)"/g)].map(m => m[1]);
+  const ruleBlockIds = rules.map(r => r.blockId);
+  console.log(`[templateEngine] htmlBlockIds=${JSON.stringify(htmlBlockIds)} ruleBlockIds=${JSON.stringify(ruleBlockIds)}`);
 
-  return `<!DOCTYPE html>
+  let html = htmlContent;
+  html = expandLoops(html, rules, data);
+  html = applyConditions(html, rules, data);
+  html = fillPlaceholders(html, data);
+  html = unwrapBlocks(html);
+
+  const finalHtml = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -160,4 +194,18 @@ export function renderTemplate(
 </head>
 <body>${html}</body>
 </html>`;
+
+  if (debug) {
+    return {
+      html: finalHtml,
+      steps: {
+        htmlBlockIds,
+        ruleBlockIds,
+        rules,
+        data,
+      },
+    };
+  }
+
+  return finalHtml;
 }

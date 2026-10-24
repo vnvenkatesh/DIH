@@ -5,6 +5,7 @@ interface Props {
   fields: PdfTemplateField[];
   rules: PdfTemplateRule[];
   onChange: (rules: PdfTemplateRule[]) => void;
+  blockIds?: string[];
 }
 
 type Operator = 'equals' | 'not_equals' | 'contains' | 'not_empty' | 'is_empty' | 'gt' | 'lt';
@@ -21,7 +22,7 @@ const OPERATORS: { value: Operator; label: string }[] = [
 
 const VALUE_LESS = new Set<Operator>(['not_empty', 'is_empty']);
 
-export default function RuleEditor({ fields, rules, onChange }: Props) {
+export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: Props) {
   const [form, setForm] = useState<Partial<PdfTemplateRule>>({
     rule_type: 'condition',
     rule_config: {},
@@ -109,12 +110,30 @@ export default function RuleEditor({ fields, rules, onChange }: Props) {
 
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-slate-700 dark:text-slate-300 w-24">Block ID</label>
-            <input
-              value={form.block_id ?? ''}
-              onChange={e => setForm(f => ({ ...f, block_id: e.target.value }))}
-              placeholder="data-block-id value"
-              className="flex-1 text-sm px-2 py-1 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-mono"
-            />
+            {blockIds.length > 0 ? (
+              <select
+                value={form.block_id ?? ''}
+                onChange={e => setForm(f => ({ ...f, block_id: e.target.value }))}
+                className="flex-1 text-sm px-2 py-1 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-mono"
+              >
+                <option value="">— select block —</option>
+                {blockIds.map(id => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="flex-1 space-y-1">
+                <input
+                  value={form.block_id ?? ''}
+                  onChange={e => setForm(f => ({ ...f, block_id: e.target.value }))}
+                  placeholder="data-block-id value"
+                  className="w-full text-sm px-2 py-1 rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white font-mono"
+                />
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Go to Edit tab → select text → "Tag as Block" to create blocks here.
+                </p>
+              </div>
+            )}
           </div>
 
           {form.rule_type === 'condition' && (

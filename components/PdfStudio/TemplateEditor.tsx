@@ -24,6 +24,48 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
   const [fields, setFields] = useState<PdfTemplateField[]>([]);
   const [rules, setRules] = useState<PdfTemplateRule[]>([]);
   const [step, setStep] = useState<Step>(template ? 'edit' : 'upload');
+
+  // Derive block IDs and placeholder names from HTML so Rules and Schema stay in sync
+  function extractBlockIds(html: string): string[] {
+    const ids: string[] = [];
+    const re = /data-block-id="([^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) ids.push(m[1]);
+    return [...new Set(ids)];
+  }
+
+  function extractPlaceholderNames(html: string): string[] {
+    const names: string[] = [];
+    const re = /data-placeholder="([^"]+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) names.push(m[1]);
+    return [...new Set(names)];
+  }
+
+  const blockIds = extractBlockIds(htmlContent);
+
+  // When htmlContent changes, auto-add new placeholder chips to the fields list
+  useEffect(() => {
+    const detected = extractPlaceholderNames(htmlContent);
+    if (detected.length === 0) return;
+    setFields(prev => {
+      const existing = new Set(prev.map(f => f.field_name));
+      const toAdd = detected.filter(n => !existing.has(n));
+      if (toAdd.length === 0) return prev;
+      const newFields: PdfTemplateField[] = toAdd.map((n, i) => ({
+        id: 0,
+        template_id: 0,
+        field_name: n,
+        field_type: 'string' as const,
+        is_required: true,
+        default_value: '',
+        description: '',
+        parent_field: null,
+        sort_order: prev.length + i,
+      }));
+      return [...prev, ...newFields];
+    });
+  }, [htmlContent]); // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -244,7 +286,7 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
           <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">
             Add conditional or loop rules. Mark HTML blocks with <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded text-xs">data-block-id="..."</code> to reference them here.
           </p>
-          <RuleEditor fields={fields} rules={rules} onChange={setRules} />
+          <RuleEditor fields={fields} rules={rules} onChange={setRules} blockIds={blockIds} />
         </div>
       )}
 
@@ -452,7 +494,11 @@ function HtmlEditor({ html, onChange }: { html: string; onChange: (h: string) =>
       sel?.addRange(after);
     } catch { /* cross-boundary — ignore */ }
 
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    if (editorRef.current) {
+      const newHtml = editorRef.current.innerHTML;
+      lastHtmlRef.current = newHtml; // prevent useEffect from re-injecting
+      onChange(newHtml);
+    }
     setDialog(null);
     setHasSelection(false);
     editorRef.current?.focus();
@@ -469,26 +515,41 @@ function HtmlEditor({ html, onChange }: { html: string; onChange: (h: string) =>
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-block-id', blockId);
     wrapper.setAttribute('style',
-      'border:2px dashed #6366f1;border-radius:6px;padding:8px 12px;margin:8px 0;position:relative'
+      'border:2px dashed #6366f1;border-radius:6px;margin:8px 0;overflow:hidden'
     );
-    // label badge
-    const badge = document.createElement('span');
-    badge.setAttribute('contenteditable', 'false');
-    badge.setAttribute('style',
-      'position:absolute;top:-10px;left:8px;background:#6366f1;color:white;' +
-      'font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;' +
-      'font-family:monospace;letter-spacing:0.02em;user-select:none'
-    );
-    badge.textContent = `block:${blockId}`;
-    wrapper.appendChild(badge);
 
+    // Inline header bar — no absolute positioning needed
+    const header = document.createElement('div');
+    header.setAttribute('contenteditable', 'false');
+    header.setAttribute('style',
+      'display:flex;align-items:center;gap:6px;background:#6366f1;' +
+      'color:white;font-size:10px;font-weight:600;padding:3px 10px;' +
+      'font-family:monospace;letter-spacing:0.04em;user-select:none'
+    );
+    header.innerHTML =
+      '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+      '<rect x="3" y="3" width="18" height="18" rx="2"/></svg>' +
+      ` block: ${blockId}`;
+    wrapper.appendChild(header);
+
+    // Content area
+    const content = document.createElement('div');
+    content.setAttribute('style', 'padding:8px 12px');
     try {
       const fragment = savedRange.current.extractContents();
-      wrapper.appendChild(fragment);
+      content.appendChild(fragment);
+    } catch { /* ignore */ }
+    wrapper.appendChild(content);
+
+    try {
       savedRange.current.insertNode(wrapper);
     } catch { /* ignore */ }
 
-    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    if (editorRef.current) {
+      const newHtml = editorRef.current.innerHTML;
+      lastHtmlRef.current = newHtml; // prevent useEffect from re-injecting
+      onChange(newHtml);
+    }
     setDialog(null);
     setHasSelection(false);
     editorRef.current?.focus();

@@ -647,7 +647,7 @@ function HtmlEditor({ html, onChange }: { html: string; onChange: (h: string) =>
       {/* Help strip */}
       {mode === 'edit' && (
         <div className="px-4 py-1.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 flex items-center gap-4 text-xs text-slate-400 dark:text-slate-500">
-          <span><span className="font-mono text-amber-600 dark:text-amber-400">{{field}}</span> — dynamic placeholder chip</span>
+          <span><span className="font-mono text-amber-600 dark:text-amber-400">{'{{field}}'}</span> — dynamic placeholder chip</span>
           <span><span className="font-mono text-indigo-500">block:id</span> — conditional / loop region</span>
           <span className="ml-auto">Click a chip to select · Switch to HTML Source for raw editing</span>
         </div>

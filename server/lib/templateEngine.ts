@@ -34,7 +34,8 @@ function evaluateCondition(config: RuleConfig, data: Record<string, any>): boole
   if (!config.field) return true;
   const actual = resolvePath(data, config.field);
   const expected = config.value;
-  switch (config.operator) {
+  const operator = config.operator ?? 'equals'; // RuleEditor default is 'equals'; guard missing saves
+  switch (operator) {
     case 'equals':     return String(actual ?? '') === String(expected ?? '');
     case 'not_equals': return String(actual ?? '') !== String(expected ?? '');
     case 'contains':   return String(actual ?? '').includes(String(expected ?? ''));

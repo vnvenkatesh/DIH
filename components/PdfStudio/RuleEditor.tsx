@@ -35,12 +35,15 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
 
   function saveNew() {
     if (!form.block_id) return;
+    const config = form.rule_config ?? {};
     const rule: PdfTemplateRule = {
       id: 0,
       template_id: 0,
       block_id: form.block_id,
       rule_type: form.rule_type as 'condition' | 'loop',
-      rule_config: form.rule_config ?? {},
+      rule_config: form.rule_type === 'condition'
+        ? { ...config, operator: config.operator ?? 'equals' }
+        : config,
     };
     onChange([...rules, rule]);
     setForm({ rule_type: 'condition', rule_config: {} });

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PdfTemplate, PdfTemplateField, PdfTemplateRule } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import SchemaEditor from './SchemaEditor';
@@ -335,61 +335,323 @@ function UploadStep({
   );
 }
 
-// ── Simple HTML Editor ────────────────────────────────────────────────────────
+// ── WYSIWYG Editor ────────────────────────────────────────────────────────────
 function HtmlEditor({ html, onChange }: { html: string; onChange: (h: string) => void }) {
-  const [activeTab, setActiveTab] = useState<'preview' | 'source'>('preview');
+  const [mode, setMode] = useState<'edit' | 'source'>('edit');
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const savedRange = useRef<Range | null>(null);
+  const [dialog, setDialog] = useState<null | 'dynamic' | 'block'>(null);
+  const [inputVal, setInputVal] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suppressInput = useRef(false); // prevent feedback loop when we set innerHTML
+
+  // Set editor content when html prop changes externally or mode switches to edit
+  useEffect(() => {
+    if (mode === 'edit' && editorRef.current) {
+      suppressInput.current = true;
+      editorRef.current.innerHTML = html;
+      suppressInput.current = false;
+    }
+  }, [mode]);
+
+  // Also populate on first mount
+  useEffect(() => {
+    if (editorRef.current && html) {
+      suppressInput.current = true;
+      editorRef.current.innerHTML = html;
+      suppressInput.current = false;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If html changes externally (e.g. template loaded from server) while in edit mode, sync it in
+  const lastHtmlRef = useRef(html);
+  useEffect(() => {
+    if (html !== lastHtmlRef.current && mode === 'edit' && editorRef.current) {
+      lastHtmlRef.current = html;
+      suppressInput.current = true;
+      editorRef.current.innerHTML = html;
+      suppressInput.current = false;
+    }
+    lastHtmlRef.current = html;
+  }, [html, mode]);
+
+  // Track text selection
+  useEffect(() => {
+    function onSelChange() {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && editorRef.current?.contains(sel.anchorNode)) {
+        savedRange.current = sel.getRangeAt(0).cloneRange();
+        setHasSelection(true);
+      } else if (!dialog) {
+        setHasSelection(false);
+      }
+    }
+    document.addEventListener('selectionchange', onSelChange);
+    return () => document.removeEventListener('selectionchange', onSelChange);
+  }, [dialog]);
+
+  function handleInput() {
+    if (suppressInput.current) return;
+    if (editorRef.current) {
+      lastHtmlRef.current = editorRef.current.innerHTML;
+      onChange(editorRef.current.innerHTML);
+    }
+  }
+
+  // Switch to source: read current DOM
+  function switchToSource() {
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    setMode('source');
+  }
+
+  // Switch to edit: apply source changes to DOM
+  function switchToEdit() {
+    setMode('edit');
+    // useEffect will sync html → innerHTML
+  }
+
+  function openDialog(type: 'dynamic' | 'block') {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && editorRef.current?.contains(sel.anchorNode)) {
+      savedRange.current = sel.getRangeAt(0).cloneRange();
+    }
+    setInputVal('');
+    setDialog(type);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  function applyDynamic() {
+    const fieldName = inputVal.trim();
+    if (!fieldName || !savedRange.current) { setDialog(null); return; }
+
+    // Restore selection then wrap
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(savedRange.current);
+
+    const chip = document.createElement('span');
+    chip.setAttribute('data-placeholder', fieldName);
+    chip.setAttribute('class', 'pdf-placeholder');
+    chip.setAttribute('contenteditable', 'false');
+    chip.setAttribute('style',
+      'display:inline-block;padding:1px 8px;border-radius:4px;' +
+      'background:#fef3c7;border:1px solid #f59e0b;color:#92400e;' +
+      'font-size:12px;font-weight:600;font-family:monospace;cursor:default;user-select:none;margin:0 2px'
+    );
+    chip.textContent = `{{${fieldName}}}`;
+
+    try {
+      savedRange.current.deleteContents();
+      savedRange.current.insertNode(chip);
+      // Move caret after chip
+      const after = document.createRange();
+      after.setStartAfter(chip);
+      after.collapse(true);
+      sel?.removeAllRanges();
+      sel?.addRange(after);
+    } catch { /* cross-boundary — ignore */ }
+
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    setDialog(null);
+    setHasSelection(false);
+    editorRef.current?.focus();
+  }
+
+  function applyBlock() {
+    const blockId = inputVal.trim().replace(/\s+/g, '-').toLowerCase();
+    if (!blockId || !savedRange.current) { setDialog(null); return; }
+
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(savedRange.current);
+
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-block-id', blockId);
+    wrapper.setAttribute('style',
+      'border:2px dashed #6366f1;border-radius:6px;padding:8px 12px;margin:8px 0;position:relative'
+    );
+    // label badge
+    const badge = document.createElement('span');
+    badge.setAttribute('contenteditable', 'false');
+    badge.setAttribute('style',
+      'position:absolute;top:-10px;left:8px;background:#6366f1;color:white;' +
+      'font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;' +
+      'font-family:monospace;letter-spacing:0.02em;user-select:none'
+    );
+    badge.textContent = `block:${blockId}`;
+    wrapper.appendChild(badge);
+
+    try {
+      const fragment = savedRange.current.extractContents();
+      wrapper.appendChild(fragment);
+      savedRange.current.insertNode(wrapper);
+    } catch { /* ignore */ }
+
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+    setDialog(null);
+    setHasSelection(false);
+    editorRef.current?.focus();
+  }
+
+  function removeChipOrBlock(e: React.MouseEvent) {
+    const target = e.target as HTMLElement;
+    // Click on a chip's × button
+    if (target.dataset.removeChip) {
+      const chip = target.closest('[data-placeholder]') as HTMLElement;
+      chip?.parentNode?.removeChild(chip);
+      if (editorRef.current) onChange(editorRef.current.innerHTML);
+      return;
+    }
+    // Double-click on a block badge removes the block wrapper (keeps inner content)
+    if (target.dataset.removeBadge) {
+      const block = target.closest('[data-block-id]') as HTMLElement;
+      if (block) {
+        const frag = document.createDocumentFragment();
+        Array.from(block.childNodes).forEach(n => { if (n !== target) frag.appendChild(n.cloneNode(true)); });
+        block.parentNode?.replaceChild(frag, block);
+        if (editorRef.current) onChange(editorRef.current.innerHTML);
+      }
+    }
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-      <div className="flex items-center border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 py-2 gap-2">
-        <button
-          onClick={() => setActiveTab('preview')}
-          className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
-            activeTab === 'preview'
-              ? 'bg-white dark:bg-slate-700 text-slate-700 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'
-          }`}
-        >
-          Preview
-        </button>
-        <button
-          onClick={() => setActiveTab('source')}
-          className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
-            activeTab === 'source'
-              ? 'bg-white dark:bg-slate-700 text-slate-700 dark:text-white shadow-sm'
-              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'
-          }`}
-        >
-          HTML Source
-        </button>
-        <div className="flex-1" />
-        <span className="text-xs text-slate-400 dark:text-slate-500">
-          Placeholders show as <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded text-amber-600 dark:text-amber-400">{'{{field}}'}</code> chips
-        </span>
+      {/* ── Toolbar ── */}
+      <div className="flex items-center flex-wrap gap-2 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-3 py-2">
+        {/* Mode tabs */}
+        <div className="flex items-center gap-1 bg-slate-200 dark:bg-slate-700 rounded-md p-0.5">
+          <button
+            onClick={switchToEdit}
+            className={`text-xs font-medium px-2.5 py-1 rounded transition-colors ${
+              mode === 'edit' ? 'bg-white dark:bg-slate-600 text-slate-700 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            Edit
+          </button>
+          <button
+            onClick={switchToSource}
+            className={`text-xs font-medium px-2.5 py-1 rounded transition-colors ${
+              mode === 'source' ? 'bg-white dark:bg-slate-600 text-slate-700 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
+            }`}
+          >
+            HTML Source
+          </button>
+        </div>
+
+        {mode === 'edit' && (
+          <>
+            <div className="h-4 w-px bg-slate-300 dark:bg-slate-600" />
+
+            {/* Make Dynamic */}
+            <button
+              onClick={() => openDialog('dynamic')}
+              disabled={!hasSelection}
+              title={hasSelection ? 'Wrap selection as a dynamic placeholder' : 'Select text first'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                hasSelection
+                  ? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-600 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
+                  : 'border-slate-200 dark:border-slate-600 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+              </svg>
+              Make Dynamic
+            </button>
+
+            {/* Tag as Block */}
+            <button
+              onClick={() => openDialog('block')}
+              disabled={!hasSelection}
+              title={hasSelection ? 'Tag selection as a conditional/loop block' : 'Select text first'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                hasSelection
+                  ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100'
+                  : 'border-slate-200 dark:border-slate-600 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h8m-8 6h16" />
+              </svg>
+              Tag as Block
+            </button>
+
+            <div className="flex-1" />
+            <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:block">
+              Select text, then use the buttons above
+            </span>
+          </>
+        )}
       </div>
 
-      {activeTab === 'preview' ? (
+      {/* ── Inline dialogs ── */}
+      {dialog && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+          {dialog === 'dynamic' ? (
+            <>
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-300 whitespace-nowrap">Field name:</span>
+              <input
+                ref={inputRef}
+                value={inputVal}
+                onChange={e => setInputVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') applyDynamic(); if (e.key === 'Escape') setDialog(null); }}
+                placeholder="e.g. customerName"
+                className="flex-1 text-sm px-2 py-1 rounded border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 text-slate-800 dark:text-white font-mono min-w-0"
+              />
+              <button onClick={applyDynamic} className="px-3 py-1 bg-amber-500 text-white rounded text-xs font-medium hover:bg-amber-600 whitespace-nowrap">Add Chip</button>
+              <button onClick={() => setDialog(null)} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+            </>
+          ) : (
+            <>
+              <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300 whitespace-nowrap">Block ID:</span>
+              <input
+                ref={inputRef}
+                value={inputVal}
+                onChange={e => setInputVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') applyBlock(); if (e.key === 'Escape') setDialog(null); }}
+                placeholder="e.g. premium-section"
+                className="flex-1 text-sm px-2 py-1 rounded border border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 text-slate-800 dark:text-white font-mono min-w-0"
+              />
+              <button onClick={applyBlock} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 whitespace-nowrap">Tag Block</button>
+              <button onClick={() => setDialog(null)} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Editor / Source ── */}
+      {mode === 'edit' ? (
         <div
-          className="p-6 min-h-[400px] bg-white dark:bg-slate-900 prose dark:prose-invert max-w-none overflow-auto"
-          style={{ fontFamily: 'Arial, sans-serif', fontSize: '14px', lineHeight: '1.6' }}
-          dangerouslySetInnerHTML={{ __html: styledHtml(html) }}
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={handleInput}
+          onClick={removeChipOrBlock}
+          className="p-6 min-h-[420px] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 outline-none overflow-auto"
+          style={{
+            fontFamily: 'Arial, sans-serif',
+            fontSize: '14px',
+            lineHeight: '1.7',
+          }}
         />
       ) : (
         <textarea
           value={html}
           onChange={e => onChange(e.target.value)}
-          className="w-full h-[400px] p-4 font-mono text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 resize-none outline-none"
+          className="w-full h-[420px] p-4 font-mono text-xs bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 resize-none outline-none"
           spellCheck={false}
         />
       )}
-    </div>
-  );
-}
 
-function styledHtml(html: string) {
-  // Inject inline styles for placeholder chips in the preview
-  return html.replace(
-    /(<span\s+data-placeholder="[^"]+"\s*[^>]*>)(.*?)(<\/span>)/g,
-    '<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#fef3c7;border:1px solid #f59e0b;color:#92400e;font-size:12px;font-weight:600;font-family:monospace">$2</span>'
+      {/* Help strip */}
+      {mode === 'edit' && (
+        <div className="px-4 py-1.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 flex items-center gap-4 text-xs text-slate-400 dark:text-slate-500">
+          <span><span className="font-mono text-amber-600 dark:text-amber-400">{{field}}</span> — dynamic placeholder chip</span>
+          <span><span className="font-mono text-indigo-500">block:id</span> — conditional / loop region</span>
+          <span className="ml-auto">Click a chip to select · Switch to HTML Source for raw editing</span>
+        </div>
+      )}
+    </div>
   );
 }

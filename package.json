@@ -16,6 +16,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1145.0",
     "@azure/storage-blob": "^12.34.0",
     "@google/genai": "^1.29.1",
+    "@sparticuz/chromium": "^153.0.0",
     "@tiptap/extension-color": "^3.32.0",
     "@tiptap/extension-highlight": "^3.32.0",
     "@tiptap/extension-placeholder": "^3.32.0",
@@ -36,6 +37,7 @@
     "pdfjs-dist": "5.4.624",
     "pg": "^8.21.0",
     "puppeteer": "^25.16.0",
+    "puppeteer-core": "^25.16.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "sharp": "^0.35.3"
@@ -56,6 +58,8 @@
     "vite": "^6.2.0"
   },
   "allowScripts": {
-    "puppeteer@25.16.0": true
+    "puppeteer@25.16.0": true,
+    "@sparticuz/chromium@153.0.0": true,
+    "puppeteer-core@25.16.0": true
   }
 }

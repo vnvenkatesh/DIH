@@ -306,3 +306,50 @@ export interface TemplateAnalysisResult {
   keyFindings: string[];
   criticalIssues: string[];
 }
+
+// ── PDF Studio ─────────────────────────────────────────────────────────────
+
+export interface PdfTemplate {
+  id: number;
+  name: string;
+  description: string;
+  html_content: string;
+  original_format: 'docx' | 'html' | 'doc';
+  created_by: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PdfTemplateField {
+  id: number;
+  template_id: number;
+  field_name: string;
+  field_type: 'string' | 'number' | 'date' | 'boolean' | 'array' | 'object';
+  is_required: boolean;
+  default_value: string;
+  description: string;
+  parent_field: string | null;
+  sort_order: number;
+}
+
+export interface PdfTemplateRule {
+  id: number;
+  template_id: number;
+  block_id: string;
+  rule_type: 'condition' | 'loop';
+  rule_config: {
+    field?: string;
+    operator?: 'equals' | 'not_equals' | 'contains' | 'not_empty' | 'is_empty' | 'gt' | 'lt';
+    value?: string | number | boolean;
+    arrayField?: string;
+  };
+}
+
+export interface PdfApiKey {
+  id: number;
+  name: string;
+  key_prefix: string;
+  last_used_at: string | null;
+  created_at: string;
+  raw_key?: string;
+}

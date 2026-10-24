@@ -214,6 +214,60 @@ export async function initDb(): Promise<void> {
     )
   `);
 
+  // ── PDF Studio ─────────────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_templates (
+      id              SERIAL PRIMARY KEY,
+      name            VARCHAR(200) NOT NULL,
+      description     TEXT         DEFAULT '',
+      html_content    TEXT         NOT NULL,
+      original_format VARCHAR(10)  DEFAULT 'docx',
+      created_by      INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at      TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at      TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_template_fields (
+      id            SERIAL PRIMARY KEY,
+      template_id   INTEGER      NOT NULL REFERENCES pdf_templates(id) ON DELETE CASCADE,
+      field_name    VARCHAR(200) NOT NULL,
+      field_type    VARCHAR(50)  NOT NULL DEFAULT 'string',
+      is_required   BOOLEAN      DEFAULT FALSE,
+      default_value TEXT         DEFAULT '',
+      description   TEXT         DEFAULT '',
+      parent_field  VARCHAR(200) DEFAULT NULL,
+      sort_order    INTEGER      DEFAULT 0
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_template_fields_template ON pdf_template_fields(template_id)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_template_rules (
+      id          SERIAL PRIMARY KEY,
+      template_id INTEGER      NOT NULL REFERENCES pdf_templates(id) ON DELETE CASCADE,
+      block_id    VARCHAR(100) NOT NULL,
+      rule_type   VARCHAR(20)  NOT NULL,
+      rule_config JSONB        NOT NULL DEFAULT '{}',
+      created_at  TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_template_rules_template ON pdf_template_rules(template_id)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_api_keys (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name         VARCHAR(100) NOT NULL,
+      key_hash     VARCHAR(255) NOT NULL,
+      key_prefix   VARCHAR(12)  NOT NULL,
+      last_used_at TIMESTAMPTZ  DEFAULT NULL,
+      created_at   TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_api_keys_user ON pdf_api_keys(user_id)`);
+
   console.log('[db] initDb: schema ready');
 
   // ── Ensure AdminCo company exists ─────────────────────────────────────────

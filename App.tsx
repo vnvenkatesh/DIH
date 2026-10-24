@@ -33,6 +33,7 @@ import Flow from './components/Flow';
 import FetchDoc from './components/FetchDoc';
 import Projects from './components/Projects';
 import ProjectWorkspace from './components/ProjectWorkspace';
+import PdfStudio from './components/PdfStudio';
 import LLMWarning from './components/LLMWarning';
 import UserMenu from './components/UserMenu';
 import AiInUseIndicator from './components/AiInUseIndicator';
@@ -41,7 +42,7 @@ import { useAuth } from './contexts/AuthContext';
 import { useSettings } from './contexts/SettingsContext';
 import type { Theme, LLMProvider } from './contexts/SettingsContext';
 
-type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'base64Convert' | 'settings' | 'help';
+type Tool = 'home' | 'projects' | 'projectWorkspace' | 'flow' | 'fetchDoc' | 'syntheticDataGenerator' | 'xpathExtractor' | 'dataMappingGenerator' | 'pdfCompare' | 'pdfVisualCompare' | 'cluster' | 'layoutRecommendation' | 'apiDocs' | 'accessibilityScorer' | 'templateAnalyser' | 'businessRulesExtractor' | 'testCaseGenerator' | 'ghostDraftGenerator' | 'pdfValidator' | 'base64Convert' | 'pdfStudio' | 'settings' | 'help';
 
 interface NavItem {
   tool: Tool;
@@ -80,7 +81,7 @@ const ACCELERATOR_TOOLS: Tool[] = [
 ];
 
 // Tools that should NOT show the LLM warning banner
-const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs', 'base64Convert'];
+const NO_LLM_TOOLS: Tool[] = ['home', 'projects', 'projectWorkspace', 'settings', 'help', 'apiDocs', 'base64Convert', 'pdfStudio'];
 
 const App: React.FC = () => {
   const { user, logout, isLoading } = useAuth();
@@ -272,6 +273,16 @@ const App: React.FC = () => {
         </svg>
       ),
     },
+    {
+      tool: 'pdfStudio' as Tool,
+      label: 'PDF Studio',
+      description: 'Dynamic PDF generation from templates',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+        </svg>
+      ),
+    },
   ];
 
   const activeItem: NavItem | null = (() => {
@@ -300,6 +311,10 @@ const App: React.FC = () => {
 
   if (!user && showLogin) {
     return <Login onBack={() => { setShowLogin(false); setPendingTool(null); }} />;
+  }
+
+  if (user && activeTool === 'pdfStudio') {
+    return <PdfStudio onBack={() => setActiveTool('home')} />;
   }
 
   return (

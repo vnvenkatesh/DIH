@@ -17,6 +17,8 @@ import pdfValidatorRouter from './routes/pdfValidator.js';
 import fetchDocRouter from './routes/fetchDoc.js';
 import companiesRouter from './routes/companies.js';
 import projectsRouter from './routes/projects.js';
+import pdfStudioRouter from './routes/pdfStudio.js';
+import pdfRenderRouter from './routes/pdfRender.js';
 
 const app = express();
 
@@ -39,6 +41,8 @@ app.use('/v1/pdf-validator', pdfValidatorRouter);
 app.use('/v1/fetch-doc', fetchDocRouter);
 app.use('/v1/companies', companiesRouter);
 app.use('/v1/projects', projectsRouter);
+app.use('/v1/pdf-studio/templates', pdfStudioRouter);
+app.use('/v1/pdf-render', pdfRenderRouter);
 
 app.get('/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -302,8 +302,6 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
         </div>
       )}
 
-      {/* Navigation between steps */}
-      {step !== 'upload' && (
       {showFetchDoc && template && (
         <FetchDocModal
           template={template}
@@ -313,6 +311,8 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
         />
       )}
 
+      {/* Navigation between steps */}
+      {step !== 'upload' && (
         <div className="flex justify-between mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
           <button
             onClick={() => {

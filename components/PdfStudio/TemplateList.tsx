@@ -129,10 +129,10 @@ export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
           {/* Header row */}
           <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-2.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Name</span>
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-20 text-center">Format</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide text-right">Name</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-20 text-right">Format</span>
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-28 text-right">Updated</span>
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-48 text-right">Actions</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-56 text-right">Actions</span>
           </div>
 
           {templates.map((t, i) => (
@@ -158,7 +158,7 @@ export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
               </div>
 
               {/* Format badge */}
-              <span className="w-20 text-center px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+              <span className="w-20 text-right px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                 {t.original_format}
               </span>
 
@@ -168,25 +168,25 @@ export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
               </span>
 
               {/* Action buttons */}
-              <div className="w-48 flex items-center justify-end gap-2">
+              <div className="w-56 flex items-center justify-end gap-2">
                 <button
                   onClick={() => onEdit(t)}
-                  className="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                  className="whitespace-nowrap px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
                 >
                   Edit
                 </button>
                 {onOpenFetchDoc && (
                   <button
                     onClick={() => void handleFetchDoc(t)}
-                    className="px-3 py-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
+                    className="whitespace-nowrap px-3 py-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
                     title="Open in Fetch Doc"
                   >
-                    Fetch Doc
+                    FetchDoc
                   </button>
                 )}
                 <button
                   onClick={() => handleDelete(t.id, t.name)}
-                  className="px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                  className="whitespace-nowrap px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
                 >
                   Delete
                 </button>

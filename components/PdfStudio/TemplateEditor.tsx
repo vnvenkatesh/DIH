@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { PdfTemplate, PdfTemplateField, PdfTemplateRule } from '../../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { PdfTemplate, PdfTemplateField, PdfTemplateRule, PdfApiKey } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import SchemaEditor from './SchemaEditor';
 import RuleEditor from './RuleEditor';
@@ -24,6 +24,7 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
   const [fields, setFields] = useState<PdfTemplateField[]>([]);
   const [rules, setRules] = useState<PdfTemplateRule[]>([]);
   const [step, setStep] = useState<Step>(template ? 'edit' : 'upload');
+  const [showFetchDoc, setShowFetchDoc] = useState(false);
 
   // Derive block IDs and placeholder names from HTML so Rules and Schema stay in sync
   function extractBlockIds(html: string): string[] {
@@ -189,6 +190,17 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {template && (
+            <button
+              onClick={() => setShowFetchDoc(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Fetch Doc
+            </button>
+          )}
           <button
             onClick={onCancel}
             className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
@@ -292,6 +304,15 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
 
       {/* Navigation between steps */}
       {step !== 'upload' && (
+      {showFetchDoc && template && (
+        <FetchDocModal
+          template={template}
+          fields={fields}
+          token={token!}
+          onClose={() => setShowFetchDoc(false)}
+        />
+      )}
+
         <div className="flex justify-between mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
           <button
             onClick={() => {
@@ -714,5 +735,175 @@ function HtmlEditor({ html, onChange }: { html: string; onChange: (h: string) =>
         </div>
       )}
     </div>
+  );
+}
+
+// ── Fetch Doc Modal ────────────────────────────────────────────────────────────
+function FetchDocModal({
+  template,
+  fields,
+  token,
+  onClose,
+}: {
+  template: PdfTemplate;
+  fields: PdfTemplateField[];
+  token: string;
+  onClose: () => void;
+}) {
+  const [apiKeys, setApiKeys] = useState<PdfApiKey[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/v1/pdf-studio/api-keys', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setApiKeys(d.keys ?? []))
+      .catch(() => {});
+  }, [token]);
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const endpoint = `${baseUrl}/v1/pdf-render/${encodeURIComponent(template.name)}`;
+
+  const firstKey = apiKeys[0];
+  const bearerHint = firstKey ? `${firstKey.key_prefix}...` : '<YOUR_API_KEY>';
+  const keyName    = firstKey ? ` (${firstKey.name})` : '';
+
+  const payloadObj: Record<string, string> = {};
+  fields.forEach(f => { payloadObj[f.field_name] = f.default_value || ''; });
+  const payloadJson = JSON.stringify({ data: payloadObj }, null, 2);
+
+  const curlCmd =
+    `curl -X POST "${endpoint}" \\\n` +
+    `  -H "Authorization: Bearer ${bearerHint}" \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -d '${JSON.stringify({ data: payloadObj })}' \\\n` +
+    `  --output document.pdf`;
+
+  function copy(text: string, id: string) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <h3 className="font-semibold text-slate-800 dark:text-white">Fetch Document</h3>
+            <span className="text-sm text-slate-400 dark:text-slate-500">— {template.name}</span>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+          {/* Endpoint */}
+          <Section label="Endpoint">
+            <CodeRow value={`POST  ${endpoint}`} onCopy={() => copy(endpoint, 'url')} copied={copied === 'url'} />
+          </Section>
+
+          {/* Auth */}
+          <Section label="Authorization">
+            {apiKeys.length === 0 ? (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                No API keys found. Create one in the <strong>API Keys</strong> tab first.
+              </p>
+            ) : (
+              <>
+                <CodeRow
+                  value={`Bearer ${bearerHint}${keyName}`}
+                  onCopy={() => copy(`Bearer ${bearerHint}`, 'auth')}
+                  copied={copied === 'auth'}
+                />
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+                  Only the key prefix is shown here. Use the full key that was displayed when you created it.
+                </p>
+              </>
+            )}
+          </Section>
+
+          {/* Payload */}
+          <Section label="Payload">
+            {fields.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">
+                No schema fields defined — add them in the Schema tab.
+              </p>
+            ) : null}
+            <div className="relative">
+              <pre className="text-xs font-mono bg-slate-50 dark:bg-slate-800 rounded-lg p-3 border border-slate-200 dark:border-slate-700 overflow-x-auto text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{payloadJson}</pre>
+              <CopyBtn onCopy={() => copy(payloadJson, 'payload')} copied={copied === 'payload'} />
+            </div>
+          </Section>
+
+          {/* curl */}
+          <Section label="curl Command">
+            <div className="relative">
+              <pre className="text-xs font-mono bg-slate-900 dark:bg-black rounded-lg p-3 overflow-x-auto text-green-400 whitespace-pre-wrap">{curlCmd}</pre>
+              <CopyBtn onCopy={() => copy(curlCmd, 'curl')} copied={copied === 'curl'} dark />
+            </div>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+              On Windows PowerShell add <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">--ssl-no-revoke</code> and replace <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">'…'</code> with <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">"…"</code> with escaped inner quotes.
+            </p>
+          </Section>
+        </div>
+
+        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function CodeRow({ value, onCopy, copied }: { value: string; onCopy: () => void; copied: boolean }) {
+  return (
+    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+      <code className="flex-1 text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{value}</code>
+      <button
+        onClick={onCopy}
+        className="flex-shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 font-medium"
+      >
+        {copied ? '✓ Copied' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
+function CopyBtn({ onCopy, copied, dark }: { onCopy: () => void; copied: boolean; dark?: boolean }) {
+  return (
+    <button
+      onClick={onCopy}
+      className={`absolute top-2 right-2 text-xs px-2 py-1 rounded font-medium transition-colors ${
+        dark
+          ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+          : 'bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600'
+      }`}
+    >
+      {copied ? '✓' : 'Copy'}
+    </button>
   );
 }

@@ -206,6 +206,12 @@ const accelerators = [
   },
 ];
 
+const DocuCompIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+  </svg>
+);
+
 const securityPoints = [
   {
     icon: (
@@ -291,7 +297,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
       {/* ── Impact metrics ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { value: '15', label: 'Accelerators', sub: '12 AI-powered, 3 AI-free' },
+          { value: '15+', label: 'Accelerators', sub: '12 AI-powered, 3 AI-free + DocuComp' },
           { value: '4', label: 'AI Providers', sub: 'Gemini · Claude · OpenAI · Grok' },
           { value: '80%', label: 'Less manual effort', sub: 'on document tasks' },
           { value: '3', label: 'Storage options', sub: 'None · S3 · Azure Blob' },
@@ -328,6 +334,50 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               className="px-4 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors shadow-sm"
             >
               Open Projects →
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── DocuComp feature callout ── */}
+      <div className="rounded-2xl border border-emerald-200 dark:border-emerald-700/60 bg-gradient-to-br from-emerald-50 to-slate-50 dark:from-emerald-900/20 dark:to-slate-800/40 px-7 py-6 shadow-sm">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow">
+            <DocuCompIcon className="w-6 h-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">DocuComp</h3>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">PDF Template Studio</span>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-3">
+              A self-contained PDF templating engine built for CCM teams. Upload a Word document, define your data schema, add conditional rules, and serve production-quality PDFs through a secure REST API — no CCM platform required.
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+              Templates are built visually from DOCX source files. Fields are typed and validated. Conditional blocks show or hide based on incoming data. The render endpoint accepts a JSON payload and returns a PDF in milliseconds — making DocuComp an ideal bridge for rapid prototyping, client demos, or lightweight production delivery.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {['DOCX → HTML template', 'Typed field schema', 'Conditional rules', 'Loop blocks', 'REST render API', 'API key auth', 'FetchDoc integration'].map(f => (
+                <span key={f} className="text-xs font-medium px-2.5 py-1 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300">{f}</span>
+              ))}
+            </div>
+            <div className="grid sm:grid-cols-3 gap-3 mb-5">
+              {[
+                { label: 'Build', detail: 'Upload a DOCX and DocuComp auto-extracts every placeholder. Define field types, defaults, and required flags in the schema editor.' },
+                { label: 'Rule', detail: 'Add show/hide conditions on any block using field values and operators. Nest loops over array fields for repeating sections.' },
+                { label: 'Render', detail: 'POST a JSON payload to the template\'s API endpoint and receive a styled PDF. Test instantly with the built-in FetchDoc tool.' },
+              ].map(({ label, detail }) => (
+                <div key={label} className="bg-white dark:bg-slate-800 rounded-xl border border-emerald-100 dark:border-emerald-800/50 px-4 py-3">
+                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide mb-1">{label}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{detail}</p>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => onNavigate('pdfStudio')}
+              className="px-4 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors shadow-sm"
+            >
+              Open DocuComp →
             </button>
           </div>
         </div>
@@ -450,7 +500,7 @@ const Home: React.FC<HomeProps> = ({ onNavigate }) => {
               { phase: 'Discovery', tools: ['Cluster', 'Template Analyser'], detail: 'Rapidly assess and cluster an existing template library to identify duplicates and near-duplicates. Use Template Analyser to extract metadata, regulatory requirements, tone, and sentiment from each document before migration.' },
               { phase: 'Requirements Analysis', tools: ['Business Rules'], detail: 'Extract every business rule from requirements documents, BRDs, and client communications — including implicit rules hidden in placeholders, date arithmetic, and reviewer comments. Output a structured, reviewable rule set ready for the build team.' },
               { phase: 'Design & Mapping', tools: ['Dynamic Fields', 'XPath Extractor'], detail: 'Automate the tedious field-mapping and XPath derivation work that typically consumes weeks of a technical consultant\'s time.' },
-              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build', 'FetchDoc', 'Base64 Convert'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings. Use FetchDoc to retrieve live data payloads or call downstream APIs during build and integration testing. Use Base64 Convert to encode files into API request payloads or decode Base64 documents returned by an API.' },
+              { phase: 'Build & Test', tools: ['Test Cases', 'Test Data', 'GhostDraft Template Build', 'DocuComp', 'FetchDoc', 'Base64 Convert'], detail: 'Derive a complete test suite from extracted business rules. Feed that test cases CSV into Test Data alongside your XSD — AI produces grouped XML bundles tagged with test case IDs. Use GhostDraft Template Build to turn your Word template, XPath mapping CSV, and XSD into a ready-to-use .gd document with embedded fill point bindings. Use DocuComp to build and serve PDF templates via REST API — upload a DOCX, define the field schema, add conditional rules, and render production-quality PDFs from a simple JSON payload. Use FetchDoc to retrieve live data payloads or call downstream APIs during build and integration testing. Use Base64 Convert to encode files into API request payloads or decode Base64 documents returned by an API.' },
               { phase: 'QA & Review', tools: ['Output Validator', 'PDF AI Compare', 'PDF Visual Compare', 'FetchDoc'], detail: 'Close the loop with Output Validator: upload the rendered PDF, input XML/JSON, and test cases CSV to automatically validate every field, conditional rule, and format check — with a colour-coded annotated PDF as evidence. Use Visual Compare for a fast, AI-free structural and pixel diff between iterations; switch to AI Compare when you need to catch intent shifts that wording alone hides. Use FetchDoc to fetch rendered output directly from an API endpoint for immediate validation.' },
               { phase: 'Go-Live & Optimisation', tools: ['Layout Recommendation'], detail: 'Quickly adapt approved content for every required output channel — email, WhatsApp, print — without duplicating authoring effort.' },
               { phase: 'Compliance & Audit', tools: ['Accessibility Check'], detail: 'Validate that every outbound document meets WCAG 2.1, PDF/UA, Section 508 and EN 301 549. Surface ranked issues with remediation guidance before content reaches customers.' },

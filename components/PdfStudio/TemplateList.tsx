@@ -126,36 +126,52 @@ export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
       )}
 
       {!loading && templates.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map(t => (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          {/* Header row */}
+          <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-2.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Name</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-20 text-center">Format</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-28 text-right">Updated</span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide w-48 text-right">Actions</span>
+          </div>
+
+          {templates.map((t, i) => (
             <div
               key={t.id}
-              className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:shadow-md transition-shadow"
+              className={`grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3.5 ${
+                i < templates.length - 1 ? 'border-b border-slate-100 dark:border-slate-700/60' : ''
+              } hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors`}
             >
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="flex-shrink-0 w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-900/40 flex items-center justify-center">
-                    <svg className="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </span>
-                  <h3 className="font-semibold text-slate-800 dark:text-white text-sm truncate">{t.name}</h3>
-                </div>
-                <span className="flex-shrink-0 px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-                  {t.original_format}
+              {/* Name + description */}
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="flex-shrink-0 w-7 h-7 rounded-md bg-indigo-50 dark:bg-indigo-900/40 flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                 </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{t.name}</p>
+                  {t.description && (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{t.description}</p>
+                  )}
+                </div>
               </div>
 
-              {t.description && (
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 line-clamp-2">{t.description}</p>
-              )}
+              {/* Format badge */}
+              <span className="w-20 text-center px-2 py-0.5 text-xs rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                {t.original_format}
+              </span>
 
-              <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Updated {formatDate(t.updated_at)}</p>
+              {/* Updated date */}
+              <span className="w-28 text-right text-xs text-slate-400 dark:text-slate-500">
+                {formatDate(t.updated_at)}
+              </span>
 
-              <div className="flex items-center gap-2">
+              {/* Action buttons */}
+              <div className="w-48 flex items-center justify-end gap-2">
                 <button
                   onClick={() => onEdit(t)}
-                  className="flex-1 px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors"
                 >
                   Edit
                 </button>

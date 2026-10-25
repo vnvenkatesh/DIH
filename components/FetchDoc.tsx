@@ -439,7 +439,14 @@ const KeyValueEditor: React.FC<{
 );
 
 // ── Main Component ─────────────────────────────────────────────────────────
-const FetchDoc: React.FC = () => {
+interface FetchDocProps {
+    initialUrl?: string;
+    initialBearerToken?: string;
+    initialJsonBody?: string;
+    initialMethod?: HttpMethod;
+}
+
+const FetchDoc: React.FC<FetchDocProps> = ({ initialUrl, initialBearerToken, initialJsonBody, initialMethod }) => {
     const { token } = useAuth();
     const [state, dispatch] = useReducer(reducer, initialState);
     const [response, setResponse] = useState<ResponseState>({ status: 'idle' });
@@ -451,6 +458,29 @@ const FetchDoc: React.FC = () => {
     const timerRef = useRef<number | null>(null);
     const pdfObjectUrlRef = useRef<string | null>(null);
     const pdfBlockUrlRef = useRef<string | null>(null);
+
+    // Seed state when navigated-to from another tool (e.g. PdfStudio "Fetch Doc" button).
+    // Uses a composite key to detect a genuine new navigation vs re-render.
+    const initSeedRef = useRef('');
+    useEffect(() => {
+        const seedKey = `${initialUrl ?? ''}|${initialBearerToken ?? ''}|${initialJsonBody ?? ''}`;
+        if (!initialUrl || seedKey === initSeedRef.current) return;
+        initSeedRef.current = seedKey;
+        dispatch({ type: 'set-url', value: initialUrl });
+        dispatch({ type: 'set-method', value: initialMethod ?? 'POST' });
+        if (initialBearerToken) {
+            dispatch({ type: 'set-auth-mode', value: 'bearer' });
+            dispatch({ type: 'set-bearer-token', value: initialBearerToken });
+        }
+        if (initialJsonBody) {
+            dispatch({ type: 'set-body-mode', value: 'json' });
+            dispatch({ type: 'set-json-body', value: initialJsonBody });
+            dispatch({ type: 'set-tab', value: 'body' });
+        } else {
+            dispatch({ type: 'set-tab', value: 'auth' });
+        }
+        setResponse({ status: 'idle' });
+    }, [initialUrl, initialBearerToken, initialJsonBody, initialMethod]);
 
     // Profiles state
     const [profiles, setProfiles] = useState<SavedProfile[]>(() => {

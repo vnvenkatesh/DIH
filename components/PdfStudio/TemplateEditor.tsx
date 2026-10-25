@@ -8,11 +8,12 @@ interface Props {
   template: PdfTemplate | null;
   onSaved: () => void;
   onCancel: () => void;
+  onOpenFetchDoc?: (init: { url: string; bearerToken: string; jsonBody: string }) => void;
 }
 
 type Step = 'upload' | 'edit' | 'schema' | 'rules';
 
-export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
+export default function TemplateEditor({ template, onSaved, onCancel, onOpenFetchDoc }: Props) {
   const { token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -170,6 +171,19 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
     }
   }
 
+  async function handleOpenFetchDoc() {
+    if (!template || !onOpenFetchDoc) return;
+    const templateName = name || template.name;
+    const url = `${window.location.origin}/v1/pdf-render/${encodeURIComponent(templateName)}`;
+    let bearerToken = '';
+    try {
+      const r = await fetch('/v1/pdf-studio/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (d.keys?.length > 0) bearerToken = d.keys[0].key_prefix;
+    } catch { /* use empty token */ }
+    onOpenFetchDoc({ url, bearerToken, jsonBody: '{\n  \n}' });
+  }
+
   const STEPS: { id: Step; label: string }[] = [
     { id: 'upload', label: '1. Upload' },
     { id: 'edit', label: '2. Edit' },
@@ -190,6 +204,17 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {template && onOpenFetchDoc && (
+            <button
+              onClick={() => void handleOpenFetchDoc()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-700 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Fetch Doc
+            </button>
+          )}
           {template && (
             <button
               onClick={() => setShowFetchDoc(true)}
@@ -198,7 +223,7 @@ export default function TemplateEditor({ template, onSaved, onCancel }: Props) {
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Fetch Doc
+              CURL Doc
             </button>
           )}
           <button
@@ -738,7 +763,7 @@ function HtmlEditor({ html, onChange }: { html: string; onChange: (h: string) =>
   );
 }
 
-// ── Fetch Doc Modal ────────────────────────────────────────────────────────────
+// ── CURL Doc Modal ────────────────────────────────────────────────────────────
 function FetchDocModal({
   template,
   fields,
@@ -796,7 +821,7 @@ function FetchDocModal({
             <svg className="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-            <h3 className="font-semibold text-slate-800 dark:text-white">Fetch Document</h3>
+            <h3 className="font-semibold text-slate-800 dark:text-white">CURL Doc</h3>
             <span className="text-sm text-slate-400 dark:text-slate-500">— {template.name}</span>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">

@@ -8,9 +8,10 @@ type View = 'list' | 'editor' | 'keys';
 
 interface Props {
   onBack: () => void;
+  onOpenFetchDoc?: (init: { url: string; bearerToken: string; jsonBody: string }) => void;
 }
 
-export default function PdfStudio({ onBack }: Props) {
+export default function PdfStudio({ onBack, onOpenFetchDoc }: Props) {
   const [view, setView] = useState<View>('list');
   const [editTemplate, setEditTemplate] = useState<PdfTemplate | null>(null);
 
@@ -70,6 +71,7 @@ export default function PdfStudio({ onBack }: Props) {
             template={editTemplate}
             onSaved={backToList}
             onCancel={backToList}
+            onOpenFetchDoc={onOpenFetchDoc}
           />
         )}
         {view === 'keys' && <ApiKeyManager />}

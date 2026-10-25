@@ -91,6 +91,7 @@ const App: React.FC = () => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(!user);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
+  const [fetchDocInit, setFetchDocInit] = useState<{ url: string; bearerToken: string; jsonBody: string } | null>(null);
 
   // Hydrate SettingsContext (and localStorage) from the user's DB preferences on login.
   // This ensures services that read from localStorage pick up the right keys.
@@ -314,7 +315,7 @@ const App: React.FC = () => {
   }
 
   if (user && activeTool === 'pdfStudio') {
-    return <PdfStudio onBack={() => setActiveTool('home')} />;
+    return <PdfStudio onBack={() => setActiveTool('home')} onOpenFetchDoc={(init) => { setFetchDocInit(init); setActiveTool('fetchDoc'); }} />;
   }
 
   return (
@@ -595,7 +596,12 @@ const App: React.FC = () => {
             <Flow />
           </div>
           <div className={activeTool === 'fetchDoc' ? '' : 'hidden'}>
-            <FetchDoc />
+            <FetchDoc
+              initialUrl={fetchDocInit?.url}
+              initialBearerToken={fetchDocInit?.bearerToken}
+              initialJsonBody={fetchDocInit?.jsonBody}
+              initialMethod="POST"
+            />
           </div>
           <div className={activeTool === 'cluster' ? '' : 'hidden'}>
             <Cluster onCompareRequest={handleCompareRequest} />

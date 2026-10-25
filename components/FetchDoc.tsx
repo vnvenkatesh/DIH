@@ -468,10 +468,9 @@ const FetchDoc: React.FC<FetchDocProps> = ({ initialUrl, initialBearerToken, ini
         initSeedRef.current = seedKey;
         dispatch({ type: 'set-url', value: initialUrl });
         dispatch({ type: 'set-method', value: initialMethod ?? 'POST' });
-        if (initialBearerToken) {
-            dispatch({ type: 'set-auth-mode', value: 'bearer' });
-            dispatch({ type: 'set-bearer-token', value: initialBearerToken });
-        }
+        // Always pre-select Bearer Token auth
+        dispatch({ type: 'set-auth-mode', value: 'bearer' });
+        dispatch({ type: 'set-bearer-token', value: initialBearerToken ?? '' });
         if (initialJsonBody) {
             dispatch({ type: 'set-body-mode', value: 'json' });
             dispatch({ type: 'set-json-body', value: initialJsonBody });

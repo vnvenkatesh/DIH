@@ -175,13 +175,17 @@ export default function TemplateEditor({ template, onSaved, onCancel, onOpenFetc
     if (!template || !onOpenFetchDoc) return;
     const templateName = name || template.name;
     const url = `${window.location.origin}/v1/pdf-render/${encodeURIComponent(templateName)}`;
-    let bearerToken = '';
+    let bearerToken = '<Your DIH API key here>';
     try {
       const r = await fetch('/v1/pdf-studio/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       if (d.keys?.length > 0) bearerToken = d.keys[0].key_prefix;
-    } catch { /* use empty token */ }
-    onOpenFetchDoc({ url, bearerToken, jsonBody: '{\n  \n}' });
+    } catch { /* keep placeholder */ }
+    // Build sample JSON payload from template fields
+    const payloadFields: Record<string, string> = {};
+    fields.forEach(f => { payloadFields[f.field_name] = f.default_value || ''; });
+    const jsonBody = JSON.stringify({ data: payloadFields }, null, 2);
+    onOpenFetchDoc({ url, bearerToken, jsonBody });
   }
 
   const STEPS: { id: Step; label: string }[] = [

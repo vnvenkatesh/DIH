@@ -267,6 +267,7 @@ export async function initDb(): Promise<void> {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_api_keys_user ON pdf_api_keys(user_id)`);
+  await pool.query(`ALTER TABLE pdf_api_keys ADD COLUMN IF NOT EXISTS key_encrypted TEXT DEFAULT ''`);
 
   console.log('[db] initDb: schema ready');
 

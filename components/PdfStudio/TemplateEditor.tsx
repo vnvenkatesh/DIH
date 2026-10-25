@@ -179,7 +179,12 @@ export default function TemplateEditor({ template, onSaved, onCancel, onOpenFetc
     try {
       const r = await fetch('/v1/pdf-studio/templates/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
-      if (d.keys?.length > 0) bearerToken = d.keys[0].key_prefix;
+      if (d.keys?.length > 0) {
+        const firstId = d.keys[0].id;
+        const rev = await fetch(`/v1/pdf-studio/templates/api-keys/${firstId}/reveal`, { headers: { Authorization: `Bearer ${token}` } });
+        const revData = await rev.json();
+        bearerToken = revData.raw_key ?? d.keys[0].key_prefix;
+      }
     } catch { /* keep placeholder */ }
     // Build sample JSON payload from template fields
     const payloadFields: Record<string, string> = {};

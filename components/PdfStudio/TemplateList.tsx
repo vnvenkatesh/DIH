@@ -56,7 +56,12 @@ export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
     try {
       const keysRes = await fetch('/v1/pdf-studio/templates/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
       const keysData = await keysRes.json();
-      if (keysData.keys?.length > 0) bearerToken = keysData.keys[0].key_prefix;
+      if (keysData.keys?.length > 0) {
+        const firstId = keysData.keys[0].id;
+        const revealRes = await fetch(`/v1/pdf-studio/templates/api-keys/${firstId}/reveal`, { headers: { Authorization: `Bearer ${token}` } });
+        const revealData = await revealRes.json();
+        bearerToken = revealData.raw_key ?? keysData.keys[0].key_prefix;
+      }
     } catch { /* keep placeholder */ }
     try {
       const tplRes = await fetch(`/v1/pdf-studio/templates/${t.id}`, { headers: { Authorization: `Bearer ${token}` } });

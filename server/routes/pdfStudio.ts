@@ -1,10 +1,34 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { randomBytes } from 'crypto';
+import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'crypto';
 import { hash } from 'bcryptjs';
 import mammoth from 'mammoth';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+
+// ── AES-256-GCM encryption for API key storage ────────────────────────────────
+function getEncKey(): Buffer {
+  const secret = process.env.JWT_SECRET ?? 'fallback-insecure-secret';
+  return scryptSync(secret, 'dih-api-key-salt', 32);
+}
+
+function encryptKey(raw: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', getEncKey(), iv);
+  const enc = Buffer.concat([cipher.update(raw, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, enc]).toString('base64');
+}
+
+function decryptKey(stored: string): string {
+  const buf = Buffer.from(stored, 'base64');
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(12, 28);
+  const enc = buf.subarray(28);
+  const decipher = createDecipheriv('aes-256-gcm', getEncKey(), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+}
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -234,12 +258,13 @@ router.post('/api-keys', requireAuth, async (req, res) => {
   const rawKey = 'dih_' + randomBytes(24).toString('base64url');
   const prefix = rawKey.slice(0, 12);
   const keyHash = await hash(rawKey, 10);
+  const keyEncrypted = encryptKey(rawKey);
 
   const { rows } = await pool.query(
-    `INSERT INTO pdf_api_keys (user_id, name, key_hash, key_prefix) VALUES ($1,$2,$3,$4) RETURNING id, name, key_prefix, created_at`,
-    [userId, name, keyHash, prefix]
+    `INSERT INTO pdf_api_keys (user_id, name, key_hash, key_prefix, key_encrypted) VALUES ($1,$2,$3,$4,$5) RETURNING id, name, key_prefix, created_at`,
+    [userId, name, keyHash, prefix, keyEncrypted]
   );
-  // Return the raw key only once
+  // Return the raw key only once (also stored encrypted for FetchDoc auto-fill)
   res.status(201).json({ key: { ...rows[0], raw_key: rawKey } });
 });
 
@@ -251,6 +276,23 @@ router.delete('/api-keys/:id', requireAuth, async (req, res) => {
   );
   if (!rowCount) return res.status(404).json({ error: 'Key not found' });
   res.status(204).send();
+});
+
+// Decrypt and return the raw key to its owner (never exposed to other users)
+router.get('/api-keys/:id/reveal', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows } = await pool.query(
+    `SELECT key_encrypted FROM pdf_api_keys WHERE id = $1 AND user_id = $2`,
+    [req.params.id, userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Key not found' });
+  if (!rows[0].key_encrypted) return res.status(404).json({ error: 'Key was created before encrypted storage was added. Please revoke and recreate it.' });
+  try {
+    const raw = decryptKey(rows[0].key_encrypted);
+    res.json({ raw_key: raw });
+  } catch {
+    res.status(500).json({ error: 'Failed to decrypt key.' });
+  }
 });
 
 export default router;

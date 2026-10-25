@@ -54,19 +54,19 @@ export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
     let bearerToken = '<Your DIH API key here>';
     let jsonBody = JSON.stringify({ data: {} }, null, 2);
     try {
-      const [keysRes, tplRes] = await Promise.all([
-        fetch('/v1/pdf-studio/api-keys/list', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`/v1/pdf-studio/templates/${t.id}`, { headers: { Authorization: `Bearer ${token}` } }),
-      ]);
+      const keysRes = await fetch('/v1/pdf-studio/templates/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
       const keysData = await keysRes.json();
       if (keysData.keys?.length > 0) bearerToken = keysData.keys[0].key_prefix;
+    } catch { /* keep placeholder */ }
+    try {
+      const tplRes = await fetch(`/v1/pdf-studio/templates/${t.id}`, { headers: { Authorization: `Bearer ${token}` } });
       const tplData = await tplRes.json();
       const payloadFields: Record<string, string> = {};
       (tplData.fields ?? []).forEach((f: { field_name: string; default_value: string }) => {
         payloadFields[f.field_name] = f.default_value || '';
       });
       jsonBody = JSON.stringify({ data: payloadFields }, null, 2);
-    } catch { /* keep defaults */ }
+    } catch { /* keep empty body */ }
     onOpenFetchDoc({ url, bearerToken, jsonBody });
   }
 

@@ -177,7 +177,7 @@ export default function TemplateEditor({ template, onSaved, onCancel, onOpenFetc
     const url = `${window.location.origin}/v1/pdf-render/${encodeURIComponent(templateName)}`;
     let bearerToken = '<Your DIH API key here>';
     try {
-      const r = await fetch('/v1/pdf-studio/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch('/v1/pdf-studio/templates/api-keys/list', { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       if (d.keys?.length > 0) bearerToken = d.keys[0].key_prefix;
     } catch { /* keep placeholder */ }

@@ -5,9 +5,10 @@ import { useAuth } from '../../contexts/AuthContext';
 interface Props {
   onNew: () => void;
   onEdit: (t: PdfTemplate) => void;
+  onOpenFetchDoc?: (init: { url: string; bearerToken: string; jsonBody: string }) => void;
 }
 
-export default function TemplateList({ onNew, onEdit }: Props) {
+export default function TemplateList({ onNew, onEdit, onOpenFetchDoc }: Props) {
   const { token } = useAuth();
   const [templates, setTemplates] = useState<PdfTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,6 +46,28 @@ export default function TemplateList({ onNew, onEdit }: Props) {
     } catch (e: any) {
       alert('Delete failed: ' + e.message);
     }
+  }
+
+  async function handleFetchDoc(t: PdfTemplate) {
+    if (!onOpenFetchDoc) return;
+    const url = `${window.location.origin}/v1/pdf-render/${encodeURIComponent(t.name)}`;
+    let bearerToken = '<Your DIH API key here>';
+    let jsonBody = JSON.stringify({ data: {} }, null, 2);
+    try {
+      const [keysRes, tplRes] = await Promise.all([
+        fetch('/v1/pdf-studio/api-keys/list', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/v1/pdf-studio/templates/${t.id}`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const keysData = await keysRes.json();
+      if (keysData.keys?.length > 0) bearerToken = keysData.keys[0].key_prefix;
+      const tplData = await tplRes.json();
+      const payloadFields: Record<string, string> = {};
+      (tplData.fields ?? []).forEach((f: { field_name: string; default_value: string }) => {
+        payloadFields[f.field_name] = f.default_value || '';
+      });
+      jsonBody = JSON.stringify({ data: payloadFields }, null, 2);
+    } catch { /* keep defaults */ }
+    onOpenFetchDoc({ url, bearerToken, jsonBody });
   }
 
   const formatDate = (s: string) =>
@@ -136,6 +159,15 @@ export default function TemplateList({ onNew, onEdit }: Props) {
                 >
                   Edit
                 </button>
+                {onOpenFetchDoc && (
+                  <button
+                    onClick={() => void handleFetchDoc(t)}
+                    className="px-3 py-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
+                    title="Open in Fetch Doc"
+                  >
+                    Fetch Doc
+                  </button>
+                )}
                 <button
                   onClick={() => handleDelete(t.id, t.name)}
                   className="px-3 py-1.5 text-xs font-medium text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"

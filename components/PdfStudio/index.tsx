@@ -64,7 +64,7 @@ export default function PdfStudio({ onBack, onOpenFetchDoc }: Props) {
       {/* Body */}
       <main className="flex-1 overflow-auto">
         {view === 'list' && (
-          <TemplateList onNew={openNew} onEdit={openEdit} />
+          <TemplateList onNew={openNew} onEdit={openEdit} onOpenFetchDoc={onOpenFetchDoc} />
         )}
         {view === 'editor' && (
           <TemplateEditor

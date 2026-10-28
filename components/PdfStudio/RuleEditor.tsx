@@ -27,17 +27,46 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
     rule_type: 'condition',
     rule_config: {},
   });
-  const [addingNew, setAddingNew] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   function removeRule(index: number) {
     onChange(rules.filter((_, i) => i !== index));
+    if (editingIndex === index) {
+      setShowForm(false);
+      setEditingIndex(null);
+      setForm({ rule_type: 'condition', rule_config: {} });
+    }
   }
 
-  function saveNew() {
+  function startEdit(index: number) {
+    const r = rules[index];
+    setForm({
+      block_id: r.block_id,
+      rule_type: r.rule_type,
+      rule_config: { ...r.rule_config },
+    });
+    setEditingIndex(index);
+    setShowForm(true);
+  }
+
+  function startNew() {
+    setForm({ rule_type: 'condition', rule_config: {} });
+    setEditingIndex(null);
+    setShowForm(true);
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditingIndex(null);
+    setForm({ rule_type: 'condition', rule_config: {} });
+  }
+
+  function saveRule() {
     if (!form.block_id) return;
     const config = form.rule_config ?? {};
     const rule: PdfTemplateRule = {
-      id: 0,
+      id: editingIndex !== null ? (rules[editingIndex].id ?? 0) : 0,
       template_id: 0,
       block_id: form.block_id,
       rule_type: form.rule_type as 'condition' | 'loop',
@@ -45,9 +74,15 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
         ? { ...config, operator: config.operator ?? 'equals' }
         : config,
     };
-    onChange([...rules, rule]);
+    if (editingIndex !== null) {
+      const updated = rules.map((r, i) => (i === editingIndex ? rule : r));
+      onChange(updated);
+    } else {
+      onChange([...rules, rule]);
+    }
     setForm({ rule_type: 'condition', rule_config: {} });
-    setAddingNew(false);
+    setShowForm(false);
+    setEditingIndex(null);
   }
 
   return (
@@ -56,12 +91,16 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
         Rules hide/show sections or loop over arrays. Blocks in the template must have a <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">data-block-id</code> attribute.
       </p>
 
-      {rules.length === 0 && !addingNew && (
+      {rules.length === 0 && !showForm && (
         <p className="text-sm text-slate-400 dark:text-slate-500 italic">No rules yet.</p>
       )}
 
       {rules.map((r, i) => (
-        <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm">
+        <div key={i} className={`flex items-start gap-3 p-3 rounded-lg border text-sm transition-colors ${
+          editingIndex === i
+            ? 'border-indigo-400 dark:border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+        }`}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -85,19 +124,30 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
               </p>
             )}
           </div>
-          <button
-            onClick={() => removeRule(i)}
-            className="text-slate-400 hover:text-red-500 dark:hover:text-red-400 flex-shrink-0"
-            title="Remove"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => startEdit(i)}
+              className="text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400"
+              title="Edit rule"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => removeRule(i)}
+              className="text-slate-400 hover:text-red-500 dark:hover:text-red-400"
+              title="Remove rule"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
       ))}
 
-      {addingNew && (
+      {showForm && (
         <div className="p-4 rounded-lg border-2 border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/20 space-y-3">
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-slate-700 dark:text-slate-300 w-24">Type</label>
@@ -194,14 +244,14 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
 
           <div className="flex items-center gap-2 pt-1">
             <button
-              onClick={saveNew}
+              onClick={saveRule}
               disabled={!form.block_id}
               className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
             >
-              Add Rule
+              {editingIndex !== null ? 'Update Rule' : 'Add Rule'}
             </button>
             <button
-              onClick={() => setAddingNew(false)}
+              onClick={cancelForm}
               className="px-3 py-1.5 text-slate-600 dark:text-slate-300 rounded-lg text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
             >
               Cancel
@@ -210,9 +260,9 @@ export default function RuleEditor({ fields, rules, onChange, blockIds = [] }: P
         </div>
       )}
 
-      {!addingNew && (
+      {!showForm && (
         <button
-          onClick={() => setAddingNew(true)}
+          onClick={startNew}
           className="flex items-center gap-1.5 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors py-1"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

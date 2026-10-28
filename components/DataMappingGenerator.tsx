@@ -450,7 +450,7 @@ const DataMappingGenerator = React.forwardRef<DataMappingGeneratorHandle, Record
       {!isLoading && !consolidated && (
         <div className="text-center">
           <button
-            onClick={handleProcess}
+            onClick={() => handleProcess()}
             disabled={docxFiles.length === 0 || !xsdFile}
             className="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:focus:ring-indigo-800 transition-all duration-300 transform hover:scale-105 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed disabled:scale-100 inline-flex items-center gap-2"
           >

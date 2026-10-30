@@ -248,7 +248,7 @@ const BusinessRulesExtractor = React.forwardRef<BusinessRulesExtractorHandle, Re
                         </div>
                         <button onClick={() => { setFile(null); setResult(null); setError(''); }} className="text-xs text-indigo-500 hover:underline flex-shrink-0">Change</button>
                         <button
-                            onClick={handleExtract}
+                            onClick={() => handleExtract()}
                             disabled={loading}
                             className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors flex-shrink-0"
                         >

@@ -308,6 +308,7 @@ export async function initDb(): Promise<void> {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_project_fields_project ON pdf_project_fields(project_id)`);
+  await pool.query(`ALTER TABLE pdf_project_fields ADD COLUMN IF NOT EXISTS is_array BOOLEAN DEFAULT FALSE`);
 
   console.log('[db] initDb: schema ready');
 

@@ -156,10 +156,10 @@ router.put('/projects/:projectId', requireAuth, async (req, res) => {
       for (let i = 0; i < (schema as any[]).length; i++) {
         const f = (schema as any[])[i];
         await client.query(
-          `INSERT INTO pdf_project_fields (project_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO pdf_project_fields (project_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order, is_array)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [req.params.projectId, f.field_name, f.field_type ?? 'string', f.is_required ?? false,
-           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i]
+           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i, f.is_array ?? false]
         );
       }
     }

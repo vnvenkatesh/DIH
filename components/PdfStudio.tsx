@@ -24,7 +24,11 @@ interface TemplateField {
   default_value: string;
   description: string;
   parent_field: string;
+  is_array?: boolean;
 }
+
+type ProjectFieldType = 'string' | 'number' | 'date' | 'boolean';
+const PROJECT_FIELD_TYPES: ProjectFieldType[] = ['string', 'number', 'date', 'boolean'];
 
 interface TemplateRule {
   _key?: string;
@@ -76,6 +80,57 @@ const OPERATORS = ['equals', 'not_equals', 'contains', 'not_empty', 'is_empty', 
 
 function uid() {
   return Math.random().toString(36).slice(2);
+}
+
+// ── XSD parser ────────────────────────────────────────────────────────────────
+
+function xsdTypeToFieldType(raw: string): ProjectFieldType {
+  const t = (raw ?? '').replace(/^xs:|^xsd:/i, '').toLowerCase();
+  if (['int','integer','long','short','decimal','float','double','byte',
+       'nonnegativeinteger','positiveinteger','unsignedint','unsignedlong',
+       'unsignedshort','unsignedbyte'].includes(t)) return 'number';
+  if (['date','datetime','time','gyear','gyearmonth','gmonthday'].includes(t)) return 'date';
+  if (t === 'boolean') return 'boolean';
+  return 'string';
+}
+
+function parseXsd(xsdText: string): Array<Omit<TemplateField, 'parent_field'> & { is_array: boolean; field_type: ProjectFieldType }> {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xsdText, 'application/xml');
+  if (doc.querySelector('parsererror')) return [];
+
+  const XSD_NS = 'http://www.w3.org/2001/XMLSchema';
+  const els = Array.from(doc.getElementsByTagNameNS(XSD_NS, 'element') as HTMLCollectionOf<Element>);
+
+  const seen = new Set<string>();
+  const fields: ReturnType<typeof parseXsd> = [];
+
+  for (const el of els) {
+    const name = el.getAttribute('name');
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+
+    const typeAttr = el.getAttribute('type') ?? '';
+    const maxOccurs = el.getAttribute('maxOccurs') ?? '1';
+    const minOccurs = el.getAttribute('minOccurs') ?? '1';
+    const isArray = maxOccurs === 'unbounded' || parseInt(maxOccurs, 10) > 1;
+    const isRequired = minOccurs !== '0';
+
+    const docEls = el.getElementsByTagNameNS(XSD_NS, 'documentation');
+    const description = docEls[0]?.textContent?.trim() ?? '';
+
+    fields.push({
+      _key: uid(),
+      field_name: name,
+      field_type: xsdTypeToFieldType(typeAttr),
+      is_array: isArray,
+      is_required: isRequired,
+      default_value: '',
+      description,
+    });
+  }
+
+  return fields;
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -139,6 +194,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [projectSchema, setProjectSchema] = useState<TemplateField[]>([]);
   const [savingProjectSchema, setSavingProjectSchema] = useState(false);
   const [creatingInProjectId, setCreatingInProjectId] = useState<number | null>(null);
+  const [projectDetailTab, setProjectDetailTab] = useState<'templates' | 'schema'>('templates');
+  const [xsdUploading, setXsdUploading] = useState(false);
 
   // ── API key creation ──────────────────────────────────────────────────────
   const [newKeyName, setNewKeyName] = useState('');
@@ -219,6 +276,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     if (!r.ok) return;
     setOpenProject({ id: j.project.id, name: j.project.name, description: j.project.description, templates: j.templates ?? [], schema: j.schema ?? [] });
     setProjectSchema((j.schema ?? []).map((f: any) => ({ ...f, _key: uid() })));
+    setProjectDetailTab('templates');
   }, [token]);
 
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
@@ -980,75 +1038,126 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   <h2 className="text-base font-semibold text-slate-900 dark:text-white">{openProject.name}</h2>
                 </div>
 
-                {/* Templates in project */}
-                <div className="mb-8">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Templates</h3>
-                    <div className="flex gap-2">
-                      <button onClick={() => { setCreatingInProjectId(openProject.id); openEditor(); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                        + New Template
-                      </button>
-                      <button onClick={() => { loadTemplates(); setShowAddExistingModal(true); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                        + Add Existing
-                      </button>
-                    </div>
-                  </div>
+                {/* Sub-tabs */}
+                <div className="flex border-b border-slate-200 dark:border-slate-700 mb-6">
+                  {(['templates', 'schema'] as const).map(t => (
+                    <button key={t} onClick={() => setProjectDetailTab(t)}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${projectDetailTab === t ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                      {t === 'templates' ? 'Templates' : 'Schema'}
+                    </button>
+                  ))}
+                </div>
 
-                  {openProject.templates.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 text-sm bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl">
-                      No templates in this project yet.
+                {/* Templates tab */}
+                {projectDetailTab === 'templates' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Templates in this project</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setCreatingInProjectId(openProject.id); openEditor(); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                          + New Template
+                        </button>
+                        <button onClick={() => { loadTemplates(); setShowAddExistingModal(true); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                          + Add Existing
+                        </button>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {openProject.templates.map(tpl => (
-                        <div key={tpl.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex items-center gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-slate-900 dark:text-white truncate">{tpl.name}</p>
-                            {tpl.description && <p className="text-xs text-slate-400 mt-0.5 truncate">{tpl.description}</p>}
+                    {openProject.templates.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-sm bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl">
+                        No templates in this project yet.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {openProject.templates.map(tpl => (
+                          <div key={tpl.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-slate-900 dark:text-white truncate">{tpl.name}</p>
+                              {tpl.description && <p className="text-xs text-slate-400 mt-0.5 truncate">{tpl.description}</p>}
+                            </div>
+                            <div className="flex gap-2 flex-shrink-0">
+                              <button onClick={() => openEditor(tpl)} className="text-xs px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 transition-colors">Open</button>
+                              <button onClick={() => handleRemoveTemplateFromProject(tpl.id)} className="text-xs px-2.5 py-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Remove</button>
+                            </div>
                           </div>
-                          <div className="flex gap-2 flex-shrink-0">
-                            <button onClick={() => openEditor(tpl)} className="text-xs px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 transition-colors">Open</button>
-                            <button onClick={() => handleRemoveTemplateFromProject(tpl.id)} className="text-xs px-2.5 py-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Remove</button>
-                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Schema tab */}
+                {projectDetailTab === 'schema' && (
+                  <div>
+                    {/* Toolbar */}
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Common fields shared across all templates in this project.</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* XSD upload */}
+                        <label className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${xsdUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          {xsdUploading ? 'Parsing…' : 'Import XSD'}
+                          <input type="file" accept=".xsd,.xml" className="hidden" disabled={xsdUploading} onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setXsdUploading(true);
+                            try {
+                              const text = await file.text();
+                              const parsed = parseXsd(text);
+                              if (parsed.length === 0) return;
+                              // Merge: skip names already present
+                              const existing = new Set(projectSchema.map(f => f.field_name));
+                              const toAdd = parsed.filter(f => !existing.has(f.field_name)).map(f => ({
+                                ...f, parent_field: '',
+                              }));
+                              setProjectSchema(s => [...s, ...toAdd]);
+                            } finally {
+                              setXsdUploading(false);
+                              e.target.value = '';
+                            }
+                          }} />
+                        </label>
+                        <button onClick={() => setProjectSchema(s => [...s, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '', is_array: false }])}
+                          className="text-xs px-3 py-1.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                          + Add Field
+                        </button>
+                        <button onClick={handleSaveProjectSchema} disabled={savingProjectSchema}
+                          className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">
+                          {savingProjectSchema ? 'Saving…' : 'Save Schema'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {projectSchema.length === 0 ? (
+                      <div className="text-center py-16 text-slate-400 text-sm border border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+                        No fields yet. Import an XSD or add fields manually.
+                      </div>
+                    ) : (
+                      <>
+                        {/* Column header */}
+                        <div className="hidden md:flex gap-2 px-3 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                          <span className="flex-1 min-w-[120px]">Name</span>
+                          <span className="w-28">Type</span>
+                          <span className="w-16 text-center">Array</span>
+                          <span className="w-20 text-center">Required</span>
+                          <span className="flex-1">Description</span>
+                          <span className="w-6" />
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Common schema */}
-                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Common Schema</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">Fields shared across all templates in this project.</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => setProjectSchema(s => [...s, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
-                        className="text-xs px-3 py-1.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                        + Field
-                      </button>
-                      <button onClick={handleSaveProjectSchema} disabled={savingProjectSchema}
-                        className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
-                        {savingProjectSchema ? 'Saving…' : 'Save Schema'}
-                      </button>
-                    </div>
+                        <div className="space-y-2">
+                          {projectSchema.map((f, idx) => (
+                            <ProjectFieldRow key={f._key} field={f}
+                              onChange={updated => setProjectSchema(prev => prev.map((x, i) => i === idx ? updated : x))}
+                              onRemove={() => setProjectSchema(prev => prev.filter((_, i) => i !== idx))}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
-                  {projectSchema.length === 0 ? (
-                    <p className="text-sm text-slate-400 text-center py-6">No shared fields yet.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {projectSchema.map((f, idx) => (
-                        <FieldRow key={f._key} field={f} allFields={projectSchema}
-                          onChange={updated => setProjectSchema(prev => prev.map((x, i) => i === idx ? updated : x))}
-                          onRemove={() => setProjectSchema(prev => prev.filter((_, i) => i !== idx))}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
             ) : (
               /* Project list view */
@@ -1420,6 +1529,43 @@ const FieldRow: React.FC<{
           ↳ Child of <strong>{field.parent_field}</strong> — supplied per array item, not at top level
         </p>
       )}
+    </div>
+  );
+};
+
+const ProjectFieldRow: React.FC<{
+  field: TemplateField & { is_array?: boolean };
+  onChange: (f: TemplateField & { is_array?: boolean }) => void;
+  onRemove: () => void;
+}> = ({ field, onChange, onRemove }) => {
+  const inp = 'px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
+  return (
+    <div className="flex items-center gap-2 flex-wrap p-2 rounded-lg border border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+      <input value={field.field_name} onChange={e => onChange({ ...field, field_name: e.target.value })}
+        placeholder="field_name" className={`${inp} flex-1 min-w-[120px] font-mono`} />
+      <select value={field.field_type as string} onChange={e => onChange({ ...field, field_type: e.target.value as ProjectFieldType })}
+        className={`${inp} w-28 flex-none`}>
+        {PROJECT_FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+      </select>
+      {/* Array checkbox */}
+      <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap w-16 justify-center">
+        <input type="checkbox" checked={field.is_array ?? false} onChange={e => onChange({ ...field, is_array: e.target.checked })}
+          className="rounded accent-indigo-600" />
+        Array
+      </label>
+      {/* Required checkbox */}
+      <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap w-20 justify-center">
+        <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })}
+          className="rounded accent-indigo-600" />
+        Required
+      </label>
+      <input value={field.description} onChange={e => onChange({ ...field, description: e.target.value })}
+        placeholder="Description" className={`${inp} flex-1 min-w-[100px]`} />
+      <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors flex-none" title="Remove field">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 };

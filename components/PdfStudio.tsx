@@ -1265,15 +1265,33 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
               </div>
             )}
 
-            {/* curl example */}
-            <div className="mt-8 bg-slate-900 dark:bg-slate-950 rounded-xl p-5">
-              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mb-3">Example request</p>
-              <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto">{`curl -X POST \\
+            {/* curl examples */}
+            <div className="mt-8 bg-slate-900 dark:bg-slate-950 rounded-xl p-5 space-y-5">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mb-2">Single template</p>
+                <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto">{`curl -X POST \\
   ${window.location.origin}/v1/pdf-render/<templateId> \\
   -H "Authorization: Bearer <your-api-key>" \\
   -H "Content-Type: application/json" \\
   -d '{"data": {"fieldName": "value"}}' \\
   --output rendered.pdf`}</pre>
+              </div>
+              <div className="border-t border-slate-700 pt-5">
+                <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mb-2">Multiple templates → one PDF</p>
+                <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto">{`curl -X POST \\
+  ${window.location.origin}/v1/pdf-render \\
+  -H "Authorization: Bearer <your-api-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "shared_data": {"companyName": "Acme"},
+    "templates": [
+      {"id": 1, "data": {"greeting": "Hello"}},
+      {"id": "Invoice Template", "data": {"amount": 500}}
+    ]
+  }' \\
+  --output composed.pdf`}</pre>
+                <p className="text-xs text-slate-500 mt-2">Templates render in order. Each gets its own <code className="bg-slate-800 px-1 rounded">data</code> plus <code className="bg-slate-800 px-1 rounded">shared_data</code> merged in. Add <code className="bg-slate-800 px-1 rounded">?debug=1</code> to get JSON instead of a PDF.</p>
+              </div>
             </div>
           </div>
         )}

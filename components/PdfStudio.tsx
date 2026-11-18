@@ -194,6 +194,9 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [projectSchema, setProjectSchema] = useState<TemplateField[]>([]);
   const [savingProjectSchema, setSavingProjectSchema] = useState(false);
   const [creatingInProjectId, setCreatingInProjectId] = useState<number | null>(null);
+  const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
+  const [newTplModalName, setNewTplModalName] = useState('');
+  const [newTplModalProjectId, setNewTplModalProjectId] = useState<number | ''>('');
   const [projectDetailTab, setProjectDetailTab] = useState<'templates' | 'schema'>('templates');
   const [xsdUploading, setXsdUploading] = useState(false);
 
@@ -862,46 +865,12 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
           {/* ── Step 2: Schema ── */}
           {editorStep === 2 && (
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="max-w-[60%] overflow-x-auto">
+              <div className="max-w-[60%] mx-auto overflow-x-auto">
 
                 {/* ── Project schema (read-only inherited fields) ── */}
                 {editorProjectSchema.length > 0 ? (
                   <>
-                    {/* Project schema banner */}
-                    <div className="flex items-center gap-3 mb-6 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-xl px-4 py-3">
-                      <svg className="w-5 h-5 text-purple-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <div>
-                        <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Schema inherited from project <strong>{editorProjectName}</strong></p>
-                        <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">{editorProjectSchema.length} shared field{editorProjectSchema.length !== 1 ? 's' : ''} — read-only. Add template-specific fields below.</p>
-                      </div>
-                    </div>
-
-                    {/* Read-only project fields */}
-                    <div className="mb-8">
-                      <div className="hidden md:flex gap-2 px-3 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                        <span className="flex-1 min-w-[120px]">Name</span>
-                        <span className="w-28">Type</span>
-                        <span className="w-16 text-center">Array</span>
-                        <span className="w-20 text-center">Required</span>
-                        <span className="flex-1">Description</span>
-                      </div>
-                      <div className="space-y-1">
-                        {editorProjectSchema.map(f => (
-                          <div key={f._key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-50/60 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800/40 text-sm">
-                            <span className="flex-1 min-w-[120px] font-mono text-slate-700 dark:text-slate-300">{f.field_name}</span>
-                            <span className="w-28 text-xs text-slate-500 dark:text-slate-400">{f.field_type}{f.is_array ? '[]' : ''}</span>
-                            <span className="w-16 text-center text-xs text-slate-400">{f.is_array ? '✓' : '—'}</span>
-                            <span className="w-20 text-center text-xs text-slate-400">{f.is_required ? '✓' : '—'}</span>
-                            <span className="flex-1 text-xs text-slate-400 truncate">{f.description || '—'}</span>
-                            <span className="text-xs text-purple-500 italic flex-none">project</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Template-specific fields */}
+                    {/* Template-specific fields — TOP */}
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Template-specific fields</p>
                       <div className="flex gap-2">
@@ -924,7 +893,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     </div>
 
                     {fields.length === 0 ? (
-                      <div className="text-center py-10 text-slate-400 text-sm border border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+                      <div className="text-center py-10 text-slate-400 text-sm border border-dashed border-slate-200 dark:border-slate-700 rounded-xl mb-8">
                         No template-specific fields. Add one or click Re-scan to detect placeholders.
                       </div>
                     ) : (
@@ -936,9 +905,10 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                           <span className="w-28 flex-shrink-0">Default</span>
                           <span className="flex-1 min-w-[120px]">Description</span>
                           <span className="whitespace-nowrap">Req</span>
+                          <span className="whitespace-nowrap">Array?</span>
                           <span className="w-4" />
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-1 mb-8">
                           {fields.map((f, idx) => (
                             <FieldRow key={f._key} field={f} allFields={fields}
                               onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
@@ -948,6 +918,40 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         </div>
                       </>
                     )}
+
+                    {/* Project schema banner */}
+                    <div className="flex items-center gap-3 mb-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-xl px-4 py-3">
+                      <svg className="w-5 h-5 text-purple-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <div>
+                        <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Schema inherited from project <strong>{editorProjectName}</strong></p>
+                        <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">{editorProjectSchema.length} shared field{editorProjectSchema.length !== 1 ? 's' : ''} — read-only.</p>
+                      </div>
+                    </div>
+
+                    {/* Read-only project fields */}
+                    <div className="mb-8">
+                      <div className="hidden md:flex gap-2 px-3 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                        <span className="flex-1 min-w-[120px]">Name</span>
+                        <span className="w-28">Type</span>
+                        <span className="w-16 text-center">Array?</span>
+                        <span className="w-20 text-center">Required</span>
+                        <span className="flex-1">Description</span>
+                      </div>
+                      <div className="space-y-1">
+                        {editorProjectSchema.map(f => (
+                          <div key={f._key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-50/60 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800/40 text-sm">
+                            <span className="flex-1 min-w-[120px] font-mono text-slate-700 dark:text-slate-300">{f.field_name}</span>
+                            <span className="w-28 text-xs text-slate-500 dark:text-slate-400">{f.field_type}{f.is_array ? '[]' : ''}</span>
+                            <span className="w-16 text-center text-xs text-slate-400">{f.is_array ? '✓' : '—'}</span>
+                            <span className="w-20 text-center text-xs text-slate-400">{f.is_required ? '✓' : '—'}</span>
+                            <span className="flex-1 text-xs text-slate-400 truncate">{f.description || '—'}</span>
+                            <span className="text-xs text-purple-500 italic flex-none">project</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -1013,6 +1017,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       <span className="w-28 flex-shrink-0">Default</span>
                       <span className="flex-1 min-w-[120px]">Description</span>
                       <span className="whitespace-nowrap">Req</span>
+                      <span className="whitespace-nowrap">Array?</span>
                       <span className="w-4" />
                     </div>
 
@@ -1182,10 +1187,10 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
         {/* ── Projects tab ── */}
         {activeTab === 'projects' && (
-          <>
+          <div className="max-w-[60%] mx-auto">
             {/* Project detail view */}
             {openProject ? (
-              <div className="max-w-4xl">
+              <div>
                 {/* Back + header */}
                 <div className="flex items-center gap-3 mb-6">
                   <button onClick={() => setOpenProject(null)} className="text-sm text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center gap-1 transition-colors">
@@ -1425,15 +1430,15 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {/* ── Templates tab ── */}
         {activeTab === 'templates' && (
-          <>
+          <div className="max-w-[60%] mx-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">Your templates</h2>
-              <button onClick={() => openEditor()} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+              <button onClick={() => { setNewTplModalName(''); setNewTplModalProjectId(''); setShowNewTemplateModal(true); }} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                 </svg>
@@ -1450,7 +1455,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
                 <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">No templates yet.</p>
-                <button onClick={() => openEditor()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition-colors">Create your first template</button>
+                <button onClick={() => { setNewTplModalName(''); setNewTplModalProjectId(''); setShowNewTemplateModal(true); }} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition-colors">Create your first template</button>
               </div>
             )}
 
@@ -1505,7 +1510,50 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 </div>
               ))}
             </div>
-          </>
+
+            {/* New Template modal */}
+            {showNewTemplateModal && (
+              <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowNewTemplateModal(false)}>
+                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-4">New Template</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Template name <span className="text-red-500">*</span></label>
+                      <input value={newTplModalName} onChange={e => setNewTplModalName(e.target.value)}
+                        placeholder="e.g. Policy Summary Letter"
+                        autoFocus
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Link to project <span className="text-slate-400 font-normal">(optional)</span></label>
+                      <select value={newTplModalProjectId} onChange={e => setNewTplModalProjectId(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">— No project —</option>
+                        {projects.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                      <button onClick={() => setShowNewTemplateModal(false)}
+                        className="px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        Cancel
+                      </button>
+                      <button disabled={!newTplModalName.trim()} onClick={() => {
+                        setShowNewTemplateModal(false);
+                        if (newTplModalProjectId !== '') setCreatingInProjectId(newTplModalProjectId as number);
+                        openEditor();
+                        setTimeout(() => setTplName(newTplModalName.trim()), 0);
+                      }}
+                        className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">
+                        Create
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── API Keys tab ── */}
@@ -1752,10 +1800,9 @@ const FieldRow: React.FC<{
         Req
       </label>
       {/* array */}
-      <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">
+      <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0" title="Array field">
         <input type="checkbox" checked={field.is_array ?? false} onChange={e => onChange({ ...field, is_array: e.target.checked })}
           className="rounded accent-purple-600" />
-        []
       </label>
       {/* delete */}
       <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0" title="Remove field">

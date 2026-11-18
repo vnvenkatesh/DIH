@@ -228,6 +228,12 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
 
+  // ── Editor project schema (inherited from the project this template belongs to) ──
+  const [editorProjectId, setEditorProjectId] = useState<number | null>(null);
+  const [editorProjectName, setEditorProjectName] = useState('');
+  const [editorProjectSchema, setEditorProjectSchema] = useState<TemplateField[]>([]);
+  const [editorXsdUploading, setEditorXsdUploading] = useState(false);
+
   // ── Editor refs ───────────────────────────────────────────────────────────
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -286,6 +292,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   // ── Open template for editing ─────────────────────────────────────────────
   const openEditor = async (tpl?: Template) => {
     setSaveError(''); setUploadError(''); setPreviewHtml(''); setPreviewError('');
+    // Reset project schema
+    setEditorProjectId(null); setEditorProjectName(''); setEditorProjectSchema([]);
     if (tpl) {
       setEditingId(tpl.id);
       setTplName(tpl.name);
@@ -304,6 +312,19 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         rule_type: r.rule_type,
         rule_config: typeof r.rule_config === 'string' ? JSON.parse(r.rule_config) : (r.rule_config ?? {}),
       })));
+      // If template belongs to a project, load that project's schema
+      const firstProject = tpl.projects?.[0];
+      if (firstProject) {
+        try {
+          const pr = await apiFetch(`/v1/pdf-studio/templates/projects/${firstProject.id}`, token!);
+          const pj = await pr.json();
+          if (pr.ok && pj.schema?.length) {
+            setEditorProjectId(firstProject.id);
+            setEditorProjectName(firstProject.name);
+            setEditorProjectSchema((pj.schema ?? []).map((f: any) => ({ ...f, _key: uid() })));
+          }
+        } catch {}
+      }
       setEditorStep(2);
     } else {
       setEditingId(null);
@@ -322,7 +343,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
   // Keep editor div in sync when htmlContent changes programmatically
   useEffect(() => {
-    if (editorRef.current && editorStep === 2) {
+    if (editorRef.current && editorStep === 3) {
       if (editorRef.current.innerHTML !== htmlContent) {
         editorRef.current.innerHTML = htmlContent;
       }
@@ -721,7 +742,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-2 flex items-center justify-between">
           {/* Step pills */}
           <div className="flex items-center gap-0">
-            {(['Upload', 'Edit', 'Schema', 'Rules', 'Preview'] as const).map((label, idx) => {
+            {(['Upload', 'Schema', 'Edit', 'Rules', 'Preview'] as const).map((label, idx) => {
               const step = (idx + 1) as EditorStep;
               const isActive = editorStep === step;
               const isDone = editorStep > step;
@@ -752,21 +773,21 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             {editorStep >= 2 && (
               <button
                 onClick={() => {
-                  if (editorStep === 2) { captureEditorHtml(); setEditorStep(1); }
-                  else setEditorStep((editorStep - 1) as EditorStep);
+                  if (editorStep === 3) captureEditorHtml();
+                  setEditorStep((editorStep - 1) as EditorStep);
                 }}
                 className="px-3 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                 ← Back
               </button>
             )}
             {editorStep === 2 && (
-              <button onClick={() => { captureEditorHtml(); setEditorStep(3); }}
+              <button onClick={() => setEditorStep(3)}
                 className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                Schema →
+                Edit →
               </button>
             )}
             {editorStep === 3 && (
-              <button onClick={() => setEditorStep(4)}
+              <button onClick={() => { captureEditorHtml(); setEditorStep(4); }}
                 className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
                 Rules →
               </button>
@@ -819,8 +840,167 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             </div>
           )}
 
-          {/* ── Step 2: Edit ── */}
+          {/* ── Step 2: Schema ── */}
           {editorStep === 2 && (
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="max-w-3xl mx-auto">
+
+                {/* ── Project schema (read-only inherited fields) ── */}
+                {editorProjectSchema.length > 0 ? (
+                  <>
+                    {/* Project schema banner */}
+                    <div className="flex items-center gap-3 mb-6 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-xl px-4 py-3">
+                      <svg className="w-5 h-5 text-purple-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <div>
+                        <p className="text-sm font-medium text-purple-800 dark:text-purple-200">Schema inherited from project <strong>{editorProjectName}</strong></p>
+                        <p className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">{editorProjectSchema.length} shared field{editorProjectSchema.length !== 1 ? 's' : ''} — read-only. Add template-specific fields below.</p>
+                      </div>
+                    </div>
+
+                    {/* Read-only project fields */}
+                    <div className="mb-8">
+                      <div className="hidden md:flex gap-2 px-3 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                        <span className="flex-1 min-w-[120px]">Name</span>
+                        <span className="w-28">Type</span>
+                        <span className="w-16 text-center">Array</span>
+                        <span className="w-20 text-center">Required</span>
+                        <span className="flex-1">Description</span>
+                      </div>
+                      <div className="space-y-1">
+                        {editorProjectSchema.map(f => (
+                          <div key={f._key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-50/60 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800/40 text-sm">
+                            <span className="flex-1 min-w-[120px] font-mono text-slate-700 dark:text-slate-300">{f.field_name}</span>
+                            <span className="w-28 text-xs text-slate-500 dark:text-slate-400">{f.field_type}{f.is_array ? '[]' : ''}</span>
+                            <span className="w-16 text-center text-xs text-slate-400">{f.is_array ? '✓' : '—'}</span>
+                            <span className="w-20 text-center text-xs text-slate-400">{f.is_required ? '✓' : '—'}</span>
+                            <span className="flex-1 text-xs text-slate-400 truncate">{f.description || '—'}</span>
+                            <span className="text-xs text-purple-500 italic flex-none">project</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Template-specific fields */}
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Template-specific fields</p>
+                      <div className="flex gap-2">
+                        <button onClick={async () => {
+                          if (!editingId) return;
+                          const r = await apiFetch(`/v1/pdf-studio/templates/${editingId}/extract-schema`, token!, { method: 'POST' });
+                          const j = await r.json();
+                          const existing = new Set([...fields.map(f => f.field_name), ...editorProjectSchema.map(f => f.field_name)]);
+                          const newFields = (j.placeholders ?? []).filter((p: string) => !existing.has(p)).map((p: string) => ({ _key: uid(), field_name: p, field_type: 'string' as const, is_required: false, default_value: '', description: '', parent_field: '' }));
+                          if (newFields.length) setFields(f => [...f, ...newFields]);
+                        }} disabled={!editingId}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-40">
+                          ↻ Re-scan
+                        </button>
+                        <button onClick={() => setFields(f => [...f, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                          + Add field
+                        </button>
+                      </div>
+                    </div>
+
+                    {fields.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-sm border border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
+                        No template-specific fields. Add one or click Re-scan to detect placeholders.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {fields.map((f, idx) => (
+                          <FieldRow key={f._key} field={f} allFields={fields}
+                            onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
+                            onRemove={() => setFields(prev => prev.filter((_, i) => i !== idx))}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* No project — full schema editor with XSD import */}
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Field schema</h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Define the data fields this template accepts. Import from XSD or add manually.</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* XSD upload */}
+                        <label className={`flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${editorXsdUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                          </svg>
+                          {editorXsdUploading ? 'Parsing…' : 'Import XSD'}
+                          <input type="file" accept=".xsd,.xml" className="hidden" disabled={editorXsdUploading} onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setEditorXsdUploading(true);
+                            try {
+                              const text = await file.text();
+                              const parsed = parseXsd(text);
+                              if (parsed.length === 0) return;
+                              const existing = new Set(fields.map(f => f.field_name));
+                              const toAdd = parsed.filter(f => !existing.has(f.field_name)).map(f => ({
+                                ...f, parent_field: '',
+                              }));
+                              setFields(s => [...s, ...toAdd]);
+                            } finally {
+                              setEditorXsdUploading(false);
+                              e.target.value = '';
+                            }
+                          }} />
+                        </label>
+                        <button onClick={async () => {
+                          if (!editingId) return;
+                          const r = await apiFetch(`/v1/pdf-studio/templates/${editingId}/extract-schema`, token!, { method: 'POST' });
+                          const j = await r.json();
+                          const existing = new Set(fields.map(f => f.field_name));
+                          const newFields = (j.placeholders ?? []).filter((p: string) => !existing.has(p)).map((p: string) => ({ _key: uid(), field_name: p, field_type: 'string' as const, is_required: false, default_value: '', description: '', parent_field: '' }));
+                          if (newFields.length) setFields(f => [...f, ...newFields]);
+                        }} disabled={!editingId} title={editingId ? undefined : 'Save template first to re-scan'}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-40">
+                          ↻ Re-scan
+                        </button>
+                        <button onClick={() => setFields(f => [...f, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                          + Add field
+                        </button>
+                      </div>
+                    </div>
+
+                    {fields.length === 0 && (
+                      <div className="text-center py-16 text-slate-400">No fields yet. Import an XSD, add a field, or click Re-scan after saving the template.</div>
+                    )}
+
+                    {fields.length > 0 && (
+                      <div className="hidden md:flex gap-3 px-4 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                        <span className="flex-1 min-w-[120px]">Name</span>
+                        <span className="w-28 flex-none">Type</span>
+                        <span className="w-36 flex-none">Parent (loop child)</span>
+                        <span className="whitespace-nowrap">Required</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {fields.map((f, idx) => (
+                        <FieldRow key={f._key} field={f} allFields={fields}
+                          onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
+                          onRemove={() => setFields(prev => prev.filter((_, i) => i !== idx))}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 3: Edit ── */}
+          {editorStep === 3 && (
             <div className="flex-1 flex overflow-hidden">
               {/* Editor area */}
               <div className="flex-1 flex flex-col overflow-hidden">
@@ -874,60 +1054,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
               </div>
               {/* Fields panel */}
               <FieldsPanel fields={fields} onInsert={insertPlaceholder} />
-            </div>
-          )}
-
-          {/* ── Step 3: Schema ── */}
-          {editorStep === 3 && (
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="max-w-3xl mx-auto">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Field schema</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Define the data fields this template accepts. Fields detected from placeholders are pre-filled.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={async () => {
-                      if (!editingId) return;
-                      const r = await apiFetch(`/v1/pdf-studio/templates/${editingId}/extract-schema`, token!, { method: 'POST' });
-                      const j = await r.json();
-                      const existing = new Set(fields.map(f => f.field_name));
-                      const newFields = (j.placeholders ?? []).filter((p: string) => !existing.has(p)).map((p: string) => ({ _key: uid(), field_name: p, field_type: 'string' as const, is_required: false, default_value: '', description: '', parent_field: '' }));
-                      if (newFields.length) setFields(f => [...f, ...newFields]);
-                    }} disabled={!editingId} title={editingId ? undefined : 'Save template first to re-scan'}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-40">
-                      ↻ Re-scan
-                    </button>
-                    <button onClick={() => setFields(f => [...f, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                      + Add field
-                    </button>
-                  </div>
-                </div>
-
-                {fields.length === 0 && (
-                  <div className="text-center py-16 text-slate-400">No fields yet. Add a field or go back to Step 2 and insert placeholders.</div>
-                )}
-
-                {fields.length > 0 && (
-                  <div className="hidden md:flex gap-3 px-4 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                    <span className="flex-1 min-w-[120px]">Name</span>
-                    <span className="w-28 flex-none">Type</span>
-                    <span className="w-36 flex-none">Parent (loop child)</span>
-                    <span className="whitespace-nowrap">Required</span>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  {fields.map((f, idx) => (
-                    <FieldRow key={f._key} field={f} allFields={fields}
-                      onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
-                      onRemove={() => setFields(prev => prev.filter((_, i) => i !== idx))}
-                    />
-                  ))}
-                </div>
-
-              </div>
             </div>
           )}
 

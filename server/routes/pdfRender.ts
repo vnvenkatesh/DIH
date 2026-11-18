@@ -65,12 +65,23 @@ async function loadTemplateRecord(templateId: string | number, userId: number) {
   return { tpl: tRows[0], rRows, fRows };
 }
 
-/** Merge data with template defaults; returns merged data or error. */
+/** Merge data with template defaults; returns merged data or error.
+ *  A required field is only "missing" if it is also used as a placeholder
+ *  in the HTML (data-placeholder="fieldName").  Fields defined in the schema
+ *  but absent from the HTML do not cause failures.
+ */
 function mergeWithDefaults(
   data: Record<string, any>,
-  fRows: any[]
+  fRows: any[],
+  htmlContent: string
 ): { merged: Record<string, any>; missing: string[] } {
-  const missing = fRows.filter(f => f.is_required && data[f.field_name] == null).map((f: any) => f.field_name);
+  // Collect every field name that actually appears in the template HTML
+  const usedInHtml = new Set<string>(
+    [...htmlContent.matchAll(/\bdata-placeholder="([^"]+)"/g)].map(m => m[1])
+  );
+  const missing = fRows
+    .filter(f => f.is_required && usedInHtml.has(f.field_name) && data[f.field_name] == null)
+    .map((f: any) => f.field_name);
   const merged = { ...data };
   for (const f of fRows) {
     if (merged[f.field_name] == null && f.default_value) merged[f.field_name] = f.default_value;
@@ -159,7 +170,7 @@ router.post('/', requireApiKey, async (req: Request, res: Response) => {
       if (i === 0) { firstPageSize = tpl.page_size; firstMarginMm = tpl.margin_mm; }
 
       const rawData = { ...sharedData, ...(entry.data ?? {}) };
-      const { merged, missing } = mergeWithDefaults(rawData, fRows);
+      const { merged, missing } = mergeWithDefaults(rawData, fRows, tpl.html_content ?? '');
       if (missing.length) {
         errors.push({ index: i, id: templateId, error: `Missing required fields: ${missing.join(', ')}` });
         continue;
@@ -250,7 +261,7 @@ router.post('/:templateId', requireApiKey, async (req: Request, res: Response) =
     }
 
     const { tpl, rRows, fRows } = rec;
-    const { merged, missing } = mergeWithDefaults(data, fRows);
+    const { merged, missing } = mergeWithDefaults(data, fRows, tpl.html_content ?? '');
     if (missing.length) {
       return res.status(400).json({ error: 'Missing required fields', fields: missing });
     }

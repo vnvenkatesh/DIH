@@ -842,8 +842,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
           {/* ── Step 2: Schema ── */}
           {editorStep === 2 && (
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="max-w-3xl mx-auto">
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="max-w-none w-full overflow-x-auto">
 
                 {/* ── Project schema (read-only inherited fields) ── */}
                 {editorProjectSchema.length > 0 ? (
@@ -909,14 +909,25 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         No template-specific fields. Add one or click Re-scan to detect placeholders.
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {fields.map((f, idx) => (
-                          <FieldRow key={f._key} field={f} allFields={fields}
-                            onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
-                            onRemove={() => setFields(prev => prev.filter((_, i) => i !== idx))}
-                          />
-                        ))}
-                      </div>
+                      <>
+                        <div className="flex gap-2 px-2 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                          <span className="w-36 flex-shrink-0">Name</span>
+                          <span className="w-24 flex-shrink-0">Type</span>
+                          <span className="w-32 flex-shrink-0">Parent</span>
+                          <span className="w-28 flex-shrink-0">Default</span>
+                          <span className="flex-1 min-w-[120px]">Description</span>
+                          <span className="whitespace-nowrap">Req</span>
+                          <span className="w-4" />
+                        </div>
+                        <div className="space-y-1">
+                          {fields.map((f, idx) => (
+                            <FieldRow key={f._key} field={f} allFields={fields}
+                              onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
+                              onRemove={() => setFields(prev => prev.filter((_, i) => i !== idx))}
+                            />
+                          ))}
+                        </div>
+                      </>
                     )}
                   </>
                 ) : (
@@ -975,16 +986,18 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       <div className="text-center py-16 text-slate-400">No fields yet. Import an XSD, add a field, or click Re-scan after saving the template.</div>
                     )}
 
-                    {fields.length > 0 && (
-                      <div className="hidden md:flex gap-3 px-4 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
-                        <span className="flex-1 min-w-[120px]">Name</span>
-                        <span className="w-28 flex-none">Type</span>
-                        <span className="w-36 flex-none">Parent (loop child)</span>
-                        <span className="whitespace-nowrap">Required</span>
-                      </div>
-                    )}
+                    {/* Column header */}
+                    <div className="flex gap-2 px-2 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                      <span className="w-36 flex-shrink-0">Name</span>
+                      <span className="w-24 flex-shrink-0">Type</span>
+                      <span className="w-32 flex-shrink-0">Parent</span>
+                      <span className="w-28 flex-shrink-0">Default</span>
+                      <span className="flex-1 min-w-[120px]">Description</span>
+                      <span className="whitespace-nowrap">Req</span>
+                      <span className="w-4" />
+                    </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-1">
                       {fields.map((f, idx) => (
                         <FieldRow key={f._key} field={f} allFields={fields}
                           onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
@@ -1053,7 +1066,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 </div>
               </div>
               {/* Fields panel */}
-              <FieldsPanel fields={fields} onInsert={insertPlaceholder} />
+              <FieldsPanel fields={fields} projectFields={editorProjectSchema} projectName={editorProjectName || undefined} onInsert={insertPlaceholder} />
             </div>
           )}
 
@@ -1578,21 +1591,50 @@ const ToolbarBtn: React.FC<{ onClick: () => void; title: string; children: React
   </button>
 );
 
-const FieldsPanel: React.FC<{ fields: TemplateField[]; onInsert: (name: string) => void }> = ({ fields, onInsert }) => (
-  <div className="w-56 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
+const FieldsPanel: React.FC<{
+  fields: TemplateField[];
+  projectFields?: TemplateField[];
+  projectName?: string;
+  onInsert: (name: string) => void;
+}> = ({ fields, projectFields = [], projectName, onInsert }) => (
+  <div className="w-60 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
     <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
       <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Fields</h3>
       <p className="text-xs text-slate-400 mt-0.5">Click to insert at cursor</p>
     </div>
     <div className="flex-1 overflow-y-auto py-2 px-3 space-y-1">
-      {fields.length === 0 && <p className="text-xs text-slate-400 py-2">No fields yet — define them in the Schema step.</p>}
-      {fields.map(f => (
-        <button key={f._key ?? f.field_name} onClick={() => onInsert(f.field_name)}
-          className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-mono transition-colors truncate"
-          title={`Insert {{${f.field_name}}}`}>
-          {'{{' + f.field_name + '}}'}
-        </button>
-      ))}
+      {/* Template-level fields */}
+      {fields.length > 0 && (
+        <>
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide px-1 pt-1 pb-0.5">Template</p>
+          {fields.map(f => (
+            <button key={f._key ?? f.field_name} onClick={() => onInsert(f.field_name)}
+              className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-mono transition-colors truncate"
+              title={`Insert {{${f.field_name}}}`}>
+              {'{{' + f.field_name + '}}'}
+            </button>
+          ))}
+        </>
+      )}
+      {/* Project-level fields */}
+      {projectFields.length > 0 && (
+        <>
+          <div className="border-t border-slate-100 dark:border-slate-700 my-1" />
+          <p className="text-[10px] font-semibold text-purple-500 uppercase tracking-wide px-1 pt-1 pb-0.5">
+            {projectName ? `Project: ${projectName}` : 'Project'}
+          </p>
+          {projectFields.map(f => (
+            <button key={f._key ?? f.field_name} onClick={() => onInsert(f.field_name)}
+              className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-700 dark:text-purple-300 font-mono transition-colors truncate"
+              title={`Insert {{${f.field_name}}}`}>
+              {'{{' + f.field_name + '}}'}
+            </button>
+          ))}
+        </>
+      )}
+      {fields.length === 0 && projectFields.length === 0 && (
+        <p className="text-xs text-slate-400 py-2">No fields yet — define them in the Schema step.</p>
+      )}
     </div>
   </div>
 );
@@ -1603,58 +1645,48 @@ const FieldRow: React.FC<{
   onChange: (f: TemplateField) => void;
   onRemove: () => void;
 }> = ({ field, allFields, onChange, onRemove }) => {
-  const inp = 'flex-1 px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
-  // Available parents: other fields typed array or object (not self)
+  const inp = 'px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
   const parentOptions = allFields.filter(
     f => (f.field_type === 'array' || f.field_type === 'object') && f.field_name !== field.field_name && f.field_name
   );
   return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
-      <div className="flex gap-3 flex-wrap">
-        <input value={field.field_name} onChange={e => onChange({ ...field, field_name: e.target.value })}
-          placeholder="field_name" className={`${inp} font-mono min-w-[120px]`} />
-        <select value={field.field_type} onChange={e => onChange({ ...field, field_type: e.target.value as TemplateField['field_type'] })}
-          className={`w-28 flex-none px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
-          {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        {/* Parent: select for all fields — marks this field as a child of a loop array */}
-        <select
-          value={field.parent_field ?? ''}
-          onChange={e => onChange({ ...field, parent_field: e.target.value })}
-          className={`w-36 flex-none px-2.5 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-            field.parent_field
-              ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200'
-              : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-          }`}
-          title="Parent array/object field (marks this as a child field for loops)"
-        >
-          <option value="">(no parent)</option>
-          {parentOptions.map(p => (
-            <option key={p.field_name} value={p.field_name}>{p.field_name}</option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
-          <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })} className="rounded" />
-          Required
-        </label>
-        <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors ml-auto" title="Remove field">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      <div className="flex gap-3">
-        <input value={field.default_value} onChange={e => onChange({ ...field, default_value: e.target.value })}
-          placeholder="Default value" className={inp} />
-        <input value={field.description} onChange={e => onChange({ ...field, description: e.target.value })}
-          placeholder="Description" className={`${inp} flex-[2]`} />
-      </div>
-      {/* Child indicator badge */}
-      {field.parent_field && (
-        <p className="text-xs text-purple-600 dark:text-purple-400">
-          ↳ Child of <strong>{field.parent_field}</strong> — supplied per array item, not at top level
-        </p>
-      )}
+    <div className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+      {/* field_name */}
+      <input value={field.field_name} onChange={e => onChange({ ...field, field_name: e.target.value })}
+        placeholder="field_name" className={`${inp} w-36 font-mono flex-shrink-0`} />
+      {/* type */}
+      <select value={field.field_type} onChange={e => onChange({ ...field, field_type: e.target.value as TemplateField['field_type'] })}
+        className={`${inp} w-24 flex-shrink-0`}>
+        {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+      </select>
+      {/* parent */}
+      <select value={field.parent_field ?? ''} onChange={e => onChange({ ...field, parent_field: e.target.value })}
+        className={`w-32 flex-shrink-0 px-2 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+          field.parent_field
+            ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200'
+            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-400 dark:text-slate-500'
+        }`} title="Parent array/object (loop child)">
+        <option value="">(no parent)</option>
+        {parentOptions.map(p => <option key={p.field_name} value={p.field_name}>{p.field_name}</option>)}
+      </select>
+      {/* default value */}
+      <input value={field.default_value} onChange={e => onChange({ ...field, default_value: e.target.value })}
+        placeholder="Default" className={`${inp} w-28 flex-shrink-0`} />
+      {/* description */}
+      <input value={field.description} onChange={e => onChange({ ...field, description: e.target.value })}
+        placeholder="Description" className={`${inp} flex-1 min-w-[120px]`} />
+      {/* required */}
+      <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">
+        <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })}
+          className="rounded accent-indigo-600" />
+        Req
+      </label>
+      {/* delete */}
+      <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0" title="Remove field">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 };

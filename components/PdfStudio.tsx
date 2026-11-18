@@ -9,6 +9,8 @@ interface Template {
   description: string;
   html_content: string;
   original_format: string;
+  page_size: 'A4' | 'Letter' | 'Legal';
+  margin_mm: number;
   created_at: string;
   updated_at: string;
 }
@@ -75,12 +77,19 @@ function buildSampleJson(fields: TemplateField[]): Record<string, unknown> {
   for (const f of fields) {
     if (f.default_value) { obj[f.field_name] = f.default_value; continue; }
     switch (f.field_type) {
-      case 'number':  obj[f.field_name] = 0; break;
-      case 'boolean': obj[f.field_name] = false; break;
-      case 'date':    obj[f.field_name] = new Date().toISOString().slice(0, 10); break;
-      case 'array':   obj[f.field_name] = []; break;
+      case 'number':  obj[f.field_name] = 1; break;
+      case 'boolean': obj[f.field_name] = true; break;
+      case 'date':    obj[f.field_name] = '2025-01-31'; break;
+      case 'array': {
+        const childFields = fields.filter(c => c.parent_field === f.field_name);
+        const childSample = childFields.length
+          ? Object.fromEntries(childFields.map(c => [c.field_name, `Sample ${c.field_name}`]))
+          : { item: 'Sample item' };
+        obj[f.field_name] = [childSample, { ...childSample }];
+        break;
+      }
       case 'object':  obj[f.field_name] = {}; break;
-      default:        obj[f.field_name] = `<${f.field_name}>`; break;
+      default:        obj[f.field_name] = `Sample ${f.field_name}`; break;
     }
   }
   return obj;
@@ -109,6 +118,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [tplName, setTplName] = useState('');
   const [tplDescription, setTplDescription] = useState('');
+  const [tplPageSize, setTplPageSize] = useState<'A4' | 'Letter' | 'Legal'>('A4');
+  const [tplMarginMm, setTplMarginMm] = useState(20);
   const [htmlContent, setHtmlContent] = useState('');
   const [originalFormat, setOriginalFormat] = useState('docx');
   const [fields, setFields] = useState<TemplateField[]>([]);
@@ -117,6 +128,10 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [saveError, setSaveError] = useState('');
   const [uploadError, setUploadError] = useState('');
   const [uploading, setUploading] = useState(false);
+
+  // ── Inline confirmation state ─────────────────────────────────────────────
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<number | null>(null);
 
   // ── Preview ───────────────────────────────────────────────────────────────
   const [previewHtml, setPreviewHtml] = useState('');
@@ -145,7 +160,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const loadApiKeys = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await apiFetch('/v1/pdf-studio/templates/api-keys/list', token);
+      const r = await apiFetch('/v1/pdf-studio/templates/api-keys', token);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'Failed to load keys');
       setApiKeys(j.keys ?? []);
@@ -162,6 +177,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       setEditingId(tpl.id);
       setTplName(tpl.name);
       setTplDescription(tpl.description ?? '');
+      setTplPageSize((tpl.page_size as any) ?? 'A4');
+      setTplMarginMm(tpl.margin_mm ?? 20);
       setOriginalFormat(tpl.original_format ?? 'docx');
       // Load full template with fields + rules
       const r = await apiFetch(`/v1/pdf-studio/templates/${tpl.id}`, token!);
@@ -179,6 +196,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       setEditingId(null);
       setTplName('');
       setTplDescription('');
+      setTplPageSize('A4');
+      setTplMarginMm(20);
       setHtmlContent('');
       setOriginalFormat('docx');
       setFields([]);
@@ -239,6 +258,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         description: tplDescription,
         html_content: editorRef.current?.innerHTML ?? htmlContent,
         original_format: originalFormat,
+        page_size: tplPageSize,
+        margin_mm: tplMarginMm,
         fields: fields.map(({ _key, ...f }) => f),
         rules: rules.map(({ _key, ...r }) => r),
       };
@@ -289,26 +310,15 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
   // ── Duplicate template ────────────────────────────────────────────────────
   const handleDuplicate = async (tpl: Template) => {
-    const r = await apiFetch(`/v1/pdf-studio/templates/${tpl.id}`, token!);
-    const j = await r.json();
-    setEditingId(null);
-    setTplName(`${tpl.name} (copy)`);
-    setTplDescription(tpl.description ?? '');
-    setOriginalFormat(tpl.original_format ?? 'docx');
-    setHtmlContent(j.template?.html_content ?? tpl.html_content ?? '');
-    setFields((j.fields ?? []).map((f: any) => ({ ...f, _key: uid() })));
-    setRules((j.rules ?? []).map((r: any) => ({
-      _key: uid(), block_id: r.block_id, rule_type: r.rule_type,
-      rule_config: typeof r.rule_config === 'string' ? JSON.parse(r.rule_config) : (r.rule_config ?? {}),
-    })));
-    setEditorStep(2);
-    setEditing(true);
+    const r = await apiFetch(`/v1/pdf-studio/templates/${tpl.id}/duplicate`, token!, { method: 'POST' });
+    if (!r.ok) return;
+    await loadTemplates();
   };
 
   // ── Delete template ───────────────────────────────────────────────────────
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this template? This cannot be undone.')) return;
     await apiFetch(`/v1/pdf-studio/templates/${id}`, token!, { method: 'DELETE' });
+    setConfirmDeleteId(null);
     await loadTemplates();
   };
 
@@ -347,8 +357,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   };
 
   const handleRevokeKey = async (id: number) => {
-    if (!confirm('Revoke this API key?')) return;
     await apiFetch(`/v1/pdf-studio/templates/api-keys/${id}`, token!, { method: 'DELETE' });
+    setConfirmRevokeId(null);
     await loadApiKeys();
   };
 
@@ -392,6 +402,17 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             className="flex-1 text-lg font-semibold bg-transparent border-none outline-none text-slate-900 dark:text-white placeholder-slate-400"
           />
           <div className="flex items-center gap-2">
+            <select value={tplPageSize} onChange={e => setTplPageSize(e.target.value as any)}
+              className="px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+              <option value="A4">A4</option>
+              <option value="Letter">Letter</option>
+              <option value="Legal">Legal</option>
+            </select>
+            <div className="flex items-center gap-1">
+              <input type="number" min={0} max={50} value={tplMarginMm} onChange={e => setTplMarginMm(Number(e.target.value))}
+                className="w-14 px-2 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <span className="text-xs text-slate-400">mm</span>
+            </div>
             <button onClick={handlePreview} disabled={previewing || !htmlContent}
               className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors">
               {previewing ? 'Rendering…' : 'Preview'}
@@ -511,10 +532,23 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Field schema</h2>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Define the data fields this template accepts. Fields detected from placeholders are pre-filled.</p>
                   </div>
-                  <button onClick={() => setFields(f => [...f, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                    + Add field
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={async () => {
+                      if (!editingId) return;
+                      const r = await apiFetch(`/v1/pdf-studio/templates/${editingId}/extract-schema`, token!, { method: 'POST' });
+                      const j = await r.json();
+                      const existing = new Set(fields.map(f => f.field_name));
+                      const newFields = (j.placeholders ?? []).filter((p: string) => !existing.has(p)).map((p: string) => ({ _key: uid(), field_name: p, field_type: 'string' as const, is_required: false, default_value: '', description: '', parent_field: '' }));
+                      if (newFields.length) setFields(f => [...f, ...newFields]);
+                    }} disabled={!editingId} title={editingId ? undefined : 'Save template first to re-scan'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-40">
+                      ↻ Re-scan
+                    </button>
+                    <button onClick={() => setFields(f => [...f, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                      + Add field
+                    </button>
+                  </div>
                 </div>
 
                 {fields.length === 0 && (
@@ -672,15 +706,28 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       <h3 className="font-semibold text-slate-900 dark:text-white truncate">{tpl.name}</h3>
                       {tpl.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{tpl.description}</p>}
                     </div>
-                    <span className="flex-shrink-0 text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded uppercase">{tpl.original_format}</span>
+                    <div className="flex-shrink-0 flex gap-1">
+                      <span className="text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-medium">{tpl.page_size ?? 'A4'}</span>
+                      <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded uppercase">{tpl.original_format}</span>
+                    </div>
                   </div>
                   <p className="text-xs text-slate-400">Updated {new Date(tpl.updated_at).toLocaleDateString()}</p>
-                  <div className="flex flex-wrap gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
-                    <button onClick={() => openEditor(tpl)} className="flex-1 text-xs text-center px-2 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors font-medium">Open</button>
-                    <button onClick={() => handleDuplicate(tpl)} className="flex-1 text-xs text-center px-2 py-1.5 bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors">Duplicate</button>
-                    <button onClick={() => handleFetchDoc(tpl)} className="flex-1 text-xs text-center px-2 py-1.5 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors font-medium" title="Open in FetchDoc with pre-filled render URL">FetchDoc</button>
-                    <button onClick={() => handleDelete(tpl.id)} className="text-xs px-2 py-1.5 text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Delete</button>
-                  </div>
+                  {confirmDeleteId === tpl.id ? (
+                    <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
+                      <p className="text-xs text-slate-700 dark:text-slate-300 mb-2">Delete <strong>{tpl.name}</strong>? This cannot be undone.</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleDelete(tpl.id)} className="flex-1 text-xs px-2 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors font-medium">Delete</button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="flex-1 text-xs px-2 py-1.5 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
+                      <button onClick={() => openEditor(tpl)} className="flex-1 text-xs text-center px-2 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors font-medium">Open</button>
+                      <button onClick={() => handleDuplicate(tpl)} className="flex-1 text-xs text-center px-2 py-1.5 bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors">Duplicate</button>
+                      <button onClick={() => handleFetchDoc(tpl)} className="flex-1 text-xs text-center px-2 py-1.5 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded hover:bg-green-100 dark:hover:bg-green-900/40 transition-colors font-medium" title="Open in FetchDoc with pre-filled render URL">FetchDoc</button>
+                      <button onClick={() => setConfirmDeleteId(tpl.id)} className="text-xs px-2 py-1.5 text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Delete</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -727,20 +774,43 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             ) : (
               <div className="space-y-2">
                 {apiKeys.map(k => (
-                  <div key={k.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3 flex items-center gap-4">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">{k.name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        <code>{k.key_prefix}…</code>
-                        {' · Created '}{new Date(k.created_at).toLocaleDateString()}
-                        {k.last_used_at ? ` · Last used ${new Date(k.last_used_at).toLocaleDateString()}` : ' · Never used'}
-                      </p>
-                    </div>
-                    <button onClick={() => handleRevokeKey(k.id)} className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 font-medium transition-colors">Revoke</button>
+                  <div key={k.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3">
+                    {confirmRevokeId === k.id ? (
+                      <div>
+                        <p className="text-xs text-slate-700 dark:text-slate-300 mb-2">Revoke key <strong>{k.name}</strong>? Systems using it will be rejected immediately.</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => handleRevokeKey(k.id)} className="text-xs px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors font-medium">Revoke</button>
+                          <button onClick={() => setConfirmRevokeId(null)} className="text-xs px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 dark:text-white">{k.name}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            <code>{k.key_prefix}…</code>
+                            {' · Created '}{new Date(k.created_at).toLocaleDateString()}
+                            {k.last_used_at ? ` · Last used ${new Date(k.last_used_at).toLocaleDateString()}` : ' · Never used'}
+                          </p>
+                        </div>
+                        <button onClick={() => setConfirmRevokeId(k.id)} className="text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 font-medium transition-colors">Revoke</button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
+
+            {/* curl example */}
+            <div className="mt-8 bg-slate-900 dark:bg-slate-950 rounded-xl p-5">
+              <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mb-3">Example request</p>
+              <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap leading-relaxed overflow-x-auto">{`curl -X POST \\
+  ${window.location.origin}/v1/pdf-render/<templateId> \\
+  -H "Authorization: Bearer <your-api-key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"data": {"fieldName": "value"}}' \\
+  --output rendered.pdf`}</pre>
+            </div>
           </div>
         )}
       </div>

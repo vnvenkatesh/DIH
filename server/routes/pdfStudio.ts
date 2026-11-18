@@ -69,7 +69,7 @@ function normalizePlaceholders(html: string): string {
 router.get('/', requireAuth, async (req, res) => {
   const userId = (req as any).user.id;
   const { rows } = await pool.query(
-    `SELECT id, name, description, original_format, created_at, updated_at
+    `SELECT id, name, description, original_format, page_size, margin_mm, created_at, updated_at
      FROM pdf_templates WHERE created_by = $1 ORDER BY updated_at DESC`,
     [userId]
   );
@@ -77,14 +77,16 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // ── API Keys — MUST be before /:id to avoid wildcard capture ─────────────────
-router.get('/api-keys/list', requireAuth, async (req, res) => {
-  const userId = (req as any).user.id;
+async function listApiKeys(req: any, res: any) {
+  const userId = req.user.id;
   const { rows } = await pool.query(
-    `SELECT id, name, key_prefix, last_used_at, created_at FROM pdf_api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
+    `SELECT id, name, key_prefix, last_used_at, created_at FROM pdf_api_keys WHERE user_id = $1 AND revoked = FALSE ORDER BY created_at DESC`,
     [userId]
   );
   res.json({ keys: rows });
-});
+}
+router.get('/api-keys', requireAuth, listApiKeys);
+router.get('/api-keys/list', requireAuth, listApiKeys);
 
 router.post('/api-keys', requireAuth, async (req, res) => {
   const userId = (req as any).user.id;
@@ -106,7 +108,7 @@ router.post('/api-keys', requireAuth, async (req, res) => {
 router.delete('/api-keys/:id', requireAuth, async (req, res) => {
   const userId = (req as any).user.id;
   const { rowCount } = await pool.query(
-    `DELETE FROM pdf_api_keys WHERE id = $1 AND user_id = $2`,
+    `UPDATE pdf_api_keys SET revoked = TRUE WHERE id = $1 AND user_id = $2 AND revoked = FALSE`,
     [req.params.id, userId]
   );
   if (!rowCount) return res.status(404).json({ error: 'Key not found' });
@@ -201,19 +203,66 @@ router.post('/:id/extract-schema', requireAuth, async (req, res) => {
   res.json({ placeholders });
 });
 
+// ── Duplicate template ────────────────────────────────────────────────────────
+router.post('/:id/duplicate', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows: src } = await pool.query(
+    `SELECT * FROM pdf_templates WHERE id = $1 AND created_by = $2`,
+    [req.params.id, userId]
+  );
+  if (!src.length) return res.status(404).json({ error: 'Template not found' });
+  const tpl = src[0];
+
+  const [fieldsRes, rulesRes] = await Promise.all([
+    pool.query(`SELECT * FROM pdf_template_fields WHERE template_id = $1 ORDER BY sort_order`, [req.params.id]),
+    pool.query(`SELECT * FROM pdf_template_rules  WHERE template_id = $1`, [req.params.id]),
+  ]);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: newTpl } = await client.query(
+      `INSERT INTO pdf_templates (name, description, html_content, original_format, page_size, margin_mm, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [`${tpl.name} (copy)`, tpl.description, tpl.html_content, tpl.original_format, tpl.page_size ?? 'A4', tpl.margin_mm ?? 20, userId]
+    );
+    const newId = newTpl[0].id;
+    for (let i = 0; i < fieldsRes.rows.length; i++) {
+      const f = fieldsRes.rows[i];
+      await client.query(
+        `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [newId, f.field_name, f.field_type, f.is_required, f.default_value, f.description, f.parent_field, i]
+      );
+    }
+    for (const r of rulesRes.rows) {
+      await client.query(
+        `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config) VALUES ($1,$2,$3,$4)`,
+        [newId, r.block_id, r.rule_type, JSON.stringify(r.rule_config)]
+      );
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ template: newTpl[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
 // ── Create template ───────────────────────────────────────────────────────────
 router.post('/', requireAuth, async (req, res) => {
   const userId = (req as any).user.id;
-  const { name, description, html_content, original_format, fields, rules } = req.body;
+  const { name, description, html_content, original_format, page_size, margin_mm, fields, rules } = req.body;
   if (!name || !html_content) return res.status(400).json({ error: 'name and html_content required' });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO pdf_templates (name, description, html_content, original_format, created_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name, description ?? '', html_content, original_format ?? 'docx', userId]
+      `INSERT INTO pdf_templates (name, description, html_content, original_format, page_size, margin_mm, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [name, description ?? '', html_content, original_format ?? 'docx', page_size ?? 'A4', margin_mm ?? 20, userId]
     );
     const templateId = rows[0].id;
 
@@ -252,7 +301,7 @@ router.post('/', requireAuth, async (req, res) => {
 // ── Update template ───────────────────────────────────────────────────────────
 router.put('/:id', requireAuth, async (req, res) => {
   const userId = (req as any).user.id;
-  const { name, description, html_content, fields, rules } = req.body;
+  const { name, description, html_content, page_size, margin_mm, fields, rules } = req.body;
 
   const { rows: existing } = await pool.query(
     `SELECT id FROM pdf_templates WHERE id = $1 AND created_by = $2`,
@@ -264,9 +313,9 @@ router.put('/:id', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
     await client.query(
-      `UPDATE pdf_templates SET name=$1, description=$2, html_content=$3, updated_at=NOW()
-       WHERE id=$4`,
-      [name, description ?? '', html_content, req.params.id]
+      `UPDATE pdf_templates SET name=$1, description=$2, html_content=$3, page_size=$4, margin_mm=$5, updated_at=NOW()
+       WHERE id=$6`,
+      [name, description ?? '', html_content, page_size ?? 'A4', margin_mm ?? 20, req.params.id]
     );
 
     // Replace fields

@@ -742,7 +742,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-2 flex items-center justify-between">
           {/* Step pills */}
           <div className="flex items-center gap-0">
-            {(['Upload', 'Schema', 'Edit', 'Rules', 'Preview'] as const).map((label, idx) => {
+            {(['Upload', 'Schema', 'Layout', 'Rules', 'Preview'] as const).map((label, idx) => {
               const step = (idx + 1) as EditorStep;
               const isActive = editorStep === step;
               const isDone = editorStep > step;
@@ -783,7 +783,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             {editorStep === 2 && (
               <button onClick={() => setEditorStep(3)}
                 className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                Edit →
+                Layout →
               </button>
             )}
             {editorStep === 3 && (
@@ -1012,7 +1012,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             </div>
           )}
 
-          {/* ── Step 3: Edit ── */}
+          {/* ── Step 3: Layout ── */}
           {editorStep === 3 && (
             <div className="flex-1 flex overflow-hidden">
               {/* Editor area */}
@@ -1611,7 +1611,7 @@ const FieldsPanel: React.FC<{
             <button key={f._key ?? f.field_name} onClick={() => onInsert(f.field_name)}
               className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-mono transition-colors truncate"
               title={`Insert {{${f.field_name}}}`}>
-              {'{{' + f.field_name + '}}'}
+              {f.field_name}
             </button>
           ))}
         </>
@@ -1627,7 +1627,7 @@ const FieldsPanel: React.FC<{
             <button key={f._key ?? f.field_name} onClick={() => onInsert(f.field_name)}
               className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-700 dark:text-purple-300 font-mono transition-colors truncate"
               title={`Insert {{${f.field_name}}}`}>
-              {'{{' + f.field_name + '}}'}
+              {f.field_name}
             </button>
           ))}
         </>

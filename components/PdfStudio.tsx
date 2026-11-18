@@ -327,7 +327,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
           }
         } catch {}
       }
-      setEditorStep(2);
+      setEditorStep(3);
     } else {
       setEditingId(null);
       setTplName('');
@@ -744,6 +744,12 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
               className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors">
               {previewing ? 'Rendering…' : 'Preview'}
             </button>
+            {editingId && (
+              <button onClick={() => { const tpl = templates.find(t => t.id === editingId); if (tpl) handleFetchDoc(tpl); }}
+                className="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium">
+                Fetch Doc
+              </button>
+            )}
             <button onClick={handleSave} disabled={saving}
               className="px-4 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">
               {saving ? 'Saving…' : 'Save Template'}

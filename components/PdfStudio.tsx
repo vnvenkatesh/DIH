@@ -362,6 +362,117 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     await loadApiKeys();
   };
 
+  // ── Cursor-in-table detection ─────────────────────────────────────────────
+  const [cursorInTable, setCursorInTable] = useState(false);
+
+  useEffect(() => {
+    const checkCursor = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !editorRef.current) { setCursorInTable(false); return; }
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== editorRef.current) {
+        if ((node as Element).tagName === 'TABLE') { setCursorInTable(true); return; }
+        node = node.parentNode;
+      }
+      setCursorInTable(false);
+    };
+    document.addEventListener('selectionchange', checkCursor);
+    return () => document.removeEventListener('selectionchange', checkCursor);
+  }, []);
+
+  const getActiveTable = (): HTMLTableElement | null => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
+    let node: Node | null = sel.getRangeAt(0).startContainer;
+    while (node && node !== editorRef.current) {
+      if ((node as Element).tagName === 'TABLE') return node as HTMLTableElement;
+      node = node.parentNode;
+    }
+    return null;
+  };
+
+  const getActiveCell = (): HTMLTableCellElement | null => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
+    let node: Node | null = sel.getRangeAt(0).startContainer;
+    while (node && node !== editorRef.current) {
+      const tag = (node as Element).tagName;
+      if (tag === 'TD' || tag === 'TH') return node as HTMLTableCellElement;
+      node = node.parentNode;
+    }
+    return null;
+  };
+
+  const getActiveRow = (): HTMLTableRowElement | null => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
+    let node: Node | null = sel.getRangeAt(0).startContainer;
+    while (node && node !== editorRef.current) {
+      if ((node as Element).tagName === 'TR') return node as HTMLTableRowElement;
+      node = node.parentNode;
+    }
+    return null;
+  };
+
+  // ── Table commands ────────────────────────────────────────────────────────
+  const insertTable = () => {
+    const cell = 'style="border:1px solid #000000;padding:4px 8px;min-width:60px"';
+    const row = `<tr><td ${cell}>&nbsp;</td><td ${cell}>&nbsp;</td><td ${cell}>&nbsp;</td></tr>`;
+    const tableHtml = `<table style="border-collapse:collapse;width:100%"><tbody>${row}${row}${row}</tbody></table><p><br></p>`;
+    editorRef.current?.focus();
+    document.execCommand('insertHTML', false, tableHtml);
+    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
+  const addTableRow = () => {
+    const tr = getActiveRow();
+    if (!tr) return;
+    const newRow = tr.cloneNode(true) as HTMLTableRowElement;
+    newRow.querySelectorAll('td,th').forEach(c => { c.innerHTML = '&nbsp;'; });
+    tr.parentNode?.insertBefore(newRow, tr.nextSibling);
+    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
+  const removeTableRow = () => {
+    const tr = getActiveRow();
+    if (!tr) return;
+    const table = getActiveTable();
+    if (table && table.rows.length <= 1) return; // keep at least one row
+    tr.remove();
+    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
+  const addTableColumn = () => {
+    const table = getActiveTable();
+    const td = getActiveCell();
+    if (!table || !td) return;
+    const colIdx = td.cellIndex;
+    Array.from(table.rows).forEach(row => {
+      const newCell = row.cells[0]?.cloneNode(false) as HTMLTableCellElement ?? document.createElement('td');
+      newCell.innerHTML = '&nbsp;';
+      if (row.cells[colIdx + 1]) row.insertBefore(newCell, row.cells[colIdx + 1]);
+      else row.appendChild(newCell);
+    });
+    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
+  const removeTableColumn = () => {
+    const table = getActiveTable();
+    const td = getActiveCell();
+    if (!table || !td) return;
+    if (table.rows[0] && table.rows[0].cells.length <= 1) return; // keep at least one column
+    const colIdx = td.cellIndex;
+    Array.from(table.rows).forEach(row => { if (row.cells[colIdx]) row.deleteCell(colIdx); });
+    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
+  const deleteTable = () => {
+    const table = getActiveTable();
+    if (!table) return;
+    table.remove();
+    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
   // ── Insert placeholder into editor ────────────────────────────────────────
   const insertPlaceholder = (fieldName: string) => {
     if (!editorRef.current) return;
@@ -503,6 +614,20 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
                   <ToolbarBtn onClick={() => execCmd('undo')} title="Undo">↩</ToolbarBtn>
                   <ToolbarBtn onClick={() => execCmd('redo')} title="Redo">↪</ToolbarBtn>
+                  <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
+                  <ToolbarBtn onClick={insertTable} title="Insert 3×3 table">⊞ Table</ToolbarBtn>
+                  {cursorInTable && (
+                    <>
+                      <div className="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1" />
+                      <span className="text-[10px] text-slate-400 font-medium px-1">Row:</span>
+                      <ToolbarBtn onClick={addTableRow} title="Add row below">+Row</ToolbarBtn>
+                      <ToolbarBtn onClick={removeTableRow} title="Remove current row">−Row</ToolbarBtn>
+                      <span className="text-[10px] text-slate-400 font-medium px-1">Col:</span>
+                      <ToolbarBtn onClick={addTableColumn} title="Add column after">+Col</ToolbarBtn>
+                      <ToolbarBtn onClick={removeTableColumn} title="Remove current column">−Col</ToolbarBtn>
+                      <ToolbarBtn onClick={deleteTable} title="Delete entire table" className="text-red-500 hover:text-red-700">✕ Table</ToolbarBtn>
+                    </>
+                  )}
                 </div>
                 {/* Page */}
                 <div className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6">
@@ -512,7 +637,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       contentEditable
                       suppressContentEditableWarning
                       onInput={() => { if (editorRef.current) setHtmlContent(editorRef.current.innerHTML); }}
-                      className="outline-none min-h-[800px] text-slate-800 dark:text-slate-200 leading-relaxed"
+                      className="outline-none min-h-[800px] text-slate-800 dark:text-slate-200 leading-relaxed [&_table]:border-collapse [&_table]:w-full [&_td]:border [&_td]:border-slate-300 [&_td]:p-1 [&_th]:border [&_th]:border-slate-300 [&_th]:p-1 [&_th]:bg-slate-50 dark:[&_td]:border-slate-600 dark:[&_th]:border-slate-600 dark:[&_th]:bg-slate-700"
                       style={{ fontFamily: 'Arial, sans-serif', fontSize: '14px' }}
                     />
                   </div>
@@ -555,9 +680,18 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   <div className="text-center py-16 text-slate-400">No fields yet. Add a field or go back to Step 2 and insert placeholders.</div>
                 )}
 
+                {fields.length > 0 && (
+                  <div className="hidden md:flex gap-3 px-4 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                    <span className="flex-1 min-w-[120px]">Name</span>
+                    <span className="w-28 flex-none">Type</span>
+                    <span className="w-36 flex-none">Parent (loop child)</span>
+                    <span className="whitespace-nowrap">Required</span>
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   {fields.map((f, idx) => (
-                    <FieldRow key={f._key} field={f}
+                    <FieldRow key={f._key} field={f} allFields={fields}
                       onChange={updated => setFields(prev => prev.map((x, i) => i === idx ? updated : x))}
                       onRemove={() => setFields(prev => prev.filter((_, i) => i !== idx))}
                     />
@@ -820,9 +954,9 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-const ToolbarBtn: React.FC<{ onClick: () => void; title: string; children: React.ReactNode }> = ({ onClick, title, children }) => (
+const ToolbarBtn: React.FC<{ onClick: () => void; title: string; children: React.ReactNode; className?: string }> = ({ onClick, title, children, className }) => (
   <button onMouseDown={e => { e.preventDefault(); onClick(); }} title={title}
-    className="px-2 py-1 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors min-w-[26px] text-center">
+    className={`px-2 py-1 text-xs hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors min-w-[26px] text-center ${className ?? 'text-slate-600 dark:text-slate-300'}`}>
     {children}
   </button>
 );
@@ -851,22 +985,47 @@ const FieldsPanel: React.FC<{ fields: TemplateField[]; onInsert: (name: string) 
   </div>
 );
 
-const FieldRow: React.FC<{ field: TemplateField; onChange: (f: TemplateField) => void; onRemove: () => void }> = ({ field, onChange, onRemove }) => {
+const FieldRow: React.FC<{
+  field: TemplateField;
+  allFields: TemplateField[];
+  onChange: (f: TemplateField) => void;
+  onRemove: () => void;
+}> = ({ field, allFields, onChange, onRemove }) => {
   const inp = 'flex-1 px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
+  // Available parents: other fields typed array or object (not self)
+  const parentOptions = allFields.filter(
+    f => (f.field_type === 'array' || f.field_type === 'object') && f.field_name !== field.field_name && f.field_name
+  );
   return (
     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap">
         <input value={field.field_name} onChange={e => onChange({ ...field, field_name: e.target.value })}
-          placeholder="field_name" className={`${inp} font-mono`} />
+          placeholder="field_name" className={`${inp} font-mono min-w-[120px]`} />
         <select value={field.field_type} onChange={e => onChange({ ...field, field_type: e.target.value as TemplateField['field_type'] })}
-          className={`w-28 ${inp}`}>
+          className={`w-28 flex-none px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500`}>
           {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        {/* Parent: select for all fields — marks this field as a child of a loop array */}
+        <select
+          value={field.parent_field ?? ''}
+          onChange={e => onChange({ ...field, parent_field: e.target.value })}
+          className={`w-36 flex-none px-2.5 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+            field.parent_field
+              ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200'
+              : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+          }`}
+          title="Parent array/object field (marks this as a child field for loops)"
+        >
+          <option value="">(no parent)</option>
+          {parentOptions.map(p => (
+            <option key={p.field_name} value={p.field_name}>{p.field_name}</option>
+          ))}
         </select>
         <label className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
           <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })} className="rounded" />
           Required
         </label>
-        <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors" title="Remove field">
+        <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors ml-auto" title="Remove field">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -877,11 +1036,13 @@ const FieldRow: React.FC<{ field: TemplateField; onChange: (f: TemplateField) =>
           placeholder="Default value" className={inp} />
         <input value={field.description} onChange={e => onChange({ ...field, description: e.target.value })}
           placeholder="Description" className={`${inp} flex-[2]`} />
-        {(field.field_type === 'array' || field.field_type === 'object') && (
-          <input value={field.parent_field} onChange={e => onChange({ ...field, parent_field: e.target.value })}
-            placeholder="Parent field" className={`${inp} w-32`} />
-        )}
       </div>
+      {/* Child indicator badge */}
+      {field.parent_field && (
+        <p className="text-xs text-purple-600 dark:text-purple-400">
+          ↳ Child of <strong>{field.parent_field}</strong> — supplied per array item, not at top level
+        </p>
+      )}
     </div>
   );
 };

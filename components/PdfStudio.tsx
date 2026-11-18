@@ -659,32 +659,79 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
           </div>
         </div>
 
-        {/* Step indicator */}
-        <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-2 flex items-center gap-0">
-          {(['Upload', 'Edit', 'Schema', 'Rules', 'Preview'] as const).map((label, idx) => {
-            const step = (idx + 1) as EditorStep;
-            const isActive = editorStep === step;
-            const isDone = editorStep > step;
-            return (
-              <React.Fragment key={step}>
-                {idx > 0 && <div className={`h-px w-8 ${isDone ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-600'}`} />}
-                <button
-                  onClick={() => { if (step < 5 || previewHtml) { captureEditorHtml(); setEditorStep(step); } }}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                    isActive ? 'bg-indigo-600 text-white' :
-                    isDone ? 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20' :
-                    'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                  }`}>
-                  <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center ${
-                    isActive ? 'bg-white text-indigo-600' :
-                    isDone ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600' :
-                    'bg-slate-200 dark:bg-slate-600 text-slate-500'
-                  }`}>{isDone ? '✓' : step}</span>
-                  {label}
+        {/* Step indicator + nav */}
+        <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-2 flex items-center justify-between">
+          {/* Step pills */}
+          <div className="flex items-center gap-0">
+            {(['Upload', 'Edit', 'Schema', 'Rules', 'Preview'] as const).map((label, idx) => {
+              const step = (idx + 1) as EditorStep;
+              const isActive = editorStep === step;
+              const isDone = editorStep > step;
+              return (
+                <React.Fragment key={step}>
+                  {idx > 0 && <div className={`h-px w-8 ${isDone ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-600'}`} />}
+                  <button
+                    onClick={() => { if (step < 5 || previewHtml) { captureEditorHtml(); setEditorStep(step); } }}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      isActive ? 'bg-indigo-600 text-white' :
+                      isDone ? 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20' :
+                      'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                    }`}>
+                    <span className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center ${
+                      isActive ? 'bg-white text-indigo-600' :
+                      isDone ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-600' :
+                      'bg-slate-200 dark:bg-slate-600 text-slate-500'
+                    }`}>{isDone ? '✓' : step}</span>
+                    {label}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Nav buttons — right-aligned */}
+          <div className="flex items-center gap-2 pl-4">
+            {editorStep >= 2 && (
+              <button
+                onClick={() => {
+                  if (editorStep === 2) { captureEditorHtml(); setEditorStep(1); }
+                  else setEditorStep((editorStep - 1) as EditorStep);
+                }}
+                className="px-3 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                ← Back
+              </button>
+            )}
+            {editorStep === 2 && (
+              <button onClick={() => { captureEditorHtml(); setEditorStep(3); }}
+                className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                Schema →
+              </button>
+            )}
+            {editorStep === 3 && (
+              <button onClick={() => setEditorStep(4)}
+                className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                Rules →
+              </button>
+            )}
+            {editorStep === 4 && (
+              <>
+                <button onClick={handleSave} disabled={saving}
+                  className="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                  {saving ? 'Saving…' : 'Save'}
                 </button>
-              </React.Fragment>
-            );
-          })}
+                <button onClick={handlePreview} disabled={previewing}
+                  className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                  {previewing ? 'Rendering…' : 'Preview →'}
+                </button>
+              </>
+            )}
+            {editorStep === 5 && (
+              <button onClick={handlePreview} disabled={previewing}
+                className="px-3 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                {previewing ? '…' : 'Refresh'}
+              </button>
+            )}
+          </div>
         </div>
 
         {saveError && (
@@ -768,7 +815,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 </div>
               </div>
               {/* Fields panel */}
-              <FieldsPanel fields={fields} onInsert={insertPlaceholder} onNext={() => { captureEditorHtml(); setEditorStep(3); }} />
+              <FieldsPanel fields={fields} onInsert={insertPlaceholder} />
             </div>
           )}
 
@@ -822,10 +869,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   ))}
                 </div>
 
-                <div className="mt-8 flex gap-3">
-                  <button onClick={() => setEditorStep(2)} className="px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">← Back</button>
-                  <button onClick={() => setEditorStep(4)} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">Next: Rules →</button>
-                </div>
               </div>
             </div>
           )}
@@ -864,12 +907,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   ))}
                 </div>
 
-                <div className="mt-8 flex gap-3">
-                  <button onClick={() => setEditorStep(3)} className="px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">← Back</button>
-                  <button onClick={handleSave} disabled={saving} className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 transition-colors">{saving ? 'Saving…' : 'Save Template'}</button>
-                  <button onClick={handlePreview} disabled={previewing} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">{previewing ? 'Rendering…' : 'Preview →'}</button>
-                </div>
-                {previewError && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{previewError}</p>}
+                {previewError && <p className="mt-6 text-sm text-red-600 dark:text-red-400">{previewError}</p>}
               </div>
             </div>
           )}
@@ -880,10 +918,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
               <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-2 flex items-center gap-3">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">HTML Preview</span>
                 <span className="text-xs text-slate-400">(rendered with sample data)</span>
-                <div className="ml-auto flex gap-2">
-                  <button onClick={() => setEditorStep(4)} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">← Back to Rules</button>
-                  <button onClick={handlePreview} disabled={previewing} className="px-3 py-1 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-colors disabled:opacity-50">{previewing ? '…' : 'Refresh'}</button>
-                </div>
               </div>
               <iframe
                 srcDoc={previewHtml}
@@ -1309,7 +1343,7 @@ const ToolbarBtn: React.FC<{ onClick: () => void; title: string; children: React
   </button>
 );
 
-const FieldsPanel: React.FC<{ fields: TemplateField[]; onInsert: (name: string) => void; onNext: () => void }> = ({ fields, onInsert, onNext }) => (
+const FieldsPanel: React.FC<{ fields: TemplateField[]; onInsert: (name: string) => void }> = ({ fields, onInsert }) => (
   <div className="w-56 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
     <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
       <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Fields</h3>
@@ -1324,11 +1358,6 @@ const FieldsPanel: React.FC<{ fields: TemplateField[]; onInsert: (name: string) 
           {'{{' + f.field_name + '}}'}
         </button>
       ))}
-    </div>
-    <div className="px-3 py-3 border-t border-slate-200 dark:border-slate-700">
-      <button onClick={onNext} className="w-full py-1.5 text-xs text-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-        Next: Schema →
-      </button>
     </div>
   </div>
 );

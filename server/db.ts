@@ -272,6 +272,43 @@ export async function initDb(): Promise<void> {
   await pool.query(`ALTER TABLE pdf_templates ADD COLUMN IF NOT EXISTS page_size VARCHAR(10) DEFAULT 'A4'`);
   await pool.query(`ALTER TABLE pdf_templates ADD COLUMN IF NOT EXISTS margin_mm INTEGER DEFAULT 20`);
 
+  // ── DocuComp Projects ────────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_projects (
+      id          SERIAL PRIMARY KEY,
+      name        VARCHAR(200) NOT NULL,
+      description TEXT         DEFAULT '',
+      created_by  INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at  TIMESTAMPTZ  DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_projects_user ON pdf_projects(created_by)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_project_templates (
+      project_id  INTEGER NOT NULL REFERENCES pdf_projects(id) ON DELETE CASCADE,
+      template_id INTEGER NOT NULL REFERENCES pdf_templates(id) ON DELETE CASCADE,
+      added_at    TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (project_id, template_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pdf_project_fields (
+      id            SERIAL PRIMARY KEY,
+      project_id    INTEGER      NOT NULL REFERENCES pdf_projects(id) ON DELETE CASCADE,
+      field_name    VARCHAR(200) NOT NULL,
+      field_type    VARCHAR(50)  NOT NULL DEFAULT 'string',
+      is_required   BOOLEAN      DEFAULT FALSE,
+      default_value TEXT         DEFAULT '',
+      description   TEXT         DEFAULT '',
+      parent_field  VARCHAR(200) DEFAULT NULL,
+      sort_order    INTEGER      DEFAULT 0
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_project_fields_project ON pdf_project_fields(project_id)`);
+
   console.log('[db] initDb: schema ready');
 
   // ── Ensure AdminCo company exists ─────────────────────────────────────────

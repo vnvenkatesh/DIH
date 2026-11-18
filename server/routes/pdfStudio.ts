@@ -65,15 +65,159 @@ function normalizePlaceholders(html: string): string {
   return html;
 }
 
-// ── List templates ────────────────────────────────────────────────────────────
+// ── List templates (with project memberships) ─────────────────────────────────
 router.get('/', requireAuth, async (req, res) => {
   const userId = (req as any).user.id;
   const { rows } = await pool.query(
-    `SELECT id, name, description, original_format, page_size, margin_mm, created_at, updated_at
-     FROM pdf_templates WHERE created_by = $1 ORDER BY updated_at DESC`,
+    `SELECT t.id, t.name, t.description, t.original_format, t.page_size, t.margin_mm, t.created_at, t.updated_at,
+            COALESCE(
+              json_agg(DISTINCT jsonb_build_object('id', p.id, 'name', p.name))
+              FILTER (WHERE p.id IS NOT NULL), '[]'::json
+            ) AS projects
+     FROM pdf_templates t
+     LEFT JOIN pdf_project_templates pt ON pt.template_id = t.id
+     LEFT JOIN pdf_projects p ON p.id = pt.project_id
+     WHERE t.created_by = $1
+     GROUP BY t.id ORDER BY t.updated_at DESC`,
     [userId]
   );
   res.json({ templates: rows });
+});
+
+// ── Projects — all before /:id wildcard ───────────────────────────────────────
+
+router.get('/projects', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows } = await pool.query(
+    `SELECT p.id, p.name, p.description, p.created_at, p.updated_at,
+            COUNT(pt.template_id)::int AS template_count
+     FROM pdf_projects p
+     LEFT JOIN pdf_project_templates pt ON pt.project_id = p.id
+     WHERE p.created_by = $1
+     GROUP BY p.id ORDER BY p.updated_at DESC`,
+    [userId]
+  );
+  res.json({ projects: rows });
+});
+
+router.post('/projects', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { name, description } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  const { rows } = await pool.query(
+    `INSERT INTO pdf_projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING *`,
+    [name.trim(), description ?? '', userId]
+  );
+  res.status(201).json({ project: { ...rows[0], template_count: 0 } });
+});
+
+router.get('/projects/:projectId', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows: projects } = await pool.query(
+    `SELECT * FROM pdf_projects WHERE id = $1 AND created_by = $2`,
+    [req.params.projectId, userId]
+  );
+  if (!projects.length) return res.status(404).json({ error: 'Project not found' });
+
+  const { rows: templates } = await pool.query(
+    `SELECT t.id, t.name, t.description, t.original_format, t.page_size, t.margin_mm, t.created_at, t.updated_at
+     FROM pdf_templates t
+     JOIN pdf_project_templates pt ON pt.template_id = t.id
+     WHERE pt.project_id = $1 ORDER BY pt.added_at DESC`,
+    [req.params.projectId]
+  );
+  const { rows: schema } = await pool.query(
+    `SELECT * FROM pdf_project_fields WHERE project_id = $1 ORDER BY sort_order`,
+    [req.params.projectId]
+  );
+  res.json({ project: projects[0], templates, schema });
+});
+
+router.put('/projects/:projectId', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { name, description, schema } = req.body;
+  const { rows } = await pool.query(
+    `SELECT id FROM pdf_projects WHERE id = $1 AND created_by = $2`,
+    [req.params.projectId, userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Project not found' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (name !== undefined) {
+      await client.query(
+        `UPDATE pdf_projects SET name=$1, description=$2, updated_at=NOW() WHERE id=$3`,
+        [name, description ?? '', req.params.projectId]
+      );
+    }
+    if (schema !== undefined) {
+      await client.query(`DELETE FROM pdf_project_fields WHERE project_id = $1`, [req.params.projectId]);
+      for (let i = 0; i < (schema as any[]).length; i++) {
+        const f = (schema as any[])[i];
+        await client.query(
+          `INSERT INTO pdf_project_fields (project_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [req.params.projectId, f.field_name, f.field_type ?? 'string', f.is_required ?? false,
+           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i]
+        );
+      }
+    }
+    await client.query('COMMIT');
+    const { rows: updated } = await pool.query(`SELECT * FROM pdf_projects WHERE id = $1`, [req.params.projectId]);
+    res.json({ project: updated[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+router.delete('/projects/:projectId', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rowCount } = await pool.query(
+    `DELETE FROM pdf_projects WHERE id = $1 AND created_by = $2`,
+    [req.params.projectId, userId]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'Project not found' });
+  res.status(204).send();
+});
+
+router.post('/projects/:projectId/templates', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { template_id } = req.body;
+  const { rows: proj } = await pool.query(
+    `SELECT id FROM pdf_projects WHERE id = $1 AND created_by = $2`,
+    [req.params.projectId, userId]
+  );
+  if (!proj.length) return res.status(404).json({ error: 'Project not found' });
+  const { rows: tpl } = await pool.query(
+    `SELECT id FROM pdf_templates WHERE id = $1 AND created_by = $2`,
+    [template_id, userId]
+  );
+  if (!tpl.length) return res.status(404).json({ error: 'Template not found' });
+  await pool.query(
+    `INSERT INTO pdf_project_templates (project_id, template_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [req.params.projectId, template_id]
+  );
+  await pool.query(`UPDATE pdf_projects SET updated_at=NOW() WHERE id=$1`, [req.params.projectId]);
+  res.status(201).json({ ok: true });
+});
+
+router.delete('/projects/:projectId/templates/:templateId', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows } = await pool.query(
+    `SELECT id FROM pdf_projects WHERE id = $1 AND created_by = $2`,
+    [req.params.projectId, userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Project not found' });
+  await pool.query(
+    `DELETE FROM pdf_project_templates WHERE project_id = $1 AND template_id = $2`,
+    [req.params.projectId, req.params.templateId]
+  );
+  await pool.query(`UPDATE pdf_projects SET updated_at=NOW() WHERE id=$1`, [req.params.projectId]);
+  res.status(204).send();
 });
 
 // ── API Keys — MUST be before /:id to avoid wildcard capture ─────────────────

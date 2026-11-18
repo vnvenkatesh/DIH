@@ -13,6 +13,7 @@ interface Template {
   margin_mm: number;
   created_at: string;
   updated_at: string;
+  projects?: { id: number; name: string }[];
 }
 
 interface TemplateField {
@@ -45,7 +46,24 @@ interface ApiKey {
   created_at: string;
 }
 
-type ActiveTab = 'templates' | 'apikeys';
+interface Project {
+  id: number;
+  name: string;
+  description: string;
+  template_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProjectDetail {
+  id: number;
+  name: string;
+  description: string;
+  templates: Template[];
+  schema: TemplateField[];
+}
+
+type ActiveTab = 'projects' | 'templates' | 'apikeys';
 type EditorStep = 1 | 2 | 3 | 4 | 5;
 
 interface Props {
@@ -101,11 +119,26 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const { token } = useAuth();
 
   // ── List view state ────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<ActiveTab>('templates');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('projects');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState('');
+
+  // ── Projects state ────────────────────────────────────────────────────────
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState('');
+  const [openProject, setOpenProject] = useState<ProjectDetail | null>(null);
+  const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<number | null>(null);
+  const [showNewProjectForm, setShowNewProjectForm] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectDesc, setNewProjectDesc] = useState('');
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [showAddExistingModal, setShowAddExistingModal] = useState(false);
+  const [projectSchema, setProjectSchema] = useState<TemplateField[]>([]);
+  const [savingProjectSchema, setSavingProjectSchema] = useState(false);
+  const [creatingInProjectId, setCreatingInProjectId] = useState<number | null>(null);
 
   // ── API key creation ──────────────────────────────────────────────────────
   const [newKeyName, setNewKeyName] = useState('');
@@ -167,8 +200,30 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     } catch {}
   }, [token]);
 
+  const loadProjects = useCallback(async () => {
+    if (!token) return;
+    setProjectsLoading(true); setProjectsError('');
+    try {
+      const r = await apiFetch('/v1/pdf-studio/templates/projects', token);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? 'Failed to load projects');
+      setProjects(j.projects ?? []);
+    } catch (e: any) { setProjectsError(e.message); }
+    finally { setProjectsLoading(false); }
+  }, [token]);
+
+  const loadProjectDetail = useCallback(async (id: number) => {
+    if (!token) return;
+    const r = await apiFetch(`/v1/pdf-studio/templates/projects/${id}`, token);
+    const j = await r.json();
+    if (!r.ok) return;
+    setOpenProject({ id: j.project.id, name: j.project.name, description: j.project.description, templates: j.templates ?? [], schema: j.schema ?? [] });
+    setProjectSchema((j.schema ?? []).map((f: any) => ({ ...f, _key: uid() })));
+  }, [token]);
+
   useEffect(() => { loadTemplates(); }, [loadTemplates]);
   useEffect(() => { if (activeTab === 'apikeys') loadApiKeys(); }, [activeTab, loadApiKeys]);
+  useEffect(() => { if (activeTab === 'projects') loadProjects(); }, [activeTab, loadProjects]);
 
   // ── Open template for editing ─────────────────────────────────────────────
   const openEditor = async (tpl?: Template) => {
@@ -273,7 +328,20 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? 'Save failed');
-      if (!editingId) setEditingId(j.template?.id ?? null);
+      const newId = j.template?.id ?? null;
+      if (!editingId) {
+        setEditingId(newId);
+        // If created from within a project, link it
+        if (newId && creatingInProjectId) {
+          await apiFetch(`/v1/pdf-studio/templates/projects/${creatingInProjectId}/templates`, token!, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ template_id: newId }),
+          });
+          setCreatingInProjectId(null);
+          await loadProjects();
+        }
+      }
       await loadTemplates();
     } catch (e: any) {
       setSaveError(e.message);
@@ -360,6 +428,62 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     await apiFetch(`/v1/pdf-studio/templates/api-keys/${id}`, token!, { method: 'DELETE' });
     setConfirmRevokeId(null);
     await loadApiKeys();
+  };
+
+  // ── Project handlers ──────────────────────────────────────────────────────
+  const handleCreateProject = async () => {
+    if (!newProjectName.trim()) return;
+    setCreatingProject(true);
+    try {
+      const r = await apiFetch('/v1/pdf-studio/templates/projects', token!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newProjectName.trim(), description: newProjectDesc }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? 'Failed to create project');
+      setNewProjectName(''); setNewProjectDesc(''); setShowNewProjectForm(false);
+      await loadProjects();
+    } catch {}
+    finally { setCreatingProject(false); }
+  };
+
+  const handleDeleteProject = async (id: number) => {
+    await apiFetch(`/v1/pdf-studio/templates/projects/${id}`, token!, { method: 'DELETE' });
+    setConfirmDeleteProjectId(null);
+    if (openProject?.id === id) setOpenProject(null);
+    await loadProjects();
+  };
+
+  const handleAddTemplateToProject = async (templateId: number) => {
+    if (!openProject) return;
+    await apiFetch(`/v1/pdf-studio/templates/projects/${openProject.id}/templates`, token!, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id: templateId }),
+    });
+    setShowAddExistingModal(false);
+    await Promise.all([loadTemplates(), loadProjectDetail(openProject.id)]);
+  };
+
+  const handleRemoveTemplateFromProject = async (templateId: number) => {
+    if (!openProject) return;
+    await apiFetch(`/v1/pdf-studio/templates/projects/${openProject.id}/templates/${templateId}`, token!, { method: 'DELETE' });
+    await loadProjectDetail(openProject.id);
+  };
+
+  const handleSaveProjectSchema = async () => {
+    if (!openProject) return;
+    setSavingProjectSchema(true);
+    try {
+      const r = await apiFetch(`/v1/pdf-studio/templates/projects/${openProject.id}`, token!, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: openProject.name, description: openProject.description, schema: projectSchema.map(({ _key, ...f }) => f) }),
+      });
+      if (r.ok) await loadProjectDetail(openProject.id);
+    } catch {}
+    finally { setSavingProjectSchema(false); }
   };
 
   // ── Cursor-in-table detection ─────────────────────────────────────────────
@@ -796,15 +920,212 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
       {/* Tabs */}
       <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 flex gap-6">
-        {(['templates', 'apikeys'] as ActiveTab[]).map(tab => (
+        {(['projects', 'templates', 'apikeys'] as ActiveTab[]).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-            {tab === 'templates' ? 'Templates' : 'API Keys'}
+            {tab === 'projects' ? 'Projects' : tab === 'templates' ? 'Templates' : 'API Keys'}
           </button>
         ))}
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
+
+        {/* ── Projects tab ── */}
+        {activeTab === 'projects' && (
+          <>
+            {/* Project detail view */}
+            {openProject ? (
+              <div className="max-w-4xl">
+                {/* Back + header */}
+                <div className="flex items-center gap-3 mb-6">
+                  <button onClick={() => setOpenProject(null)} className="text-sm text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center gap-1 transition-colors">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                    All Projects
+                  </button>
+                  <span className="text-slate-300 dark:text-slate-600">/</span>
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">{openProject.name}</h2>
+                </div>
+
+                {/* Templates in project */}
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Templates</h3>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setCreatingInProjectId(openProject.id); openEditor(); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                        + New Template
+                      </button>
+                      <button onClick={() => { loadTemplates(); setShowAddExistingModal(true); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        + Add Existing
+                      </button>
+                    </div>
+                  </div>
+
+                  {openProject.templates.length === 0 ? (
+                    <div className="text-center py-10 text-slate-400 text-sm bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 rounded-xl">
+                      No templates in this project yet.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {openProject.templates.map(tpl => (
+                        <div key={tpl.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-slate-900 dark:text-white truncate">{tpl.name}</p>
+                            {tpl.description && <p className="text-xs text-slate-400 mt-0.5 truncate">{tpl.description}</p>}
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <button onClick={() => openEditor(tpl)} className="text-xs px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 transition-colors">Open</button>
+                            <button onClick={() => handleRemoveTemplateFromProject(tpl.id)} className="text-xs px-2.5 py-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Remove</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Common schema */}
+                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Common Schema</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">Fields shared across all templates in this project.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setProjectSchema(s => [...s, { _key: uid(), field_name: '', field_type: 'string', is_required: false, default_value: '', description: '', parent_field: '' }])}
+                        className="text-xs px-3 py-1.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        + Field
+                      </button>
+                      <button onClick={handleSaveProjectSchema} disabled={savingProjectSchema}
+                        className="text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+                        {savingProjectSchema ? 'Saving…' : 'Save Schema'}
+                      </button>
+                    </div>
+                  </div>
+                  {projectSchema.length === 0 ? (
+                    <p className="text-sm text-slate-400 text-center py-6">No shared fields yet.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {projectSchema.map((f, idx) => (
+                        <FieldRow key={f._key} field={f} allFields={projectSchema}
+                          onChange={updated => setProjectSchema(prev => prev.map((x, i) => i === idx ? updated : x))}
+                          onRemove={() => setProjectSchema(prev => prev.filter((_, i) => i !== idx))}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Project list view */
+              <>
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Projects</h2>
+                  <button onClick={() => setShowNewProjectForm(v => !v)}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                    New Project
+                  </button>
+                </div>
+
+                {showNewProjectForm && (
+                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 mb-6">
+                    <h3 className="text-sm font-medium text-slate-900 dark:text-white mb-3">Create project</h3>
+                    <div className="space-y-3">
+                      <input value={newProjectName} onChange={e => setNewProjectName(e.target.value)}
+                        placeholder="Project name"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <input value={newProjectDesc} onChange={e => setNewProjectDesc(e.target.value)}
+                        placeholder="Description (optional)"
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <div className="flex gap-3 justify-end">
+                        <button onClick={() => { setShowNewProjectForm(false); setNewProjectName(''); setNewProjectDesc(''); }}
+                          className="px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                          Cancel
+                        </button>
+                        <button onClick={handleCreateProject} disabled={creatingProject || !newProjectName.trim()}
+                          className="px-4 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">
+                          {creatingProject ? 'Creating…' : 'Create'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {projectsLoading && <div className="text-sm text-slate-400 py-8 text-center">Loading…</div>}
+                {projectsError && <div className="text-sm text-red-600 dark:text-red-400 py-4">{projectsError}</div>}
+
+                {!projectsLoading && projects.length === 0 && (
+                  <div className="text-center py-20">
+                    <svg className="w-16 h-16 text-slate-200 dark:text-slate-700 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">No projects yet.</p>
+                    <button onClick={() => setShowNewProjectForm(true)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition-colors">Create your first project</button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {projects.map(proj => (
+                    <div key={proj.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-slate-900 dark:text-white truncate">{proj.name}</h3>
+                          {proj.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{proj.description}</p>}
+                        </div>
+                        <span className="flex-shrink-0 text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded font-medium whitespace-nowrap">
+                          {proj.template_count ?? 0} template{(proj.template_count ?? 0) !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400">Updated {new Date(proj.updated_at).toLocaleDateString()}</p>
+                      {confirmDeleteProjectId === proj.id ? (
+                        <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
+                          <p className="text-xs text-slate-700 dark:text-slate-300 mb-2">Delete <strong>{proj.name}</strong>? Templates are not deleted.</p>
+                          <div className="flex gap-2">
+                            <button onClick={() => handleDeleteProject(proj.id)} className="flex-1 text-xs px-2 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors font-medium">Delete</button>
+                            <button onClick={() => setConfirmDeleteProjectId(null)} className="flex-1 text-xs px-2 py-1.5 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
+                          <button onClick={() => loadProjectDetail(proj.id)} className="flex-1 text-xs text-center px-2 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors font-medium">Open</button>
+                          <button onClick={() => setConfirmDeleteProjectId(proj.id)} className="text-xs px-2 py-1.5 text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Delete</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Add Existing Template modal */}
+            {showAddExistingModal && openProject && (
+              <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowAddExistingModal(false)}>
+                <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-4">Add existing template to "{openProject.name}"</h3>
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {templates.filter(t => !openProject.templates.some(pt => pt.id === t.id)).length === 0 ? (
+                      <p className="text-sm text-slate-400 text-center py-6">All templates are already in this project.</p>
+                    ) : templates.filter(t => !openProject.templates.some(pt => pt.id === t.id)).map(tpl => (
+                      <div key={tpl.id} className="flex items-center justify-between gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{tpl.name}</p>
+                          {tpl.description && <p className="text-xs text-slate-400 truncate">{tpl.description}</p>}
+                        </div>
+                        <button onClick={() => handleAddTemplateToProject(tpl.id)} className="flex-shrink-0 text-xs px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">Add</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button onClick={() => setShowAddExistingModal(false)} className="px-4 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Close</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {/* ── Templates tab ── */}
         {activeTab === 'templates' && (
@@ -845,6 +1166,15 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       <span className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded uppercase">{tpl.original_format}</span>
                     </div>
                   </div>
+                  {tpl.projects && tpl.projects.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {tpl.projects.map(p => (
+                        <span key={p.id} className="text-[11px] bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
+                          {p.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <p className="text-xs text-slate-400">Updated {new Date(tpl.updated_at).toLocaleDateString()}</p>
                   {confirmDeleteId === tpl.id ? (
                     <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">

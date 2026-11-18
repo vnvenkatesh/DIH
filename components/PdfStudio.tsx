@@ -862,7 +862,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
           {/* ── Step 2: Schema ── */}
           {editorStep === 2 && (
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="max-w-none w-full overflow-x-auto">
+              <div className="max-w-[60%] overflow-x-auto">
 
                 {/* ── Project schema (read-only inherited fields) ── */}
                 {editorProjectSchema.length > 0 ? (
@@ -1750,6 +1750,12 @@ const FieldRow: React.FC<{
         <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })}
           className="rounded accent-indigo-600" />
         Req
+      </label>
+      {/* array */}
+      <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">
+        <input type="checkbox" checked={field.is_array ?? false} onChange={e => onChange({ ...field, is_array: e.target.checked })}
+          className="rounded accent-purple-600" />
+        []
       </label>
       {/* delete */}
       <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0" title="Remove field">

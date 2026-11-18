@@ -5,6 +5,7 @@ import { hash } from 'bcryptjs';
 import mammoth from 'mammoth';
 import pool from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { renderTemplate } from '../lib/templateEngine.js';
 
 // ── AES-256-GCM encryption for API key storage ────────────────────────────────
 function getEncKey(): Buffer {
@@ -73,6 +74,82 @@ router.get('/', requireAuth, async (req, res) => {
     [userId]
   );
   res.json({ templates: rows });
+});
+
+// ── API Keys — MUST be before /:id to avoid wildcard capture ─────────────────
+router.get('/api-keys/list', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows } = await pool.query(
+    `SELECT id, name, key_prefix, last_used_at, created_at FROM pdf_api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
+    [userId]
+  );
+  res.json({ keys: rows });
+});
+
+router.post('/api-keys', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  const rawKey = 'dih_' + randomBytes(24).toString('base64url');
+  const prefix = rawKey.slice(0, 12);
+  const keyHash = await hash(rawKey, 10);
+  const keyEncrypted = encryptKey(rawKey);
+
+  const { rows } = await pool.query(
+    `INSERT INTO pdf_api_keys (user_id, name, key_hash, key_prefix, key_encrypted) VALUES ($1,$2,$3,$4,$5) RETURNING id, name, key_prefix, created_at`,
+    [userId, name, keyHash, prefix, keyEncrypted]
+  );
+  res.status(201).json({ key: { ...rows[0], raw_key: rawKey } });
+});
+
+router.delete('/api-keys/:id', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rowCount } = await pool.query(
+    `DELETE FROM pdf_api_keys WHERE id = $1 AND user_id = $2`,
+    [req.params.id, userId]
+  );
+  if (!rowCount) return res.status(404).json({ error: 'Key not found' });
+  res.status(204).send();
+});
+
+router.get('/api-keys/:id/reveal', requireAuth, async (req, res) => {
+  const userId = (req as any).user.id;
+  const { rows } = await pool.query(
+    `SELECT key_encrypted FROM pdf_api_keys WHERE id = $1 AND user_id = $2`,
+    [req.params.id, userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Key not found' });
+  if (!rows[0].key_encrypted) return res.status(404).json({ error: 'Key was created before encrypted storage was added. Please revoke and recreate it.' });
+  try {
+    const raw = decryptKey(rows[0].key_encrypted);
+    res.json({ raw_key: raw });
+  } catch {
+    res.status(500).json({ error: 'Failed to decrypt key.' });
+  }
+});
+
+// ── Preview — render template HTML using the template engine (JWT, no PDF) ────
+router.post('/preview', requireAuth, async (req, res) => {
+  const { html_content, rules = [], sample_data = {} } = req.body;
+  if (!html_content) return res.status(400).json({ error: 'html_content required' });
+
+  try {
+    const mappedRules = (rules as any[]).map((r: any) => ({
+      blockId: r.block_id,
+      ruleType: r.rule_type as 'condition' | 'loop',
+      ruleConfig: typeof r.rule_config === 'string' ? JSON.parse(r.rule_config) : (r.rule_config ?? {}),
+    }));
+    const rendered = renderTemplate(html_content, mappedRules, sample_data, false);
+    const pageHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+      body{font-family:Arial,sans-serif;margin:40px;color:#222;line-height:1.6}
+      .pdf-placeholder{background:#dbeafe;color:#1e40af;border-radius:3px;padding:0 3px;font-size:.85em}
+      [data-block-id]{border-left:3px solid #e5e7eb;padding-left:8px}
+    </style></head><body>${rendered}</body></html>`;
+    res.json({ html: pageHtml });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message ?? 'Render failed' });
+  }
 });
 
 // ── Get single template with fields + rules ───────────────────────────────────
@@ -238,61 +315,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
   );
   if (!rowCount) return res.status(404).json({ error: 'Template not found' });
   res.status(204).send();
-});
-
-// ── API Keys ──────────────────────────────────────────────────────────────────
-router.get('/api-keys/list', requireAuth, async (req, res) => {
-  const userId = (req as any).user.id;
-  const { rows } = await pool.query(
-    `SELECT id, name, key_prefix, last_used_at, created_at FROM pdf_api_keys WHERE user_id = $1 ORDER BY created_at DESC`,
-    [userId]
-  );
-  res.json({ keys: rows });
-});
-
-router.post('/api-keys', requireAuth, async (req, res) => {
-  const userId = (req as any).user.id;
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'name required' });
-
-  const rawKey = 'dih_' + randomBytes(24).toString('base64url');
-  const prefix = rawKey.slice(0, 12);
-  const keyHash = await hash(rawKey, 10);
-  const keyEncrypted = encryptKey(rawKey);
-
-  const { rows } = await pool.query(
-    `INSERT INTO pdf_api_keys (user_id, name, key_hash, key_prefix, key_encrypted) VALUES ($1,$2,$3,$4,$5) RETURNING id, name, key_prefix, created_at`,
-    [userId, name, keyHash, prefix, keyEncrypted]
-  );
-  // Return the raw key only once (also stored encrypted for FetchDoc auto-fill)
-  res.status(201).json({ key: { ...rows[0], raw_key: rawKey } });
-});
-
-router.delete('/api-keys/:id', requireAuth, async (req, res) => {
-  const userId = (req as any).user.id;
-  const { rowCount } = await pool.query(
-    `DELETE FROM pdf_api_keys WHERE id = $1 AND user_id = $2`,
-    [req.params.id, userId]
-  );
-  if (!rowCount) return res.status(404).json({ error: 'Key not found' });
-  res.status(204).send();
-});
-
-// Decrypt and return the raw key to its owner (never exposed to other users)
-router.get('/api-keys/:id/reveal', requireAuth, async (req, res) => {
-  const userId = (req as any).user.id;
-  const { rows } = await pool.query(
-    `SELECT key_encrypted FROM pdf_api_keys WHERE id = $1 AND user_id = $2`,
-    [req.params.id, userId]
-  );
-  if (!rows.length) return res.status(404).json({ error: 'Key not found' });
-  if (!rows[0].key_encrypted) return res.status(404).json({ error: 'Key was created before encrypted storage was added. Please revoke and recreate it.' });
-  try {
-    const raw = decryptKey(rows[0].key_encrypted);
-    res.json({ raw_key: raw });
-  } catch {
-    res.status(500).json({ error: 'Failed to decrypt key.' });
-  }
 });
 
 export default router;

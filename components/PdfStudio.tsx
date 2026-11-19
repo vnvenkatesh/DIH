@@ -42,10 +42,10 @@ interface TemplateRule {
   };
 }
 
-interface LayoutAnnotation {
-  id: string;
-  ruleText: string;
-  elementId: string;
+interface RuleDialogState {
+  mode: 'add' | 'edit';
+  blockId: string;
+  rule: TemplateRule;
 }
 
 interface BadgePos {
@@ -95,16 +95,15 @@ function uid() {
   return Math.random().toString(36).slice(2);
 }
 
-function extractLayoutRules(html: string): LayoutAnnotation[] {
-  const m = html.match(/<!-- LAYOUT_RULES:([\s\S]*?) -->/);
-  if (!m) return [];
-  try { return JSON.parse(m[1]); } catch { return []; }
-}
-
-function embedLayoutRules(html: string, annotations: LayoutAnnotation[]): string {
-  const stripped = html.replace(/<!-- LAYOUT_RULES:[\s\S]*? -->/g, '').trim();
-  if (!annotations.length) return stripped;
-  return stripped + '\n<!-- LAYOUT_RULES:' + JSON.stringify(annotations) + ' -->';
+function ruleLabel(rule: TemplateRule): string {
+  if (rule.rule_type === 'condition') {
+    const { field, operator, value } = rule.rule_config;
+    if (!field) return 'Condition (unconfigured)';
+    return `Show if {{${field}}} ${operator ?? 'equals'} "${value ?? ''}"`;
+  }
+  const { arrayField } = rule.rule_config;
+  if (!arrayField) return 'Loop (unconfigured)';
+  return `Loop over {{${arrayField}}}`;
 }
 
 // ── XSD parser ────────────────────────────────────────────────────────────────
@@ -268,15 +267,12 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Layout annotation rules ───────────────────────────────────────────────
+  // ── Layout ribbon & badge overlay ────────────────────────────────────────
   const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'rules'>('formatting');
-  const [layoutAnnotations, setLayoutAnnotations] = useState<LayoutAnnotation[]>([]);
   const [badgePositions, setBadgePositions] = useState<BadgePos[]>([]);
   const [activeBadge, setActiveBadge] = useState<string | null>(null);
   const [fontColor, setFontColor] = useState('#000000');
-  const [addRuleTarget, setAddRuleTarget] = useState<string | null>(null);
-  const [editingAnnotation, setEditingAnnotation] = useState<LayoutAnnotation | null>(null);
-  const [newRuleText, setNewRuleText] = useState('');
+  const [ruleDialog, setRuleDialog] = useState<RuleDialogState | null>(null);
   const [reviewResult, setReviewResult] = useState<string | null>(null);
 
   // ── Load list data ────────────────────────────────────────────────────────
@@ -346,9 +342,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       // Load full template with fields + rules
       const r = await apiFetch(`/v1/pdf-studio/templates/${tpl.id}`, token!);
       const j = await r.json();
-      const rawHtml: string = j.template?.html_content ?? tpl.html_content ?? '';
-      setHtmlContent(rawHtml);
-      setLayoutAnnotations(extractLayoutRules(rawHtml));
+      setHtmlContent(j.template?.html_content ?? tpl.html_content ?? '');
       setFields((j.fields ?? []).map((f: any) => ({ ...f, _key: uid() })));
       setRules((j.rules ?? []).map((r: any) => ({
         _key: uid(),
@@ -380,7 +374,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       setOriginalFormat('docx');
       setFields([]);
       setRules([]);
-      setLayoutAnnotations([]);
       setEditorStep(1);
     }
     setEditing(true);
@@ -435,7 +428,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       const body = {
         name: tplName.trim(),
         description: tplDescription,
-        html_content: embedLayoutRules(editorRef.current?.innerHTML ?? htmlContent, layoutAnnotations),
+        html_content: editorRef.current?.innerHTML ?? htmlContent,
         original_format: originalFormat,
         page_size: tplPageSize,
         margin_mm: tplMarginMm,
@@ -748,50 +741,31 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
   };
 
-  // ── Badge sync ────────────────────────────────────────────────────────────
-  const syncBadges = useCallback(() => {
+  // ── Badge sync (keyed by rule._key, anchored to data-block-id elements) ──
+  const syncBadges = useCallback((currentRules: TemplateRule[]) => {
     if (!editorRef.current || !editorScrollRef.current) return;
     const containerRect = editorScrollRef.current.getBoundingClientRect();
-    const scrollTop = editorScrollRef.current.scrollTop;
-    const scrollLeft = editorScrollRef.current.scrollLeft;
+    const st = editorScrollRef.current.scrollTop;
+    const sl = editorScrollRef.current.scrollLeft;
     const positions: BadgePos[] = [];
-    setLayoutAnnotations(prev => {
-      prev.forEach((ann, idx) => {
-        const el = editorRef.current!.querySelector(`[data-rule-id="${ann.elementId}"]`) as HTMLElement | null;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        positions.push({
-          id: ann.id,
-          x: rect.right - containerRect.left + scrollLeft,
-          y: rect.top - containerRect.top + scrollTop - 10,
-          num: idx + 1,
-        });
+    currentRules.forEach((rule, idx) => {
+      if (!rule.block_id) return;
+      const el = editorRef.current!.querySelector(`[data-block-id="${rule.block_id}"]`) as HTMLElement | null;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      positions.push({
+        id: rule._key ?? String(idx),
+        x: rect.right - containerRect.left + sl,
+        y: rect.top - containerRect.top + st - 10,
+        num: idx + 1,
       });
-      return prev;
     });
     setBadgePositions(positions);
   }, []);
 
-  useEffect(() => { syncBadges(); }, [layoutAnnotations, syncBadges]);
+  useEffect(() => { syncBadges(rules); }, [rules, syncBadges]);
 
-  // Auto-delete annotations when their element is removed from the editor
-  useEffect(() => {
-    if (!editorRef.current || editorStep !== 3) return;
-    const observer = new MutationObserver(() => {
-      if (!editorRef.current) return;
-      setLayoutAnnotations(prev => {
-        const updated = prev.filter(ann =>
-          editorRef.current!.querySelector(`[data-rule-id="${ann.elementId}"]`)
-        );
-        return updated.length === prev.length ? prev : updated;
-      });
-      syncBadges();
-    });
-    observer.observe(editorRef.current, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [editing, editorStep, syncBadges]);
-
-  // ── Annotation rule handlers ──────────────────────────────────────────────
+  // ── Rule handlers (shared by Layout ribbon tab and Step 4 screen) ─────────
   const addRuleToSelected = () => {
     if (!editorRef.current) return;
     const sel = window.getSelection();
@@ -803,58 +777,49 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         if (el.nodeType === 1) {
           const tag = (el.tagName ?? '').toLowerCase();
           if (['p','h1','h2','h3','h4','h5','h6','li','td','th','div','blockquote','table'].includes(tag)) {
-            targetEl = el;
-            break;
+            targetEl = el; break;
           }
         }
         node = node.parentNode;
       }
     }
-    if (!targetEl) {
-      targetEl = editorRef.current.firstElementChild as HTMLElement | null;
-    }
+    if (!targetEl) targetEl = editorRef.current.firstElementChild as HTMLElement | null;
     if (!targetEl) return;
-    let ruleId = targetEl.getAttribute('data-rule-id');
-    if (!ruleId) {
-      ruleId = uid();
-      targetEl.setAttribute('data-rule-id', ruleId);
+    let blockId = targetEl.getAttribute('data-block-id');
+    if (!blockId) {
+      blockId = uid();
+      targetEl.setAttribute('data-block-id', blockId);
       setHtmlContent(editorRef.current.innerHTML);
     }
-    setAddRuleTarget(ruleId);
-    setNewRuleText('');
-  };
-
-  const handleAddRuleConfirm = () => {
-    if (!addRuleTarget || !newRuleText.trim()) return;
-    const ann: LayoutAnnotation = { id: uid(), ruleText: newRuleText.trim(), elementId: addRuleTarget };
-    setLayoutAnnotations(prev => [...prev, ann]);
-    setAddRuleTarget(null);
-    setNewRuleText('');
-    setTimeout(syncBadges, 50);
-  };
-
-  const handleUpdateAnnotation = () => {
-    if (!editingAnnotation || !editingAnnotation.ruleText.trim()) return;
-    setLayoutAnnotations(prev => prev.map(a => a.id === editingAnnotation.id ? { ...editingAnnotation } : a));
-    setEditingAnnotation(null);
-  };
-
-  const handleDeleteAnnotation = (id: string) => {
-    setLayoutAnnotations(prev => {
-      const ann = prev.find(a => a.id === id);
-      if (ann && editorRef.current) {
-        const others = prev.filter(a => a.id !== id && a.elementId === ann.elementId);
-        if (others.length === 0) {
-          const el = editorRef.current.querySelector(`[data-rule-id="${ann.elementId}"]`) as HTMLElement | null;
-          if (el) {
-            el.removeAttribute('data-rule-id');
-            setHtmlContent(editorRef.current.innerHTML);
-          }
-        }
-      }
-      return prev.filter(a => a.id !== id);
+    setRuleDialog({
+      mode: 'add',
+      blockId,
+      rule: { _key: uid(), block_id: blockId, rule_type: 'condition', rule_config: { field: '', operator: 'equals', value: '' } },
     });
-    if (activeBadge === id) setActiveBadge(null);
+  };
+
+  const handleRuleDialogConfirm = () => {
+    if (!ruleDialog) return;
+    if (ruleDialog.mode === 'add') {
+      setRules(prev => [...prev, ruleDialog.rule]);
+    } else {
+      setRules(prev => prev.map(r => r._key === ruleDialog.rule._key ? ruleDialog.rule : r));
+    }
+    setRuleDialog(null);
+    setTimeout(() => syncBadges(rules), 50);
+  };
+
+  const handleDeleteRule = (key: string) => {
+    const rule = rules.find(r => r._key === key);
+    if (rule?.block_id && editorRef.current) {
+      const others = rules.filter(r => r._key !== key && r.block_id === rule.block_id);
+      if (others.length === 0) {
+        const el = editorRef.current.querySelector(`[data-block-id="${rule.block_id}"]`) as HTMLElement | null;
+        if (el) { el.removeAttribute('data-block-id'); setHtmlContent(editorRef.current.innerHTML); }
+      }
+    }
+    setRules(prev => prev.filter(r => r._key !== key));
+    if (activeBadge === key) setActiveBadge(null);
   };
 
   // ── Review helpers ────────────────────────────────────────────────────────
@@ -1224,7 +1189,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                             ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
                             : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                         }`}>
-                        {tab === 'formatting' ? 'Formatting' : tab === 'insert' ? 'Insert' : tab === 'review' ? 'Review' : `Rules${layoutAnnotations.length ? ` (${layoutAnnotations.length})` : ''}`}
+                        {tab === 'formatting' ? 'Formatting' : tab === 'insert' ? 'Insert' : tab === 'review' ? 'Review' : `Rules${rules.length ? ` (${rules.length})` : ''}`}
                       </button>
                     ))}
                   </div>
@@ -1351,63 +1316,75 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     </div>
                   )}
 
-                  {/* Rules tab */}
+                  {/* Rules tab — mirrors Step 4 rules, shared state */}
                   {ribbonTab === 'rules' && (
                     <div className="px-3 py-1.5 flex flex-wrap items-center gap-2 min-h-[36px]">
                       <button onClick={addRuleToSelected}
-                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex-shrink-0"
+                        title="Click an element in the editor first, then add a rule">
                         <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
                           <rect x="7" y="1" width="2" height="14" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/>
                         </svg>
                         Add Rule
                       </button>
-                      {layoutAnnotations.length > 0 ? (
+                      {rules.length > 0 ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {layoutAnnotations.map((ann, idx) => (
-                            <div key={ann.id} className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-full pl-1 pr-2 py-0.5">
+                          {rules.map((rule, idx) => (
+                            <div key={rule._key} className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-full pl-1 pr-2 py-0.5">
                               <span className="w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] flex items-center justify-center font-bold flex-shrink-0">{idx + 1}</span>
-                              <span className="text-xs text-slate-700 dark:text-slate-300 max-w-[140px] truncate">{ann.ruleText}</span>
-                              <button onClick={() => setEditingAnnotation({ ...ann })} className="text-indigo-400 hover:text-indigo-600 ml-0.5 flex-shrink-0" title="Edit rule">
+                              <span className={`text-[9px] px-1 rounded-full font-semibold flex-shrink-0 ${rule.rule_type === 'condition' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
+                                {rule.rule_type === 'condition' ? 'IF' : 'LOOP'}
+                              </span>
+                              <span className="text-xs text-slate-700 dark:text-slate-300 max-w-[160px] truncate">{ruleLabel(rule)}</span>
+                              <button onClick={() => setRuleDialog({ mode: 'edit', blockId: rule.block_id, rule: { ...rule, rule_config: { ...rule.rule_config } } })}
+                                className="text-indigo-400 hover:text-indigo-600 ml-0.5 flex-shrink-0" title="Edit rule">
                                 <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 2.5a2.12 2.12 0 013 3L5 15H2v-3L11.5 2.5z"/></svg>
                               </button>
-                              <button onClick={() => handleDeleteAnnotation(ann.id)} className="text-red-400 hover:text-red-600 flex-shrink-0" title="Delete rule">
+                              <button onClick={() => handleDeleteRule(rule._key!)} className="text-red-400 hover:text-red-600 flex-shrink-0" title="Delete rule">
                                 <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                               </button>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-400 italic">Click on an element in the editor, then click Add Rule.</span>
+                        <span className="text-xs text-slate-400 italic">No rules yet. Click an element in the editor, then Add Rule — or add from the Rules step.</span>
                       )}
                     </div>
                   )}
                 </div>
                 {/* Page */}
-                <div ref={editorScrollRef} onScroll={syncBadges} className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6 relative">
-                  {/* Rule badges overlay */}
-                  {badgePositions.map(bp => (
-                    <div key={bp.id} style={{ position: 'absolute', left: bp.x, top: bp.y, zIndex: 20 }}>
-                      <button onClick={() => setActiveBadge(activeBadge === bp.id ? null : bp.id)}
-                        className="w-5 h-5 bg-indigo-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors ring-2 ring-white dark:ring-slate-900"
-                        title={`Rule ${bp.num}`}>
-                        {bp.num}
-                      </button>
-                      {activeBadge === bp.id && (
-                        <div className="absolute top-6 right-0 z-30 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-xl shadow-2xl p-3 w-60 text-left">
-                          <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">Rule {bp.num}</div>
-                          <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">
-                            {layoutAnnotations.find(a => a.id === bp.id)?.ruleText}
-                          </p>
-                          <div className="flex gap-3 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                            <button onClick={() => { const ann = layoutAnnotations.find(a => a.id === bp.id); if (ann) setEditingAnnotation({ ...ann }); setActiveBadge(null); }}
-                              className="text-[11px] text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-400 font-medium">Edit</button>
-                            <button onClick={() => { handleDeleteAnnotation(bp.id); setActiveBadge(null); }}
-                              className="text-[11px] text-red-500 hover:text-red-700 font-medium">Delete</button>
+                <div ref={editorScrollRef} onScroll={() => syncBadges(rules)} className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6 relative">
+                  {/* Rule badges overlay — one badge per rule that has a matching data-block-id element */}
+                  {badgePositions.map(bp => {
+                    const r = rules.find(x => x._key === bp.id);
+                    return (
+                      <div key={bp.id} style={{ position: 'absolute', left: bp.x, top: bp.y, zIndex: 20 }}>
+                        <button onClick={() => setActiveBadge(activeBadge === bp.id ? null : bp.id)}
+                          className="w-5 h-5 bg-indigo-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors ring-2 ring-white dark:ring-slate-900"
+                          title={r ? ruleLabel(r) : `Rule ${bp.num}`}>
+                          {bp.num}
+                        </button>
+                        {activeBadge === bp.id && r && (
+                          <div className="absolute top-6 right-0 z-30 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-xl shadow-2xl p-3 w-64 text-left">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${r.rule_type === 'condition' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
+                                {r.rule_type === 'condition' ? 'IF' : 'LOOP'}
+                              </span>
+                              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Rule {bp.num}</span>
+                            </div>
+                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">{ruleLabel(r)}</p>
+                            <div className="text-[10px] text-slate-400 mt-1">block: <code className="bg-slate-100 dark:bg-slate-700 px-0.5 rounded">{r.block_id}</code></div>
+                            <div className="flex gap-3 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                              <button onClick={() => { setRuleDialog({ mode: 'edit', blockId: r.block_id, rule: { ...r, rule_config: { ...r.rule_config } } }); setActiveBadge(null); }}
+                                className="text-[11px] text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-400 font-medium">Edit</button>
+                              <button onClick={() => { handleDeleteRule(bp.id); setActiveBadge(null); }}
+                                className="text-[11px] text-red-500 hover:text-red-700 font-medium">Delete</button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        )}
+                      </div>
+                    );
+                  })}
                   <div className="max-w-[800px] mx-auto bg-white dark:bg-slate-900 shadow-lg rounded min-h-[1000px] p-12">
                     <div
                       ref={editorRef}
@@ -1426,40 +1403,89 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
           )}
 
           {/* ── Add Rule Dialog ── */}
-          {addRuleTarget && (
+          {/* ── Rule Dialog (Add / Edit) — shared by Layout ribbon and Step 4 ── */}
+          {ruleDialog && (
             <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-96 mx-4">
-                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-1">Add Annotation Rule</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Describe the rule or note for this element.</p>
-                <textarea value={newRuleText} onChange={e => setNewRuleText(e.target.value)}
-                  rows={4} placeholder="e.g. This field must be in uppercase. Required when policy type is 'Commercial'."
-                  autoFocus
-                  className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-700 dark:text-white resize-none" />
-                <div className="flex justify-end gap-2 mt-4">
-                  <button onClick={() => setAddRuleTarget(null)}
-                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
-                  <button onClick={handleAddRuleConfirm} disabled={!newRuleText.trim()}
-                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">Add Rule</button>
-                </div>
-              </div>
-            </div>
-          )}
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-[480px] mx-4 max-h-[90vh] overflow-y-auto">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-1">
+                  {ruleDialog.mode === 'add' ? 'Add Rule' : 'Edit Rule'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  Rules show/hide or repeat blocks in the rendered document.
+                  {ruleDialog.blockId && <> Element: <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">{ruleDialog.blockId}</code></>}
+                </p>
 
-          {/* ── Edit Rule Dialog ── */}
-          {editingAnnotation && (
-            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-96 mx-4">
-                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-1">Edit Annotation Rule</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Update the rule description.</p>
-                <textarea value={editingAnnotation.ruleText}
-                  onChange={e => setEditingAnnotation(prev => prev ? { ...prev, ruleText: e.target.value } : null)}
-                  rows={4} autoFocus
-                  className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-700 dark:text-white resize-none" />
-                <div className="flex justify-end gap-2 mt-4">
-                  <button onClick={() => setEditingAnnotation(null)}
+                {/* Rule type selector */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_type: 'condition', rule_config: { field: d.rule.rule_config.field ?? '', operator: d.rule.rule_config.operator ?? 'equals', value: d.rule.rule_config.value ?? '' } } } : null)}
+                    className={`flex-1 py-2 text-sm rounded-lg border transition-colors font-medium ${ruleDialog.rule.rule_type === 'condition' ? 'bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-900/40 dark:border-blue-500 dark:text-blue-300' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                    Condition (IF)
+                  </button>
+                  <button
+                    onClick={() => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_type: 'loop', rule_config: { arrayField: d.rule.rule_config.arrayField ?? '' } } } : null)}
+                    className={`flex-1 py-2 text-sm rounded-lg border transition-colors font-medium ${ruleDialog.rule.rule_type === 'loop' ? 'bg-purple-50 border-purple-400 text-purple-700 dark:bg-purple-900/40 dark:border-purple-500 dark:text-purple-300' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
+                    Loop (REPEAT)
+                  </button>
+                </div>
+
+                {/* Block ID */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                    Block ID <span className="text-slate-400 font-normal">(matches <code className="bg-slate-100 dark:bg-slate-700 px-0.5 rounded">data-block-id</code> on the element)</span>
+                  </label>
+                  <input value={ruleDialog.rule.block_id}
+                    onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, block_id: e.target.value } } : null)}
+                    className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g. policy-block" />
+                </div>
+
+                {/* Condition fields */}
+                {ruleDialog.rule.rule_type === 'condition' && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Field</label>
+                      <input value={ruleDialog.rule.rule_config.field ?? ''}
+                        onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { ...d.rule.rule_config, field: e.target.value } } } : null)}
+                        className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="e.g. policy_type" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Operator</label>
+                      <select value={ruleDialog.rule.rule_config.operator ?? 'equals'}
+                        onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { ...d.rule.rule_config, operator: e.target.value } } } : null)}
+                        className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        {OPERATORS.map(op => <option key={op} value={op}>{op}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Value</label>
+                      <input value={ruleDialog.rule.rule_config.value ?? ''}
+                        onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { ...d.rule.rule_config, value: e.target.value } } } : null)}
+                        className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="e.g. commercial" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Loop field */}
+                {ruleDialog.rule.rule_type === 'loop' && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Array Field</label>
+                    <input value={ruleDialog.rule.rule_config.arrayField ?? ''}
+                      onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { arrayField: e.target.value } } } : null)}
+                      className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g. line_items" />
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 mt-5">
+                  <button onClick={() => setRuleDialog(null)}
                     className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
-                  <button onClick={handleUpdateAnnotation} disabled={!editingAnnotation.ruleText.trim()}
-                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">Update</button>
+                  <button onClick={handleRuleDialogConfirm} disabled={!ruleDialog.rule.block_id.trim()}
+                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">
+                    {ruleDialog.mode === 'add' ? 'Add Rule' : 'Update Rule'}
+                  </button>
                 </div>
               </div>
             </div>

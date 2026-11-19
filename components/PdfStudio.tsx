@@ -42,6 +42,19 @@ interface TemplateRule {
   };
 }
 
+interface LayoutAnnotation {
+  id: string;
+  ruleText: string;
+  elementId: string;
+}
+
+interface BadgePos {
+  id: string;
+  x: number;
+  y: number;
+  num: number;
+}
+
 interface ApiKey {
   id: number;
   name: string;
@@ -80,6 +93,18 @@ const OPERATORS = ['equals', 'not_equals', 'contains', 'not_empty', 'is_empty', 
 
 function uid() {
   return Math.random().toString(36).slice(2);
+}
+
+function extractLayoutRules(html: string): LayoutAnnotation[] {
+  const m = html.match(/<!-- LAYOUT_RULES:([\s\S]*?) -->/);
+  if (!m) return [];
+  try { return JSON.parse(m[1]); } catch { return []; }
+}
+
+function embedLayoutRules(html: string, annotations: LayoutAnnotation[]): string {
+  const stripped = html.replace(/<!-- LAYOUT_RULES:[\s\S]*? -->/g, '').trim();
+  if (!annotations.length) return stripped;
+  return stripped + '\n<!-- LAYOUT_RULES:' + JSON.stringify(annotations) + ' -->';
 }
 
 // ── XSD parser ────────────────────────────────────────────────────────────────
@@ -241,6 +266,18 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
   // ── Editor refs ───────────────────────────────────────────────────────────
   const editorRef = useRef<HTMLDivElement>(null);
+  const editorScrollRef = useRef<HTMLDivElement>(null);
+
+  // ── Layout annotation rules ───────────────────────────────────────────────
+  const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'rules'>('formatting');
+  const [layoutAnnotations, setLayoutAnnotations] = useState<LayoutAnnotation[]>([]);
+  const [badgePositions, setBadgePositions] = useState<BadgePos[]>([]);
+  const [activeBadge, setActiveBadge] = useState<string | null>(null);
+  const [fontColor, setFontColor] = useState('#000000');
+  const [addRuleTarget, setAddRuleTarget] = useState<string | null>(null);
+  const [editingAnnotation, setEditingAnnotation] = useState<LayoutAnnotation | null>(null);
+  const [newRuleText, setNewRuleText] = useState('');
+  const [reviewResult, setReviewResult] = useState<string | null>(null);
 
   // ── Load list data ────────────────────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
@@ -309,7 +346,9 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       // Load full template with fields + rules
       const r = await apiFetch(`/v1/pdf-studio/templates/${tpl.id}`, token!);
       const j = await r.json();
-      setHtmlContent(j.template?.html_content ?? tpl.html_content ?? '');
+      const rawHtml: string = j.template?.html_content ?? tpl.html_content ?? '';
+      setHtmlContent(rawHtml);
+      setLayoutAnnotations(extractLayoutRules(rawHtml));
       setFields((j.fields ?? []).map((f: any) => ({ ...f, _key: uid() })));
       setRules((j.rules ?? []).map((r: any) => ({
         _key: uid(),
@@ -341,6 +380,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       setOriginalFormat('docx');
       setFields([]);
       setRules([]);
+      setLayoutAnnotations([]);
       setEditorStep(1);
     }
     setEditing(true);
@@ -395,7 +435,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       const body = {
         name: tplName.trim(),
         description: tplDescription,
-        html_content: editorRef.current?.innerHTML ?? htmlContent,
+        html_content: embedLayoutRules(editorRef.current?.innerHTML ?? htmlContent, layoutAnnotations),
         original_format: originalFormat,
         page_size: tplPageSize,
         margin_mm: tplMarginMm,
@@ -706,6 +746,138 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     editorRef.current?.focus();
     document.execCommand(cmd, false, value);
     if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+  };
+
+  // ── Badge sync ────────────────────────────────────────────────────────────
+  const syncBadges = useCallback(() => {
+    if (!editorRef.current || !editorScrollRef.current) return;
+    const containerRect = editorScrollRef.current.getBoundingClientRect();
+    const scrollTop = editorScrollRef.current.scrollTop;
+    const scrollLeft = editorScrollRef.current.scrollLeft;
+    const positions: BadgePos[] = [];
+    setLayoutAnnotations(prev => {
+      prev.forEach((ann, idx) => {
+        const el = editorRef.current!.querySelector(`[data-rule-id="${ann.elementId}"]`) as HTMLElement | null;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        positions.push({
+          id: ann.id,
+          x: rect.right - containerRect.left + scrollLeft,
+          y: rect.top - containerRect.top + scrollTop - 10,
+          num: idx + 1,
+        });
+      });
+      return prev;
+    });
+    setBadgePositions(positions);
+  }, []);
+
+  useEffect(() => { syncBadges(); }, [layoutAnnotations, syncBadges]);
+
+  // Auto-delete annotations when their element is removed from the editor
+  useEffect(() => {
+    if (!editorRef.current || editorStep !== 3) return;
+    const observer = new MutationObserver(() => {
+      if (!editorRef.current) return;
+      setLayoutAnnotations(prev => {
+        const updated = prev.filter(ann =>
+          editorRef.current!.querySelector(`[data-rule-id="${ann.elementId}"]`)
+        );
+        return updated.length === prev.length ? prev : updated;
+      });
+      syncBadges();
+    });
+    observer.observe(editorRef.current, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [editing, editorStep, syncBadges]);
+
+  // ── Annotation rule handlers ──────────────────────────────────────────────
+  const addRuleToSelected = () => {
+    if (!editorRef.current) return;
+    const sel = window.getSelection();
+    let targetEl: HTMLElement | null = null;
+    if (sel && sel.rangeCount > 0) {
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== editorRef.current) {
+        const el = node as HTMLElement;
+        if (el.nodeType === 1) {
+          const tag = (el.tagName ?? '').toLowerCase();
+          if (['p','h1','h2','h3','h4','h5','h6','li','td','th','div','blockquote','table'].includes(tag)) {
+            targetEl = el;
+            break;
+          }
+        }
+        node = node.parentNode;
+      }
+    }
+    if (!targetEl) {
+      targetEl = editorRef.current.firstElementChild as HTMLElement | null;
+    }
+    if (!targetEl) return;
+    let ruleId = targetEl.getAttribute('data-rule-id');
+    if (!ruleId) {
+      ruleId = uid();
+      targetEl.setAttribute('data-rule-id', ruleId);
+      setHtmlContent(editorRef.current.innerHTML);
+    }
+    setAddRuleTarget(ruleId);
+    setNewRuleText('');
+  };
+
+  const handleAddRuleConfirm = () => {
+    if (!addRuleTarget || !newRuleText.trim()) return;
+    const ann: LayoutAnnotation = { id: uid(), ruleText: newRuleText.trim(), elementId: addRuleTarget };
+    setLayoutAnnotations(prev => [...prev, ann]);
+    setAddRuleTarget(null);
+    setNewRuleText('');
+    setTimeout(syncBadges, 50);
+  };
+
+  const handleUpdateAnnotation = () => {
+    if (!editingAnnotation || !editingAnnotation.ruleText.trim()) return;
+    setLayoutAnnotations(prev => prev.map(a => a.id === editingAnnotation.id ? { ...editingAnnotation } : a));
+    setEditingAnnotation(null);
+  };
+
+  const handleDeleteAnnotation = (id: string) => {
+    setLayoutAnnotations(prev => {
+      const ann = prev.find(a => a.id === id);
+      if (ann && editorRef.current) {
+        const others = prev.filter(a => a.id !== id && a.elementId === ann.elementId);
+        if (others.length === 0) {
+          const el = editorRef.current.querySelector(`[data-rule-id="${ann.elementId}"]`) as HTMLElement | null;
+          if (el) {
+            el.removeAttribute('data-rule-id');
+            setHtmlContent(editorRef.current.innerHTML);
+          }
+        }
+      }
+      return prev.filter(a => a.id !== id);
+    });
+    if (activeBadge === id) setActiveBadge(null);
+  };
+
+  // ── Review helpers ────────────────────────────────────────────────────────
+  const handleSpellCheck = () => {
+    const text = editorRef.current?.innerText?.trim() ?? '';
+    if (!text) { setReviewResult('No text to check.'); return; }
+    setReviewResult('Spell check coming soon.');
+  };
+
+  const handleSentiment = () => {
+    const text = editorRef.current?.innerText?.trim() ?? '';
+    if (!text) { setReviewResult('No text to analyze.'); return; }
+    setReviewResult('Sentiment analysis coming soon.');
+  };
+
+  // ── Insert helpers ────────────────────────────────────────────────────────
+  const insertImagePlaceholder = () => {
+    const svg64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIiB2aWV3Qm94PSIwIDAgMjAwIDEyMCI+PHJlY3Qgd2lkdGg9IjIwMCIgaGVpZ2h0PSIxMjAiIGZpbGw9IiNlMmU4ZjAiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5NGEzYjgiPkltYWdlIFBsYWNlaG9sZGVyPC90ZXh0Pjwvc3ZnPg==';
+    execCmd('insertHTML', `<div style="text-align:center;margin:8px 0"><img src="data:image/svg+xml;base64,${svg64}" alt="Image Placeholder" style="max-width:100%;height:auto;border:2px dashed #94a3b8" /></div><p><br></p>`);
+  };
+
+  const insertBarcodePlaceholder = () => {
+    execCmd('insertHTML', '<div style="font-family:monospace;border:2px dashed #94a3b8;padding:8px;text-align:center;background:#f8fafc;margin:8px 0;font-size:12px;color:#64748b">&#x1F4CA; Barcode: {{barcode_value}}</div><p><br></p>');
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1041,42 +1213,201 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             <div className="flex-1 flex overflow-hidden">
               {/* Editor area */}
               <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Toolbar */}
-                <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-3 py-1.5 flex flex-wrap items-center gap-1">
-                  <ToolbarBtn onClick={() => execCmd('bold')} title="Bold"><strong>B</strong></ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('italic')} title="Italic"><em>I</em></ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('underline')} title="Underline"><u>U</u></ToolbarBtn>
-                  <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
-                  <ToolbarBtn onClick={() => execCmd('formatBlock', 'h1')} title="Heading 1">H1</ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('formatBlock', 'h2')} title="Heading 2">H2</ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('formatBlock', 'p')} title="Paragraph">¶</ToolbarBtn>
-                  <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
-                  <ToolbarBtn onClick={() => execCmd('insertUnorderedList')} title="Bullet list">• List</ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('insertOrderedList')} title="Numbered list">1. List</ToolbarBtn>
-                  <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
-                  <ToolbarBtn onClick={() => execCmd('justifyLeft')} title="Left">⬤L</ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('justifyCenter')} title="Center">⬤C</ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('justifyRight')} title="Right">⬤R</ToolbarBtn>
-                  <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
-                  <ToolbarBtn onClick={() => execCmd('undo')} title="Undo">↩</ToolbarBtn>
-                  <ToolbarBtn onClick={() => execCmd('redo')} title="Redo">↪</ToolbarBtn>
-                  <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
-                  <ToolbarBtn onClick={insertTable} title="Insert 3×3 table">⊞ Table</ToolbarBtn>
-                  {cursorInTable && (
-                    <>
-                      <div className="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1" />
-                      <span className="text-[10px] text-slate-400 font-medium px-1">Row:</span>
-                      <ToolbarBtn onClick={addTableRow} title="Add row below">+Row</ToolbarBtn>
-                      <ToolbarBtn onClick={removeTableRow} title="Remove current row">−Row</ToolbarBtn>
-                      <span className="text-[10px] text-slate-400 font-medium px-1">Col:</span>
-                      <ToolbarBtn onClick={addTableColumn} title="Add column after">+Col</ToolbarBtn>
-                      <ToolbarBtn onClick={removeTableColumn} title="Remove current column">−Col</ToolbarBtn>
-                      <ToolbarBtn onClick={deleteTable} title="Delete entire table" className="text-red-500 hover:text-red-700">✕ Table</ToolbarBtn>
-                    </>
+                {/* Tabbed Ribbon */}
+                <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                  {/* Tab labels */}
+                  <div className="flex items-center border-b border-slate-100 dark:border-slate-700 px-3">
+                    {(['formatting', 'insert', 'review', 'rules'] as const).map(tab => (
+                      <button key={tab} onClick={() => setRibbonTab(tab)}
+                        className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors -mb-px ${
+                          ribbonTab === tab
+                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                            : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        }`}>
+                        {tab === 'formatting' ? 'Formatting' : tab === 'insert' ? 'Insert' : tab === 'review' ? 'Review' : `Rules${layoutAnnotations.length ? ` (${layoutAnnotations.length})` : ''}`}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Formatting tab */}
+                  {ribbonTab === 'formatting' && (
+                    <div className="px-3 py-1.5 flex flex-wrap items-center gap-1">
+                      <ToolbarBtn onClick={() => execCmd('bold')} title="Bold"><strong>B</strong></ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('italic')} title="Italic"><em>I</em></ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('underline')} title="Underline"><u>U</u></ToolbarBtn>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
+                      <label className="flex items-center gap-1 cursor-pointer px-1.5 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700" title="Font Color">
+                        <svg className="w-4 h-4 text-slate-600" viewBox="0 0 16 16" fill="currentColor">
+                          <text x="1" y="12" fontFamily="serif" fontSize="12" fontWeight="bold">A</text>
+                          <rect x="1" y="13" width="10" height="2" fill={fontColor} rx="1"/>
+                        </svg>
+                        <input type="color" value={fontColor}
+                          onChange={e => { setFontColor(e.target.value); editorRef.current?.focus(); document.execCommand('foreColor', false, e.target.value); if (editorRef.current) setHtmlContent(editorRef.current.innerHTML); }}
+                          className="w-4 h-4 cursor-pointer border-0 p-0 opacity-0 absolute" />
+                      </label>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
+                      <ToolbarBtn onClick={() => execCmd('formatBlock', 'h1')} title="Heading 1">H1</ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('formatBlock', 'h2')} title="Heading 2">H2</ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('formatBlock', 'p')} title="Paragraph">¶</ToolbarBtn>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
+                      <ToolbarBtn onClick={() => execCmd('insertUnorderedList')} title="Bullet list">• List</ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('insertOrderedList')} title="Numbered list">1. List</ToolbarBtn>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
+                      {/* SVG alignment icons */}
+                      <ToolbarBtn onClick={() => execCmd('justifyLeft')} title="Align Left">
+                        <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="6" width="10" height="2" rx="1"/>
+                          <rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="14" width="8" height="2" rx="1"/>
+                        </svg>
+                      </ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('justifyCenter')} title="Align Center">
+                        <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="1" y="2" width="14" height="2" rx="1"/><rect x="3" y="6" width="10" height="2" rx="1"/>
+                          <rect x="1" y="10" width="14" height="2" rx="1"/><rect x="4" y="14" width="8" height="2" rx="1"/>
+                        </svg>
+                      </ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('justifyRight')} title="Align Right">
+                        <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="1" y="2" width="14" height="2" rx="1"/><rect x="5" y="6" width="10" height="2" rx="1"/>
+                          <rect x="1" y="10" width="14" height="2" rx="1"/><rect x="7" y="14" width="8" height="2" rx="1"/>
+                        </svg>
+                      </ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('justifyFull')} title="Justify">
+                        <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="6" width="14" height="2" rx="1"/>
+                          <rect x="1" y="10" width="14" height="2" rx="1"/><rect x="1" y="14" width="10" height="2" rx="1"/>
+                        </svg>
+                      </ToolbarBtn>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-1" />
+                      <ToolbarBtn onClick={() => execCmd('undo')} title="Undo">↩</ToolbarBtn>
+                      <ToolbarBtn onClick={() => execCmd('redo')} title="Redo">↪</ToolbarBtn>
+                      {cursorInTable && (
+                        <>
+                          <div className="w-px h-5 bg-slate-300 dark:bg-slate-500 mx-1" />
+                          <span className="text-[10px] text-slate-400 font-medium px-1">Row:</span>
+                          <ToolbarBtn onClick={addTableRow} title="Add row below">+Row</ToolbarBtn>
+                          <ToolbarBtn onClick={removeTableRow} title="Remove current row">−Row</ToolbarBtn>
+                          <span className="text-[10px] text-slate-400 font-medium px-1">Col:</span>
+                          <ToolbarBtn onClick={addTableColumn} title="Add column after">+Col</ToolbarBtn>
+                          <ToolbarBtn onClick={removeTableColumn} title="Remove current column">−Col</ToolbarBtn>
+                          <ToolbarBtn onClick={deleteTable} title="Delete entire table" className="text-red-500 hover:text-red-700">✕ Table</ToolbarBtn>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Insert tab */}
+                  {ribbonTab === 'insert' && (
+                    <div className="px-3 py-1.5 flex flex-wrap items-center gap-1">
+                      <ToolbarBtn onClick={insertTable} title="Insert 3×3 table">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="1" y="1" width="14" height="14" rx="1"/><line x1="1" y1="5" x2="15" y2="5"/><line x1="1" y1="10" x2="15" y2="10"/><line x1="6" y1="1" x2="6" y2="15"/><line x1="11" y1="1" x2="11" y2="15"/>
+                          </svg>
+                          Table
+                        </span>
+                      </ToolbarBtn>
+                      <ToolbarBtn onClick={insertImagePlaceholder} title="Insert image placeholder">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="1" y="2" width="14" height="12" rx="1"/><circle cx="5.5" cy="6" r="1.5"/><path d="M1 12l4-4 3 3 2-2 5 5"/>
+                          </svg>
+                          Image
+                        </span>
+                      </ToolbarBtn>
+                      <ToolbarBtn onClick={insertBarcodePlaceholder} title="Insert barcode placeholder">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                            <rect x="1" y="2" width="1.5" height="12"/><rect x="4" y="2" width="1" height="12"/><rect x="6.5" y="2" width="2" height="12"/><rect x="10" y="2" width="1" height="12"/><rect x="12.5" y="2" width="1.5" height="12"/>
+                          </svg>
+                          Barcode
+                        </span>
+                      </ToolbarBtn>
+                    </div>
+                  )}
+
+                  {/* Review tab */}
+                  {ribbonTab === 'review' && (
+                    <div className="px-3 py-1.5 flex flex-wrap items-center gap-2">
+                      <ToolbarBtn onClick={handleSpellCheck} title="Check Spelling">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M2 12l4-8 4 8"/><path d="M4 8h4"/><path d="M11 10a2 2 0 100 4 2 2 0 000-4z"/><path d="M13 9V6"/>
+                          </svg>
+                          Spell Check
+                        </span>
+                      </ToolbarBtn>
+                      <ToolbarBtn onClick={handleSentiment} title="Analyze Sentiment">
+                        <span className="flex items-center gap-1">
+                          <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <circle cx="8" cy="8" r="6"/><path d="M5.5 9.5s.5 2 2.5 2 2.5-2 2.5-2"/><circle cx="6" cy="7" r=".5" fill="currentColor"/><circle cx="10" cy="7" r=".5" fill="currentColor"/>
+                          </svg>
+                          Sentiment
+                        </span>
+                      </ToolbarBtn>
+                      {reviewResult && (
+                        <span className="text-xs text-slate-600 dark:text-slate-400 ml-2 italic">{reviewResult}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Rules tab */}
+                  {ribbonTab === 'rules' && (
+                    <div className="px-3 py-1.5 flex flex-wrap items-center gap-2 min-h-[36px]">
+                      <button onClick={addRuleToSelected}
+                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+                          <rect x="7" y="1" width="2" height="14" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/>
+                        </svg>
+                        Add Rule
+                      </button>
+                      {layoutAnnotations.length > 0 ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {layoutAnnotations.map((ann, idx) => (
+                            <div key={ann.id} className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-full pl-1 pr-2 py-0.5">
+                              <span className="w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] flex items-center justify-center font-bold flex-shrink-0">{idx + 1}</span>
+                              <span className="text-xs text-slate-700 dark:text-slate-300 max-w-[140px] truncate">{ann.ruleText}</span>
+                              <button onClick={() => setEditingAnnotation({ ...ann })} className="text-indigo-400 hover:text-indigo-600 ml-0.5 flex-shrink-0" title="Edit rule">
+                                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 2.5a2.12 2.12 0 013 3L5 15H2v-3L11.5 2.5z"/></svg>
+                              </button>
+                              <button onClick={() => handleDeleteAnnotation(ann.id)} className="text-red-400 hover:text-red-600 flex-shrink-0" title="Delete rule">
+                                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400 italic">Click on an element in the editor, then click Add Rule.</span>
+                      )}
+                    </div>
                   )}
                 </div>
                 {/* Page */}
-                <div className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6">
+                <div ref={editorScrollRef} onScroll={syncBadges} className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6 relative">
+                  {/* Rule badges overlay */}
+                  {badgePositions.map(bp => (
+                    <div key={bp.id} style={{ position: 'absolute', left: bp.x, top: bp.y, zIndex: 20 }}>
+                      <button onClick={() => setActiveBadge(activeBadge === bp.id ? null : bp.id)}
+                        className="w-5 h-5 bg-indigo-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors ring-2 ring-white dark:ring-slate-900"
+                        title={`Rule ${bp.num}`}>
+                        {bp.num}
+                      </button>
+                      {activeBadge === bp.id && (
+                        <div className="absolute top-6 right-0 z-30 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-xl shadow-2xl p-3 w-60 text-left">
+                          <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">Rule {bp.num}</div>
+                          <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">
+                            {layoutAnnotations.find(a => a.id === bp.id)?.ruleText}
+                          </p>
+                          <div className="flex gap-3 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                            <button onClick={() => { const ann = layoutAnnotations.find(a => a.id === bp.id); if (ann) setEditingAnnotation({ ...ann }); setActiveBadge(null); }}
+                              className="text-[11px] text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-400 font-medium">Edit</button>
+                            <button onClick={() => { handleDeleteAnnotation(bp.id); setActiveBadge(null); }}
+                              className="text-[11px] text-red-500 hover:text-red-700 font-medium">Delete</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                   <div className="max-w-[800px] mx-auto bg-white dark:bg-slate-900 shadow-lg rounded min-h-[1000px] p-12">
                     <div
                       ref={editorRef}
@@ -1091,6 +1422,46 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
               </div>
               {/* Fields panel */}
               <FieldsPanel fields={fields} projectFields={editorProjectSchema} projectName={editorProjectName || undefined} onInsert={insertPlaceholder} />
+            </div>
+          )}
+
+          {/* ── Add Rule Dialog ── */}
+          {addRuleTarget && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-96 mx-4">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-1">Add Annotation Rule</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Describe the rule or note for this element.</p>
+                <textarea value={newRuleText} onChange={e => setNewRuleText(e.target.value)}
+                  rows={4} placeholder="e.g. This field must be in uppercase. Required when policy type is 'Commercial'."
+                  autoFocus
+                  className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-700 dark:text-white resize-none" />
+                <div className="flex justify-end gap-2 mt-4">
+                  <button onClick={() => setAddRuleTarget(null)}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
+                  <button onClick={handleAddRuleConfirm} disabled={!newRuleText.trim()}
+                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">Add Rule</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Edit Rule Dialog ── */}
+          {editingAnnotation && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-96 mx-4">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-1">Edit Annotation Rule</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Update the rule description.</p>
+                <textarea value={editingAnnotation.ruleText}
+                  onChange={e => setEditingAnnotation(prev => prev ? { ...prev, ruleText: e.target.value } : null)}
+                  rows={4} autoFocus
+                  className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-700 dark:text-white resize-none" />
+                <div className="flex justify-end gap-2 mt-4">
+                  <button onClick={() => setEditingAnnotation(null)}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
+                  <button onClick={handleUpdateAnnotation} disabled={!editingAnnotation.ruleText.trim()}
+                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">Update</button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -116,6 +116,7 @@ function ruleLabel(rule: TemplateRule): string {
 function htmlWithoutBadges(el: HTMLElement): string {
   const clone = el.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('[data-rule-badge]').forEach(b => b.remove());
+  clone.querySelectorAll('[data-has-rule]').forEach(e => e.removeAttribute('data-has-rule'));
   return clone.innerHTML;
 }
 
@@ -295,6 +296,17 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [selectedImage, setSelectedImage] = useState<ImageSelectState | null>(null);
   const ribbonTabRef = useRef(ribbonTab);
   useEffect(() => { ribbonTabRef.current = ribbonTab; }, [ribbonTab]);
+
+  // Inject global CSS for rule-annotated elements once on mount
+  useEffect(() => {
+    const styleId = 'dih-rule-styles';
+    if (!document.getElementById(styleId)) {
+      const s = document.createElement('style');
+      s.id = styleId;
+      s.textContent = '[data-has-rule]{border-left:3px solid rgba(99,102,241,0.4)!important;padding-left:6px!important;}';
+      document.head.appendChild(s);
+    }
+  }, []);
 
   // Persist the last-known table elements so Table-tab inputs can find them
   // even after focus moves away from the editor into the property inputs.
@@ -849,36 +861,41 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
-  // ── Inject inline rule badges into editor DOM ─────────────────────────────
+  // ── Inject inline rule icons into editor DOM ─────────────────────────────
   const injectBadgesIntoEditor = useCallback((currentRules: TemplateRule[]) => {
     if (!editorRef.current) return;
-    // Remove any stale badges first
+    // Clear stale badges and left-border accents
     editorRef.current.querySelectorAll('[data-rule-badge]').forEach(el => el.remove());
+    editorRef.current.querySelectorAll('[data-has-rule]').forEach(el => el.removeAttribute('data-has-rule'));
+
     currentRules.forEach((rule, idx) => {
       if (!rule.block_id) return;
       const target = editorRef.current!.querySelector(`[data-block-id="${rule.block_id}"]`) as HTMLElement | null;
       if (!target) return;
-      const badge = document.createElement('sup');
+
+      // Right-edge icon: ⚡ for condition, ↺ for loop
+      const badge = document.createElement('span');
       badge.setAttribute('data-rule-badge', rule._key ?? String(idx));
       badge.setAttribute('contenteditable', 'false');
-      badge.textContent = String(idx + 1);
-      badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;background:#4f46e5;color:#fff;border-radius:9999px;font-size:9px;font-weight:700;cursor:pointer;user-select:none;vertical-align:super;margin-left:3px;padding:0 3px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.35);flex-shrink:0;';
+      badge.textContent = rule.rule_type === 'condition' ? '⚡' : '↺';
       badge.title = ruleLabel(rule);
+      badge.style.cssText = 'float:right;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:rgba(99,102,241,0.12);color:#4f46e5;border-radius:4px;font-size:12px;cursor:pointer;user-select:none;margin-left:6px;line-height:1;flex-shrink:0;';
+
       const tag = target.tagName.toLowerCase();
       if (['td', 'th'].includes(tag)) {
-        // Append inside cell so badge sits after content without disrupting leading text
         target.appendChild(badge);
       } else if (tag === 'tr') {
-        // Attach to first cell of the row
         const firstCell = target.querySelector('td, th') as HTMLElement | null;
         if (firstCell) firstCell.appendChild(badge);
         else target.insertAdjacentElement('afterend', badge);
       } else if (['p','h1','h2','h3','h4','h5','h6','li','div','blockquote'].includes(tag)) {
-        // Append inside block elements so badge stays in content flow
         target.appendChild(badge);
       } else {
         target.insertAdjacentElement('afterend', badge);
       }
+
+      // Left border accent to signal the element has a rule
+      target.setAttribute('data-has-rule', 'true');
     });
   }, []);
 

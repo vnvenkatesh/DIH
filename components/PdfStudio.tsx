@@ -271,14 +271,19 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   // ── Editor refs ───────────────────────────────────────────────────────────
   const editorRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // ── Layout ribbon & inline rule badges ───────────────────────────────────
-  const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'rules'>('formatting');
+  const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'rules' | 'table'>('formatting');
   const [badgePopup, setBadgePopup] = useState<BadgePopupPos | null>(null);
   const [fontColor, setFontColor] = useState('#000000');
   const [ruleDialog, setRuleDialog] = useState<RuleDialogState | null>(null);
   const [reviewResult, setReviewResult] = useState<string | null>(null);
   const [selectionInEditor, setSelectionInEditor] = useState(false);
+  const [tableRowHeight, setTableRowHeight] = useState<number | ''>(30);
+  const [tableColWidth, setTableColWidth] = useState<number | ''>(100);
+  const [tableWidthPct, setTableWidthPct] = useState<number | ''>(100);
+  const [barcodeDialog, setBarcodeDialog] = useState<{ content: string; width: number; height: number } | null>(null);
 
   // ── Load list data ────────────────────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
@@ -637,6 +642,15 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     return () => document.removeEventListener('selectionchange', checkCursor);
   }, []);
 
+  // Auto-switch ribbon to Table tab when cursor enters a table, back when it leaves
+  useEffect(() => {
+    if (cursorInTable) {
+      setRibbonTab('table');
+    } else {
+      setRibbonTab(prev => prev === 'table' ? 'formatting' : prev);
+    }
+  }, [cursorInTable]);
+
   const getActiveTable = (): HTMLTableElement | null => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
@@ -687,16 +701,25 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     const newRow = tr.cloneNode(true) as HTMLTableRowElement;
     newRow.querySelectorAll('td,th').forEach(c => { c.innerHTML = '&nbsp;'; });
     tr.parentNode?.insertBefore(newRow, tr.nextSibling);
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+  };
+
+  const addTableRowAbove = () => {
+    const tr = getActiveRow();
+    if (!tr) return;
+    const newRow = tr.cloneNode(true) as HTMLTableRowElement;
+    newRow.querySelectorAll('td,th').forEach(c => { c.innerHTML = '&nbsp;'; });
+    tr.parentNode?.insertBefore(newRow, tr);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   const removeTableRow = () => {
     const tr = getActiveRow();
     if (!tr) return;
     const table = getActiveTable();
-    if (table && table.rows.length <= 1) return; // keep at least one row
+    if (table && table.rows.length <= 1) return;
     tr.remove();
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   const addTableColumn = () => {
@@ -710,17 +733,31 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       if (row.cells[colIdx + 1]) row.insertBefore(newCell, row.cells[colIdx + 1]);
       else row.appendChild(newCell);
     });
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+  };
+
+  const addTableColumnLeft = () => {
+    const table = getActiveTable();
+    const td = getActiveCell();
+    if (!table || !td) return;
+    const colIdx = td.cellIndex;
+    Array.from(table.rows).forEach(row => {
+      const newCell = row.cells[0]?.cloneNode(false) as HTMLTableCellElement ?? document.createElement('td');
+      newCell.innerHTML = '&nbsp;';
+      if (row.cells[colIdx]) row.insertBefore(newCell, row.cells[colIdx]);
+      else row.appendChild(newCell);
+    });
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   const removeTableColumn = () => {
     const table = getActiveTable();
     const td = getActiveCell();
     if (!table || !td) return;
-    if (table.rows[0] && table.rows[0].cells.length <= 1) return; // keep at least one column
+    if (table.rows[0] && table.rows[0].cells.length <= 1) return;
     const colIdx = td.cellIndex;
     Array.from(table.rows).forEach(row => { if (row.cells[colIdx]) row.deleteCell(colIdx); });
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   const deleteTable = () => {
@@ -728,6 +765,32 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     if (!table) return;
     table.remove();
     if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+  };
+
+  const applyRowHeight = (px: number) => {
+    const tr = getActiveRow();
+    if (!tr || !editorRef.current) return;
+    tr.style.height = `${px}px`;
+    setHtmlContent(htmlWithoutBadges(editorRef.current));
+  };
+
+  const applyColWidth = (px: number) => {
+    const table = getActiveTable();
+    const td = getActiveCell();
+    if (!table || !td || !editorRef.current) return;
+    const colIdx = td.cellIndex;
+    Array.from(table.rows).forEach(row => {
+      const cell = row.cells[colIdx] as HTMLTableCellElement | undefined;
+      if (cell) cell.style.width = `${px}px`;
+    });
+    setHtmlContent(htmlWithoutBadges(editorRef.current));
+  };
+
+  const applyTableWidth = (pct: number) => {
+    const table = getActiveTable();
+    if (!table || !editorRef.current) return;
+    table.style.width = `${pct}%`;
+    setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   // ── Insert placeholder into editor ────────────────────────────────────────
@@ -857,13 +920,43 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   };
 
   // ── Insert helpers ────────────────────────────────────────────────────────
-  const insertImagePlaceholder = () => {
-    const svg64 = 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIiB2aWV3Qm94PSIwIDAgMjAwIDEyMCI+PHJlY3Qgd2lkdGg9IjIwMCIgaGVpZ2h0PSIxMjAiIGZpbGw9IiNlMmU4ZjAiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5NGEzYjgiPkltYWdlIFBsYWNlaG9sZGVyPC90ZXh0Pjwvc3ZnPg==';
-    execCmd('insertHTML', `<div style="text-align:center;margin:8px 0"><img src="data:image/svg+xml;base64,${svg64}" alt="Image Placeholder" style="max-width:100%;height:auto;border:2px dashed #94a3b8" /></div><p><br></p>`);
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editorRef.current) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const src = ev.target?.result as string;
+      editorRef.current!.focus();
+      document.execCommand('insertHTML', false,
+        `<div style="text-align:center;margin:8px 0"><img src="${src}" alt="${file.name}" style="max-width:100%;height:auto;border-radius:4px" /></div><p><br></p>`);
+      setHtmlContent(htmlWithoutBadges(editorRef.current!));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
-  const insertBarcodePlaceholder = () => {
-    execCmd('insertHTML', '<div style="font-family:monospace;border:2px dashed #94a3b8;padding:8px;text-align:center;background:#f8fafc;margin:8px 0;font-size:12px;color:#64748b">&#x1F4CA; Barcode: {{barcode_value}}</div><p><br></p>');
+  const handleInsertBarcode = async () => {
+    if (!barcodeDialog || !barcodeDialog.content.trim() || !editorRef.current) return;
+    const { width, height, content } = barcodeDialog;
+    setBarcodeDialog(null);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    try {
+      // @ts-ignore — dynamic CDN import
+      const QRCode = (await import('https://esm.sh/qrcode@1.5.4')).default;
+      await QRCode.toCanvas(canvas, content, { width, margin: 2, color: { dark: '#000000', light: '#ffffff' } });
+      const src = canvas.toDataURL('image/png');
+      editorRef.current.focus();
+      document.execCommand('insertHTML', false,
+        `<div style="text-align:center;margin:8px 0"><img src="${src}" alt="QR: ${content}" width="${width}" height="${height}" style="display:inline-block" /></div><p><br></p>`);
+      setHtmlContent(htmlWithoutBadges(editorRef.current));
+    } catch {
+      editorRef.current.focus();
+      document.execCommand('insertHTML', false,
+        `<div style="display:inline-flex;align-items:center;justify-content:center;width:${width}px;height:${height}px;border:2px dashed #94a3b8;background:#f8fafc;font-family:monospace;font-size:12px;color:#64748b;text-align:center;margin:8px auto;">QR: ${content}</div><p><br></p>`);
+      setHtmlContent(htmlWithoutBadges(editorRef.current));
+    }
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1213,6 +1306,16 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         {tab === 'formatting' ? 'Formatting' : tab === 'insert' ? 'Insert' : tab === 'review' ? 'Review' : `Rules${rules.length ? ` (${rules.length})` : ''}`}
                       </button>
                     ))}
+                    {cursorInTable && (
+                      <button onClick={() => setRibbonTab('table')}
+                        className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors -mb-px ${
+                          ribbonTab === 'table'
+                            ? 'border-teal-600 text-teal-600 dark:text-teal-400'
+                            : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        }`}>
+                        ⊞ Table
+                      </button>
+                    )}
                   </div>
 
                   {/* Formatting tab */}
@@ -1293,7 +1396,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                           Table
                         </span>
                       </ToolbarBtn>
-                      <ToolbarBtn onClick={insertImagePlaceholder} title="Insert image placeholder">
+                      <ToolbarBtn onClick={() => imageInputRef.current?.click()} title="Upload image from file">
                         <span className="flex items-center gap-1">
                           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                             <rect x="1" y="2" width="14" height="12" rx="1"/><circle cx="5.5" cy="6" r="1.5"/><path d="M1 12l4-4 3 3 2-2 5 5"/>
@@ -1301,7 +1404,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                           Image
                         </span>
                       </ToolbarBtn>
-                      <ToolbarBtn onClick={insertBarcodePlaceholder} title="Insert barcode placeholder">
+                      <ToolbarBtn onClick={() => setBarcodeDialog({ content: '', width: 200, height: 200 })} title="Insert QR barcode">
                         <span className="flex items-center gap-1">
                           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
                             <rect x="1" y="2" width="1.5" height="12"/><rect x="4" y="2" width="1" height="12"/><rect x="6.5" y="2" width="2" height="12"/><rect x="10" y="2" width="1" height="12"/><rect x="12.5" y="2" width="1.5" height="12"/>
@@ -1353,7 +1456,70 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       )}
                     </div>
                   )}
+
+                  {/* Table tab — shown only when cursor is inside a table */}
+                  {ribbonTab === 'table' && (
+                    <div className="px-3 py-1.5 flex flex-wrap items-center gap-3 min-h-[36px]">
+                      {/* Rows */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mr-0.5">Rows</span>
+                        <ToolbarBtn onClick={addTableRowAbove} title="Add row above">↑ Row</ToolbarBtn>
+                        <ToolbarBtn onClick={addTableRow} title="Add row below">↓ Row</ToolbarBtn>
+                        <ToolbarBtn onClick={removeTableRow} title="Delete current row">
+                          <span className="text-red-500">✕ Row</span>
+                        </ToolbarBtn>
+                      </div>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600" />
+                      {/* Columns */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mr-0.5">Cols</span>
+                        <ToolbarBtn onClick={addTableColumnLeft} title="Add column to the left">← Col</ToolbarBtn>
+                        <ToolbarBtn onClick={addTableColumn} title="Add column to the right">→ Col</ToolbarBtn>
+                        <ToolbarBtn onClick={removeTableColumn} title="Delete current column">
+                          <span className="text-red-500">✕ Col</span>
+                        </ToolbarBtn>
+                      </div>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600" />
+                      {/* Properties */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">Props</span>
+                        <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                          Row H:
+                          <input type="number" min={10} max={500} value={tableRowHeight}
+                            onChange={e => setTableRowHeight(e.target.value === '' ? '' : Number(e.target.value))}
+                            onBlur={e => { const v = Number(e.target.value); if (v > 0) applyRowHeight(v); }}
+                            className="w-14 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                          />
+                          <span className="text-[10px] text-slate-400">px</span>
+                        </label>
+                        <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                          Col W:
+                          <input type="number" min={20} max={1000} value={tableColWidth}
+                            onChange={e => setTableColWidth(e.target.value === '' ? '' : Number(e.target.value))}
+                            onBlur={e => { const v = Number(e.target.value); if (v > 0) applyColWidth(v); }}
+                            className="w-16 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                          />
+                          <span className="text-[10px] text-slate-400">px</span>
+                        </label>
+                        <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
+                          Table W:
+                          <input type="number" min={10} max={100} value={tableWidthPct}
+                            onChange={e => setTableWidthPct(e.target.value === '' ? '' : Number(e.target.value))}
+                            onBlur={e => { const v = Number(e.target.value); if (v > 0) applyTableWidth(v); }}
+                            className="w-14 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                          />
+                          <span className="text-[10px] text-slate-400">%</span>
+                        </label>
+                      </div>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600" />
+                      <ToolbarBtn onClick={deleteTable} title="Delete entire table">
+                        <span className="text-red-500 font-medium">✕ Table</span>
+                      </ToolbarBtn>
+                    </div>
+                  )}
                 </div>
+                {/* Hidden file input for image upload */}
+                <input type="file" accept="image/*" ref={imageInputRef} className="hidden" onChange={handleImageUpload} />
                 {/* Page */}
                 <div ref={editorScrollRef} className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6 relative">
                   {/* Badge popup — shown when a rule badge is clicked */}
@@ -1500,10 +1666,48 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
             </div>
           )}
 
+          {/* ── Barcode (QR) Dialog ── */}
+          {barcodeDialog && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-96 mx-4">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-4">Insert Barcode (QR)</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Content</label>
+                    <input value={barcodeDialog.content}
+                      onChange={e => setBarcodeDialog(d => d ? { ...d, content: e.target.value } : null)}
+                      placeholder="URL, text, or data…"
+                      className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Width (px)</label>
+                      <input type="number" min={50} max={600} value={barcodeDialog.width}
+                        onChange={e => setBarcodeDialog(d => d ? { ...d, width: Number(e.target.value) } : null)}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Height (px)</label>
+                      <input type="number" min={50} max={600} value={barcodeDialog.height}
+                        onChange={e => setBarcodeDialog(d => d ? { ...d, height: Number(e.target.value) } : null)}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 mt-5">
+                  <button onClick={() => setBarcodeDialog(null)}
+                    className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors">Cancel</button>
+                  <button onClick={handleInsertBarcode} disabled={!barcodeDialog.content.trim()}
+                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors">Insert Barcode</button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Step 4: Rules ── */}
           {editorStep === 4 && (
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="max-w-3xl mx-auto">
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="max-w-[60%] mx-auto overflow-x-auto">
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Conditional rules</h2>
@@ -1779,31 +1983,43 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {projects.length > 0 && (
+                  <div className="flex items-center gap-3 px-4 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide border-b border-slate-100 dark:border-slate-700 mb-1">
+                    <span className="flex-1 min-w-0">Name</span>
+                    <span className="w-48 hidden sm:block">Description</span>
+                    <span className="w-20 hidden md:block text-center">Templates</span>
+                    <span className="w-24 hidden lg:block">Updated</span>
+                    <span className="w-32">Actions</span>
+                  </div>
+                )}
+                <div className="space-y-0.5">
                   {projects.map(proj => (
-                    <div key={proj.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="font-semibold text-slate-900 dark:text-white truncate">{proj.name}</h3>
-                          {proj.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{proj.description}</p>}
-                        </div>
-                        <span className="flex-shrink-0 text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded font-medium whitespace-nowrap">
-                          {proj.template_count ?? 0} template{(proj.template_count ?? 0) !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400">Updated {new Date(proj.updated_at).toLocaleDateString()}</p>
+                    <div key={proj.id} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2.5 hover:border-indigo-300 dark:hover:border-indigo-600 transition-colors">
                       {confirmDeleteProjectId === proj.id ? (
-                        <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
-                          <p className="text-xs text-slate-700 dark:text-slate-300 mb-2">Delete <strong>{proj.name}</strong>? Templates are not deleted.</p>
-                          <div className="flex gap-2">
-                            <button onClick={() => handleDeleteProject(proj.id)} className="flex-1 text-xs px-2 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded transition-colors font-medium">Delete</button>
-                            <button onClick={() => setConfirmDeleteProjectId(null)} className="flex-1 text-xs px-2 py-1.5 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
-                          </div>
+                        <div className="flex items-center gap-3">
+                          <p className="flex-1 text-xs text-slate-700 dark:text-slate-300">Delete <strong>{proj.name}</strong>? Templates are not deleted.</p>
+                          <button onClick={() => handleDeleteProject(proj.id)} className="text-xs px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded transition-colors font-medium">Delete</button>
+                          <button onClick={() => setConfirmDeleteProjectId(null)} className="text-xs px-2.5 py-1 border border-slate-300 dark:border-slate-600 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">Cancel</button>
                         </div>
                       ) : (
-                        <div className="flex gap-2 mt-auto pt-2 border-t border-slate-100 dark:border-slate-700">
-                          <button onClick={() => loadProjectDetail(proj.id)} className="flex-1 text-xs text-center px-2 py-1.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors font-medium">Open</button>
-                          <button onClick={() => setConfirmDeleteProjectId(proj.id)} className="text-xs px-2 py-1.5 text-red-500 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">Delete</button>
+                        <div className="flex items-center gap-3">
+                          {/* Name */}
+                          <div className="flex-1 min-w-0">
+                            <button onClick={() => loadProjectDetail(proj.id)} className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline truncate block text-left w-full">{proj.name}</button>
+                          </div>
+                          {/* Description */}
+                          <span className="w-48 hidden sm:block text-xs text-slate-400 truncate">{proj.description || '—'}</span>
+                          {/* Templates count */}
+                          <span className="w-20 hidden md:block text-center text-xs bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded font-medium whitespace-nowrap">
+                            {proj.template_count ?? 0} tpl{(proj.template_count ?? 0) !== 1 ? 's' : ''}
+                          </span>
+                          {/* Updated */}
+                          <span className="w-24 hidden lg:block text-xs text-slate-400 whitespace-nowrap">{new Date(proj.updated_at).toLocaleDateString()}</span>
+                          {/* Actions */}
+                          <div className="w-32 flex items-center justify-end gap-1 flex-shrink-0">
+                            <button onClick={() => loadProjectDetail(proj.id)} className="text-xs px-2.5 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors font-medium">Open</button>
+                            <button onClick={() => setConfirmDeleteProjectId(proj.id)} className="text-xs px-2 py-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors">✕</button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1889,7 +2105,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     <div className="flex items-center gap-3">
                       {/* Name + description */}
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-slate-900 dark:text-white truncate block">{tpl.name}</span>
+                        <button onClick={() => openEditor(tpl)} className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline truncate block text-left w-full">{tpl.name}</button>
                         {tpl.description && <span className="text-xs text-slate-400 truncate block">{tpl.description}</span>}
                       </div>
                       {/* Projects */}

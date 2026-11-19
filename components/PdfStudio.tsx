@@ -48,11 +48,10 @@ interface RuleDialogState {
   rule: TemplateRule;
 }
 
-interface BadgePos {
-  id: string;
+interface BadgePopupPos {
   x: number;
   y: number;
-  num: number;
+  key: string;
 }
 
 interface ApiKey {
@@ -104,6 +103,12 @@ function ruleLabel(rule: TemplateRule): string {
   const { arrayField } = rule.rule_config;
   if (!arrayField) return 'Loop (unconfigured)';
   return `Loop over {{${arrayField}}}`;
+}
+
+function htmlWithoutBadges(el: HTMLElement): string {
+  const clone = el.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('[data-rule-badge]').forEach(b => b.remove());
+  return clone.innerHTML;
 }
 
 // ── XSD parser ────────────────────────────────────────────────────────────────
@@ -267,13 +272,13 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const editorScrollRef = useRef<HTMLDivElement>(null);
 
-  // ── Layout ribbon & badge overlay ────────────────────────────────────────
+  // ── Layout ribbon & inline rule badges ───────────────────────────────────
   const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'rules'>('formatting');
-  const [badgePositions, setBadgePositions] = useState<BadgePos[]>([]);
-  const [activeBadge, setActiveBadge] = useState<string | null>(null);
+  const [badgePopup, setBadgePopup] = useState<BadgePopupPos | null>(null);
   const [fontColor, setFontColor] = useState('#000000');
   const [ruleDialog, setRuleDialog] = useState<RuleDialogState | null>(null);
   const [reviewResult, setReviewResult] = useState<string | null>(null);
+  const [selectionInEditor, setSelectionInEditor] = useState(false);
 
   // ── Load list data ────────────────────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
@@ -389,7 +394,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   }, [htmlContent, editorStep]);
 
   const captureEditorHtml = () => {
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   // ── Upload DOCX/HTML ──────────────────────────────────────────────────────
@@ -722,7 +727,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     const table = getActiveTable();
     if (!table) return;
     table.remove();
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   // ── Insert placeholder into editor ────────────────────────────────────────
@@ -731,39 +736,55 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     editorRef.current.focus();
     const chip = `<span data-placeholder="${fieldName}" class="pdf-placeholder" contenteditable="false" style="background:#dbeafe;color:#1e40af;border-radius:3px;padding:0 4px;font-size:.85em;user-select:none">{{${fieldName}}}</span>&nbsp;`;
     document.execCommand('insertHTML', false, chip);
-    setHtmlContent(editorRef.current.innerHTML);
+    setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
   // ── Toolbar command ───────────────────────────────────────────────────────
   const execCmd = (cmd: string, value?: string) => {
     editorRef.current?.focus();
     document.execCommand(cmd, false, value);
-    if (editorRef.current) setHtmlContent(editorRef.current.innerHTML);
+    if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
   };
 
-  // ── Badge sync (keyed by rule._key, anchored to data-block-id elements) ──
-  const syncBadges = useCallback((currentRules: TemplateRule[]) => {
-    if (!editorRef.current || !editorScrollRef.current) return;
-    const containerRect = editorScrollRef.current.getBoundingClientRect();
-    const st = editorScrollRef.current.scrollTop;
-    const sl = editorScrollRef.current.scrollLeft;
-    const positions: BadgePos[] = [];
+  // ── Inject inline rule badges into editor DOM ─────────────────────────────
+  const injectBadgesIntoEditor = useCallback((currentRules: TemplateRule[]) => {
+    if (!editorRef.current) return;
+    // Remove any stale badges first
+    editorRef.current.querySelectorAll('[data-rule-badge]').forEach(el => el.remove());
     currentRules.forEach((rule, idx) => {
       if (!rule.block_id) return;
-      const el = editorRef.current!.querySelector(`[data-block-id="${rule.block_id}"]`) as HTMLElement | null;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      positions.push({
-        id: rule._key ?? String(idx),
-        x: rect.right - containerRect.left + sl,
-        y: rect.top - containerRect.top + st - 10,
-        num: idx + 1,
-      });
+      const target = editorRef.current!.querySelector(`[data-block-id="${rule.block_id}"]`) as HTMLElement | null;
+      if (!target) return;
+      const badge = document.createElement('sup');
+      badge.setAttribute('data-rule-badge', rule._key ?? String(idx));
+      badge.setAttribute('contenteditable', 'false');
+      badge.textContent = String(idx + 1);
+      badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;background:#4f46e5;color:#fff;border-radius:9999px;font-size:9px;font-weight:700;cursor:pointer;user-select:none;vertical-align:super;margin-left:3px;padding:0 3px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.35);flex-shrink:0;';
+      badge.title = ruleLabel(rule);
+      target.insertAdjacentElement('afterend', badge);
     });
-    setBadgePositions(positions);
   }, []);
 
-  useEffect(() => { syncBadges(rules); }, [rules, syncBadges]);
+  // Re-inject badges whenever rules change OR when the Layout step becomes active
+  useEffect(() => {
+    if (editorStep !== 3) return;
+    const raf = requestAnimationFrame(() => injectBadgesIntoEditor(rules));
+    return () => cancelAnimationFrame(raf);
+  }, [rules, editorStep, injectBadgesIntoEditor]);
+
+  // Track whether cursor/selection is inside the editor (enables Add Rule button)
+  useEffect(() => {
+    const checkSel = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !editorRef.current) {
+        setSelectionInEditor(false); return;
+      }
+      const range = sel.getRangeAt(0);
+      setSelectionInEditor(editorRef.current.contains(range.commonAncestorContainer));
+    };
+    document.addEventListener('selectionchange', checkSel);
+    return () => document.removeEventListener('selectionchange', checkSel);
+  }, []);
 
   // ── Rule handlers (shared by Layout ribbon tab and Step 4 screen) ─────────
   const addRuleToSelected = () => {
@@ -789,7 +810,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     if (!blockId) {
       blockId = uid();
       targetEl.setAttribute('data-block-id', blockId);
-      setHtmlContent(editorRef.current.innerHTML);
+      setHtmlContent(htmlWithoutBadges(editorRef.current));
     }
     setRuleDialog({
       mode: 'add',
@@ -806,7 +827,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       setRules(prev => prev.map(r => r._key === ruleDialog.rule._key ? ruleDialog.rule : r));
     }
     setRuleDialog(null);
-    setTimeout(() => syncBadges(rules), 50);
+    // badges re-inject via the [rules] useEffect
   };
 
   const handleDeleteRule = (key: string) => {
@@ -815,11 +836,11 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       const others = rules.filter(r => r._key !== key && r.block_id === rule.block_id);
       if (others.length === 0) {
         const el = editorRef.current.querySelector(`[data-block-id="${rule.block_id}"]`) as HTMLElement | null;
-        if (el) { el.removeAttribute('data-block-id'); setHtmlContent(editorRef.current.innerHTML); }
+        if (el) { el.removeAttribute('data-block-id'); setHtmlContent(htmlWithoutBadges(editorRef.current)); }
       }
     }
     setRules(prev => prev.filter(r => r._key !== key));
-    if (activeBadge === key) setActiveBadge(null);
+    if (badgePopup?.key === key) setBadgePopup(null);
   };
 
   // ── Review helpers ────────────────────────────────────────────────────────
@@ -1316,81 +1337,69 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     </div>
                   )}
 
-                  {/* Rules tab — mirrors Step 4 rules, shared state */}
+                  {/* Rules tab — Add Rule button only; badge shows inline on selected element */}
                   {ribbonTab === 'rules' && (
-                    <div className="px-3 py-1.5 flex flex-wrap items-center gap-2 min-h-[36px]">
-                      <button onClick={addRuleToSelected}
-                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex-shrink-0"
-                        title="Click an element in the editor first, then add a rule">
+                    <div className="px-3 py-1.5 flex items-center gap-3 min-h-[36px]">
+                      <button onClick={addRuleToSelected} disabled={!selectionInEditor}
+                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                        title={selectionInEditor ? 'Add a rule to the selected element' : 'Click or select an element in the editor first'}>
                         <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
                           <rect x="7" y="1" width="2" height="14" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/>
                         </svg>
                         Add Rule
                       </button>
-                      {rules.length > 0 ? (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {rules.map((rule, idx) => (
-                            <div key={rule._key} className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 rounded-full pl-1 pr-2 py-0.5">
-                              <span className="w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] flex items-center justify-center font-bold flex-shrink-0">{idx + 1}</span>
-                              <span className={`text-[9px] px-1 rounded-full font-semibold flex-shrink-0 ${rule.rule_type === 'condition' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
-                                {rule.rule_type === 'condition' ? 'IF' : 'LOOP'}
-                              </span>
-                              <span className="text-xs text-slate-700 dark:text-slate-300 max-w-[160px] truncate">{ruleLabel(rule)}</span>
-                              <button onClick={() => setRuleDialog({ mode: 'edit', blockId: rule.block_id, rule: { ...rule, rule_config: { ...rule.rule_config } } })}
-                                className="text-indigo-400 hover:text-indigo-600 ml-0.5 flex-shrink-0" title="Edit rule">
-                                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 2.5a2.12 2.12 0 013 3L5 15H2v-3L11.5 2.5z"/></svg>
-                              </button>
-                              <button onClick={() => handleDeleteRule(rule._key!)} className="text-red-400 hover:text-red-600 flex-shrink-0" title="Delete rule">
-                                <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400 italic">No rules yet. Click an element in the editor, then Add Rule — or add from the Rules step.</span>
+                      {!selectionInEditor && (
+                        <span className="text-xs text-slate-400 italic">Click or select text, an image, or a table row in the editor to enable.</span>
                       )}
                     </div>
                   )}
                 </div>
                 {/* Page */}
-                <div ref={editorScrollRef} onScroll={() => syncBadges(rules)} className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6 relative">
-                  {/* Rule badges overlay — one badge per rule that has a matching data-block-id element */}
-                  {badgePositions.map(bp => {
-                    const r = rules.find(x => x._key === bp.id);
+                <div ref={editorScrollRef} className="flex-1 overflow-y-auto bg-slate-200 dark:bg-slate-700 p-6 relative">
+                  {/* Badge popup — shown when a rule badge is clicked */}
+                  {badgePopup && (() => {
+                    const ruleIdx = rules.findIndex(x => x._key === badgePopup.key);
+                    const r = rules[ruleIdx];
+                    if (!r) return null;
                     return (
-                      <div key={bp.id} style={{ position: 'absolute', left: bp.x, top: bp.y, zIndex: 20 }}>
-                        <button onClick={() => setActiveBadge(activeBadge === bp.id ? null : bp.id)}
-                          className="w-5 h-5 bg-indigo-600 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors ring-2 ring-white dark:ring-slate-900"
-                          title={r ? ruleLabel(r) : `Rule ${bp.num}`}>
-                          {bp.num}
-                        </button>
-                        {activeBadge === bp.id && r && (
-                          <div className="absolute top-6 right-0 z-30 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-xl shadow-2xl p-3 w-64 text-left">
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${r.rule_type === 'condition' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
-                                {r.rule_type === 'condition' ? 'IF' : 'LOOP'}
-                              </span>
-                              <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Rule {bp.num}</span>
-                            </div>
-                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">{ruleLabel(r)}</p>
-                            <div className="text-[10px] text-slate-400 mt-1">block: <code className="bg-slate-100 dark:bg-slate-700 px-0.5 rounded">{r.block_id}</code></div>
-                            <div className="flex gap-3 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                              <button onClick={() => { setRuleDialog({ mode: 'edit', blockId: r.block_id, rule: { ...r, rule_config: { ...r.rule_config } } }); setActiveBadge(null); }}
-                                className="text-[11px] text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-400 font-medium">Edit</button>
-                              <button onClick={() => { handleDeleteRule(bp.id); setActiveBadge(null); }}
-                                className="text-[11px] text-red-500 hover:text-red-700 font-medium">Delete</button>
-                            </div>
+                      <div
+                        style={{ position: 'fixed', left: badgePopup.x, top: badgePopup.y, zIndex: 50 }}
+                        className="bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-700 rounded-xl shadow-2xl p-3 w-64 text-left"
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${r.rule_type === 'condition' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
+                              {r.rule_type === 'condition' ? 'IF' : 'LOOP'}
+                            </span>
+                            <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Rule {ruleIdx + 1}</span>
                           </div>
-                        )}
+                          <button onClick={() => setBadgePopup(null)} className="text-slate-400 hover:text-slate-600 text-xs leading-none">✕</button>
+                        </div>
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">{ruleLabel(r)}</p>
+                        <div className="flex gap-3 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                          <button onClick={() => { setRuleDialog({ mode: 'edit', blockId: r.block_id, rule: { ...r, rule_config: { ...r.rule_config } } }); setBadgePopup(null); }}
+                            className="text-[11px] text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-400 font-medium">Edit</button>
+                          <button onClick={() => handleDeleteRule(badgePopup.key)}
+                            className="text-[11px] text-red-500 hover:text-red-700 font-medium">Delete</button>
+                        </div>
                       </div>
                     );
-                  })}
+                  })()}
                   <div className="max-w-[800px] mx-auto bg-white dark:bg-slate-900 shadow-lg rounded min-h-[1000px] p-12">
                     <div
                       ref={editorRef}
                       contentEditable
                       suppressContentEditableWarning
-                      onInput={() => { if (editorRef.current) setHtmlContent(editorRef.current.innerHTML); }}
+                      onInput={() => { if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current)); }}
+                      onClick={e => {
+                        const badge = (e.target as HTMLElement).closest('[data-rule-badge]') as HTMLElement | null;
+                        if (badge) {
+                          const rect = badge.getBoundingClientRect();
+                          setBadgePopup({ x: rect.left, y: rect.bottom + 4, key: badge.getAttribute('data-rule-badge') ?? '' });
+                        } else {
+                          setBadgePopup(null);
+                        }
+                      }}
                       className="outline-none min-h-[800px] text-slate-800 dark:text-slate-200 leading-relaxed [&_table]:border-collapse [&_table]:w-full [&_td]:border [&_td]:border-slate-300 [&_td]:p-1 [&_th]:border [&_th]:border-slate-300 [&_th]:p-1 [&_th]:bg-slate-50 dark:[&_td]:border-slate-600 dark:[&_th]:border-slate-600 dark:[&_th]:bg-slate-700"
                       style={{ fontFamily: 'Arial, sans-serif', fontSize: '14px' }}
                     />

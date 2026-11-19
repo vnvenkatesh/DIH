@@ -672,7 +672,7 @@ export const analyseTemplate = async (documentText: string, documentName: string
 // Embeddings are computed client-side (no API call needed)
 const generateKeywordEmbedding = (text: string): number[] => {
     const vector = new Array(768).fill(0);
-    const words = text.toLowerCase().match(/\w+/g) || [];
+    const words: string[] = text.toLowerCase().match(/\w+/g) || [];
     if (words.length === 0) return vector;
     words.forEach(word => {
         let hash = 0;

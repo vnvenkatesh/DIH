@@ -4,7 +4,7 @@ export type UserRole = 'Admin' | 'AppUser';
 
 export interface UserPreferences {
   theme: 'light' | 'dark';
-  llmProvider: 'gemini' | 'claude' | 'openai';
+  llmProvider: 'gemini' | 'claude' | 'openai' | 'grok';
   geminiApiKey: string;
   claudeApiKey: string;
   openaiApiKey: string;

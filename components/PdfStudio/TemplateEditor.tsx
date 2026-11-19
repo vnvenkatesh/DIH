@@ -195,7 +195,7 @@ export default function TemplateEditor({ template, onSaved, onCancel, onOpenFetc
 
   const STEPS: { id: Step; label: string }[] = [
     { id: 'upload', label: '1. Upload' },
-    { id: 'edit', label: '2. Edit' },
+    { id: 'edit', label: '2. Layout' },
     { id: 'schema', label: '3. Schema' },
     { id: 'rules', label: '4. Rules' },
   ];

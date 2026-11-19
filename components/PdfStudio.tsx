@@ -1693,12 +1693,19 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 <div className="border-b border-slate-200 dark:border-slate-700">
                   <div className="px-3 py-2 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active Rule</span>
-                    {cursorRule && (
-                      <button onClick={() => setRuleDialog({ mode: 'edit', blockId: cursorRule.block_id, rule: { ...cursorRule, rule_config: { ...cursorRule.rule_config } } })}
-                        className="text-[10px] text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 font-medium">
-                        Edit
+                    <div className="flex items-center gap-2">
+                      {cursorRule && (
+                        <button onClick={() => setRuleDialog({ mode: 'edit', blockId: cursorRule.block_id, rule: { ...cursorRule, rule_config: { ...cursorRule.rule_config } } })}
+                          className="text-[10px] text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 font-medium">
+                          Edit
+                        </button>
+                      )}
+                      <button onClick={addRuleToSelected} disabled={!selectionInEditor}
+                        className="text-[10px] px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded transition-colors font-medium"
+                        title={selectionInEditor ? 'Add rule to selected element' : 'Click an element in the editor first'}>
+                        + Add Rule
                       </button>
-                    )}
+                    </div>
                   </div>
                   <div className="px-3 py-2 min-h-[48px]">
                     {cursorRule ? (

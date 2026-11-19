@@ -199,14 +199,17 @@ router.post('/', requireApiKey, async (req: Request, res: Response) => {
     const composedBody = renderedBodies.join(pageBreak);
 
     const BASE_STYLES = `
-      body { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; color: #111; }
-      h1 { font-size: 20pt; margin-bottom: 0.5em; }
-      h2 { font-size: 16pt; margin-bottom: 0.4em; }
-      h3 { font-size: 13pt; margin-bottom: 0.3em; }
-      p  { margin-bottom: 0.6em; }
-      table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
-      td, th { border: 1px solid #ccc; padding: 6px 10px; }
+      * { box-sizing: border-box; }
+      body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #111; margin: 0; padding: 0; }
+      h1 { font-size: 22px; font-weight: 700; margin: 0.5em 0 0.3em; }
+      h2 { font-size: 18px; font-weight: 700; margin: 0.4em 0 0.25em; }
+      h3 { font-size: 15px; font-weight: 600; margin: 0.3em 0 0.2em; }
+      p  { margin: 0 0 0.35em 0; }
+      ul, ol { margin: 0 0 0.35em 1.5em; padding: 0; }
+      table { border-collapse: collapse; width: 100%; margin-bottom: 0.75em; }
+      td, th { border: 1px solid #ccc; padding: 4px 8px; vertical-align: top; }
       th { background: #f4f4f4; font-weight: 600; }
+      img { max-width: 100%; height: auto; }
     `;
     const finalHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${BASE_STYLES}</style></head><body>${composedBody}</body></html>`;
 

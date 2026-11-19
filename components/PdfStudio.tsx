@@ -296,6 +296,12 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const ribbonTabRef = useRef(ribbonTab);
   useEffect(() => { ribbonTabRef.current = ribbonTab; }, [ribbonTab]);
 
+  // Persist the last-known table elements so Table-tab inputs can find them
+  // even after focus moves away from the editor into the property inputs.
+  const lastTableRef = useRef<HTMLTableElement | null>(null);
+  const lastRowRef   = useRef<HTMLTableRowElement | null>(null);
+  const lastCellRef  = useRef<HTMLTableCellElement | null>(null);
+
   // ── Load list data ────────────────────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
     if (!token) return;
@@ -647,11 +653,25 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || !editorRef.current) { setCursorInTable(false); return; }
       let node: Node | null = sel.getRangeAt(0).startContainer;
-      while (node && node !== editorRef.current) {
-        if ((node as Element).tagName === 'TABLE') { setCursorInTable(true); return; }
-        node = node.parentNode;
+      let foundTable: HTMLTableElement | null = null;
+      let foundRow: HTMLTableRowElement | null = null;
+      let foundCell: HTMLTableCellElement | null = null;
+      let n = node;
+      while (n && n !== editorRef.current) {
+        const tag = (n as Element).tagName;
+        if ((tag === 'TD' || tag === 'TH') && !foundCell) foundCell = n as HTMLTableCellElement;
+        if (tag === 'TR' && !foundRow) foundRow = n as HTMLTableRowElement;
+        if (tag === 'TABLE') { foundTable = n as HTMLTableElement; break; }
+        n = n.parentNode;
       }
-      setCursorInTable(false);
+      if (foundTable) {
+        lastTableRef.current = foundTable;
+        lastRowRef.current   = foundRow;
+        lastCellRef.current  = foundCell;
+        setCursorInTable(true);
+      } else {
+        setCursorInTable(false);
+      }
     };
     document.addEventListener('selectionchange', checkCursor);
     return () => document.removeEventListener('selectionchange', checkCursor);
@@ -670,36 +690,39 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
   const getActiveTable = (): HTMLTableElement | null => {
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
-    let node: Node | null = sel.getRangeAt(0).startContainer;
-    while (node && node !== editorRef.current) {
-      if ((node as Element).tagName === 'TABLE') return node as HTMLTableElement;
-      node = node.parentNode;
+    if (sel && sel.rangeCount > 0 && editorRef.current) {
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== editorRef.current) {
+        if ((node as Element).tagName === 'TABLE') return node as HTMLTableElement;
+        node = node.parentNode;
+      }
     }
-    return null;
+    return lastTableRef.current;
   };
 
   const getActiveCell = (): HTMLTableCellElement | null => {
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
-    let node: Node | null = sel.getRangeAt(0).startContainer;
-    while (node && node !== editorRef.current) {
-      const tag = (node as Element).tagName;
-      if (tag === 'TD' || tag === 'TH') return node as HTMLTableCellElement;
-      node = node.parentNode;
+    if (sel && sel.rangeCount > 0 && editorRef.current) {
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== editorRef.current) {
+        const tag = (node as Element).tagName;
+        if (tag === 'TD' || tag === 'TH') return node as HTMLTableCellElement;
+        node = node.parentNode;
+      }
     }
-    return null;
+    return lastCellRef.current;
   };
 
   const getActiveRow = (): HTMLTableRowElement | null => {
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || !editorRef.current) return null;
-    let node: Node | null = sel.getRangeAt(0).startContainer;
-    while (node && node !== editorRef.current) {
-      if ((node as Element).tagName === 'TR') return node as HTMLTableRowElement;
-      node = node.parentNode;
+    if (sel && sel.rangeCount > 0 && editorRef.current) {
+      let node: Node | null = sel.getRangeAt(0).startContainer;
+      while (node && node !== editorRef.current) {
+        if ((node as Element).tagName === 'TR') return node as HTMLTableRowElement;
+        node = node.parentNode;
+      }
     }
-    return null;
+    return lastRowRef.current;
   };
 
   // ── Table commands ────────────────────────────────────────────────────────
@@ -843,11 +866,16 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       badge.title = ruleLabel(rule);
       const tag = target.tagName.toLowerCase();
       if (['td', 'th'].includes(tag)) {
-        target.insertBefore(badge, target.firstChild);
+        // Append inside cell so badge sits after content without disrupting leading text
+        target.appendChild(badge);
       } else if (tag === 'tr') {
+        // Attach to first cell of the row
         const firstCell = target.querySelector('td, th') as HTMLElement | null;
-        if (firstCell) firstCell.insertBefore(badge, firstCell.firstChild);
+        if (firstCell) firstCell.appendChild(badge);
         else target.insertAdjacentElement('afterend', badge);
+      } else if (['p','h1','h2','h3','h4','h5','h6','li','div','blockquote'].includes(tag)) {
+        // Append inside block elements so badge stays in content flow
+        target.appendChild(badge);
       } else {
         target.insertAdjacentElement('afterend', badge);
       }
@@ -1512,9 +1540,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                           Row H:
                           <input type="number" min={10} max={500} value={tableRowHeight}
-                            onMouseDown={e => e.preventDefault()}
-                            onChange={e => setTableRowHeight(e.target.value === '' ? '' : Number(e.target.value))}
-                            onBlur={e => { const v = Number(e.target.value); if (v > 0) applyRowHeight(v); }}
+                            onChange={e => { const v = e.target.value === '' ? '' : Number(e.target.value); setTableRowHeight(v); if (typeof v === 'number' && v > 0) applyRowHeight(v); }}
                             className="w-14 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
                           />
                           <span className="text-[10px] text-slate-400">px</span>
@@ -1522,9 +1548,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                           Col W:
                           <input type="number" min={20} max={1000} value={tableColWidth}
-                            onMouseDown={e => e.preventDefault()}
-                            onChange={e => setTableColWidth(e.target.value === '' ? '' : Number(e.target.value))}
-                            onBlur={e => { const v = Number(e.target.value); if (v > 0) applyColWidth(v); }}
+                            onChange={e => { const v = e.target.value === '' ? '' : Number(e.target.value); setTableColWidth(v); if (typeof v === 'number' && v > 0) applyColWidth(v); }}
                             className="w-16 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
                           />
                           <span className="text-[10px] text-slate-400">px</span>
@@ -1532,9 +1556,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                           Table W:
                           <input type="number" min={10} max={100} value={tableWidthPct}
-                            onMouseDown={e => e.preventDefault()}
-                            onChange={e => setTableWidthPct(e.target.value === '' ? '' : Number(e.target.value))}
-                            onBlur={e => { const v = Number(e.target.value); if (v > 0) applyTableWidth(v); }}
+                            onChange={e => { const v = e.target.value === '' ? '' : Number(e.target.value); setTableWidthPct(v); if (typeof v === 'number' && v > 0) applyTableWidth(v); }}
                             className="w-14 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
                           />
                           <span className="text-[10px] text-slate-400">%</span>

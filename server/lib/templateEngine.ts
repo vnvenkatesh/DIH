@@ -34,7 +34,7 @@ function evaluateCondition(config: RuleConfig, data: Record<string, any>): boole
   if (!config.field) return true;
   const actual = resolvePath(data, config.field);
   const expected = config.value;
-  const operator = config.operator ?? 'equals'; // RuleEditor default is 'equals'; guard missing saves
+  const operator = config.operator ?? 'equals';
   switch (operator) {
     case 'equals':     return String(actual ?? '') === String(expected ?? '');
     case 'not_equals': return String(actual ?? '') !== String(expected ?? '');
@@ -48,56 +48,60 @@ function evaluateCondition(config: RuleConfig, data: Record<string, any>): boole
 }
 
 /**
- * Find a <div data-block-id="blockId"> using brace-depth counting.
- * Handles nested divs correctly regardless of depth.
+ * Find an element with data-block-id="blockId" using depth counting.
+ * Supports any tag name: <p>, <td>, <tr>, <div>, <h1>–<h6>, <li>, etc.
  */
 function findBlock(
   html: string,
   blockId: string
 ): { start: number; end: number; inner: string } | null {
-  const openPattern = new RegExp(`<div[^>]*\\bdata-block-id="${escapeRegex(blockId)}"[^>]*>`, 'i');
+  const openPattern = new RegExp(`<([a-zA-Z][a-zA-Z0-9]*)[^>]*\\bdata-block-id="${escapeRegex(blockId)}"[^>]*>`, 'i');
   const match = openPattern.exec(html);
   if (!match) {
     console.warn(`[templateEngine] findBlock: no match for blockId="${blockId}"`);
     return null;
   }
 
+  const tagName = match[1].toLowerCase();
+  const openTag = `<${tagName}`;
+  const closeTag = `</${tagName}>`;
+  const htmlLower = html.toLowerCase();
+
   const openStart = match.index;
   let pos = openStart + match[0].length;
   let depth = 1;
 
   while (pos < html.length && depth > 0) {
-    const nextOpen = html.indexOf('<div', pos);
-    const nextClose = html.indexOf('</div>', pos);
+    const nextOpen = htmlLower.indexOf(openTag, pos);
+    const nextClose = htmlLower.indexOf(closeTag, pos);
     if (nextClose === -1) break;
 
     if (nextOpen !== -1 && nextOpen < nextClose) {
       depth++;
-      pos = nextOpen + 4;
+      pos = nextOpen + openTag.length;
     } else {
       depth--;
       if (depth === 0) {
-        const end = nextClose + 6;
+        const end = nextClose + closeTag.length;
         return { start: openStart, end, inner: html.slice(openStart + match[0].length, nextClose) };
       }
-      pos = nextClose + 6;
+      pos = nextClose + closeTag.length;
     }
   }
 
-  console.warn(`[templateEngine] findBlock: depth never reached 0 for blockId="${blockId}"`);
+  console.warn(`[templateEngine] findBlock: depth never reached 0 for blockId="${blockId}" tag="${tagName}"`);
   return null;
 }
 
 /**
- * The WYSIWYG editor prepends a visual header div (contenteditable="false") inside each block.
- * Also wraps content in a padding div. Strip both so only real content reaches Puppeteer.
+ * Strip the visual rule-block header div (contenteditable="false") that the WYSIWYG editor
+ * injects. For non-div targets (p, td, tr, etc.) this regex won't match, leaving content intact.
  */
 function stripBlockHeader(inner: string): string {
-  // Remove the visual header: first inner div with contenteditable="false"
   return inner.replace(/^\s*<div[^>]*\bcontenteditable="false"[^>]*>[\s\S]*?<\/div>\s*/i, '');
 }
 
-/** Replace placeholder chip spans with resolved data values (removes chip styling too) */
+/** Replace placeholder chip spans with resolved data values */
 function fillPlaceholders(html: string, data: Record<string, any>): string {
   return html.replace(
     /<span[^>]*\bdata-placeholder="([^"]+)"[^>]*>[^<]*<\/span>/gi,
@@ -106,6 +110,11 @@ function fillPlaceholders(html: string, data: Record<string, any>): string {
       return val != null ? String(val) : '';
     }
   );
+}
+
+/** Strip editor-only rule-badge superscripts so they don't appear in the output PDF */
+function stripRuleBadges(html: string): string {
+  return html.replace(/<sup[^>]*\bdata-rule-badge="[^"]*"[^>]*>[\s\S]*?<\/sup>/gi, '');
 }
 
 /** Remove blocks where the condition evaluates to false */
@@ -147,27 +156,33 @@ function expandLoops(html: string, rules: Rule[], data: Record<string, any>): st
   return html;
 }
 
-/** Unwrap all remaining data-block-id divs: strip wrapper + visual header, keep content */
+/** Unwrap all remaining data-block-id elements: strip wrapper + header, keep inner content */
 function unwrapBlocks(html: string): string {
   while (/\bdata-block-id="/.test(html)) {
-    const match = /<div[^>]*\bdata-block-id="([^"]*)"[^>]*>/.exec(html);
+    const match = /<([a-zA-Z][a-zA-Z0-9]*)[^>]*\bdata-block-id="([^"]*)"[^>]*>/.exec(html);
     if (!match) break;
-    const block = findBlock(html, match[1]);
+    const blockId = match[2];
+    const block = findBlock(html, blockId);
     if (!block) break; // safety — avoid infinite loop on malformed HTML
     html = html.slice(0, block.start) + stripBlockHeader(block.inner) + html.slice(block.end);
   }
   return html;
 }
 
+// Matches the editor's font-size (14px) and tight paragraph spacing so the PDF
+// looks like the WYSIWYG preview.
 const BASE_STYLES = `
-  body { font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5; color: #111; }
-  h1 { font-size: 20pt; margin-bottom: 0.5em; }
-  h2 { font-size: 16pt; margin-bottom: 0.4em; }
-  h3 { font-size: 13pt; margin-bottom: 0.3em; }
-  p  { margin-bottom: 0.6em; }
-  table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
-  td, th { border: 1px solid #ccc; padding: 6px 10px; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #111; margin: 0; padding: 0; }
+  h1 { font-size: 22px; font-weight: 700; margin: 0.5em 0 0.3em; }
+  h2 { font-size: 18px; font-weight: 700; margin: 0.4em 0 0.25em; }
+  h3 { font-size: 15px; font-weight: 600; margin: 0.3em 0 0.2em; }
+  p  { margin: 0 0 0.35em 0; }
+  ul, ol { margin: 0 0 0.35em 1.5em; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 0.75em; }
+  td, th { border: 1px solid #ccc; padding: 4px 8px; vertical-align: top; }
   th { background: #f4f4f4; font-weight: 600; }
+  img { max-width: 100%; height: auto; }
 `;
 
 export function renderTemplate(
@@ -176,7 +191,6 @@ export function renderTemplate(
   data: Record<string, any>,
   debug = false
 ): string | { html: string; steps: Record<string, any> } {
-  // Log what blocks exist in the HTML vs what rules reference
   const htmlBlockIds = [...htmlContent.matchAll(/\bdata-block-id="([^"]+)"/g)].map(m => m[1]);
   const ruleBlockIds = rules.map(r => r.blockId);
   console.log(`[templateEngine] htmlBlockIds=${JSON.stringify(htmlBlockIds)} ruleBlockIds=${JSON.stringify(ruleBlockIds)}`);
@@ -185,6 +199,7 @@ export function renderTemplate(
   html = expandLoops(html, rules, data);
   html = applyConditions(html, rules, data);
   html = fillPlaceholders(html, data);
+  html = stripRuleBadges(html);   // remove editor-only badge <sup> elements
   html = unwrapBlocks(html);
 
   const finalHtml = `<!DOCTYPE html>

@@ -54,6 +54,14 @@ interface BadgePopupPos {
   key: string;
 }
 
+interface ImageSelectState {
+  el: HTMLImageElement;
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+}
+
 interface ApiKey {
   id: number;
   name: string;
@@ -284,6 +292,9 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [tableColWidth, setTableColWidth] = useState<number | ''>(100);
   const [tableWidthPct, setTableWidthPct] = useState<number | ''>(100);
   const [barcodeDialog, setBarcodeDialog] = useState<{ content: string; width: number; height: number } | null>(null);
+  const [selectedImage, setSelectedImage] = useState<ImageSelectState | null>(null);
+  const ribbonTabRef = useRef(ribbonTab);
+  useEffect(() => { ribbonTabRef.current = ribbonTab; }, [ribbonTab]);
 
   // ── Load list data ────────────────────────────────────────────────────────
   const loadTemplates = useCallback(async () => {
@@ -389,11 +400,15 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     setEditing(true);
   };
 
-  // Keep editor div in sync when htmlContent changes programmatically
+  // Keep editor div in sync when htmlContent changes programmatically.
+  // Compare badge-free versions so normal typing (which preserves badges in the DOM
+  // but stores badge-free HTML in state) never triggers a spurious overwrite.
   useEffect(() => {
     if (editorRef.current && editorStep === 3) {
-      if (editorRef.current.innerHTML !== htmlContent) {
+      const domBadgeFree = htmlWithoutBadges(editorRef.current);
+      if (domBadgeFree !== htmlContent) {
         editorRef.current.innerHTML = htmlContent;
+        // badges are re-injected by the [rules, editorStep, htmlContent] effect below
       }
     }
   }, [htmlContent, editorStep]);
@@ -643,12 +658,14 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   }, []);
 
   // Auto-switch ribbon to Table tab when cursor enters a table, back when it leaves
+  // Keep tab sticky while user interacts with Table tab inputs (ribbonTabRef stays 'table')
   useEffect(() => {
     if (cursorInTable) {
       setRibbonTab('table');
-    } else {
+    } else if (ribbonTabRef.current !== 'table') {
       setRibbonTab(prev => prev === 'table' ? 'formatting' : prev);
     }
+    // Don't switch away when ribbonTab is already 'table' — user may be typing in a prop input
   }, [cursorInTable]);
 
   const getActiveTable = (): HTMLTableElement | null => {
@@ -824,7 +841,16 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       badge.textContent = String(idx + 1);
       badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;background:#4f46e5;color:#fff;border-radius:9999px;font-size:9px;font-weight:700;cursor:pointer;user-select:none;vertical-align:super;margin-left:3px;padding:0 3px;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.35);flex-shrink:0;';
       badge.title = ruleLabel(rule);
-      target.insertAdjacentElement('afterend', badge);
+      const tag = target.tagName.toLowerCase();
+      if (['td', 'th'].includes(tag)) {
+        target.insertBefore(badge, target.firstChild);
+      } else if (tag === 'tr') {
+        const firstCell = target.querySelector('td, th') as HTMLElement | null;
+        if (firstCell) firstCell.insertBefore(badge, firstCell.firstChild);
+        else target.insertAdjacentElement('afterend', badge);
+      } else {
+        target.insertAdjacentElement('afterend', badge);
+      }
     });
   }, []);
 
@@ -833,7 +859,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     if (editorStep !== 3) return;
     const raf = requestAnimationFrame(() => injectBadgesIntoEditor(rules));
     return () => cancelAnimationFrame(raf);
-  }, [rules, editorStep, injectBadgesIntoEditor]);
+  }, [rules, editorStep, htmlContent, injectBadgesIntoEditor]);
 
   // Track whether cursor/selection is inside the editor (enables Add Rule button)
   useEffect(() => {
@@ -860,7 +886,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         const el = node as HTMLElement;
         if (el.nodeType === 1) {
           const tag = (el.tagName ?? '').toLowerCase();
-          if (['p','h1','h2','h3','h4','h5','h6','li','td','th','div','blockquote','table'].includes(tag)) {
+          if (['p','h1','h2','h3','h4','h5','h6','li','td','th','tr','div','blockquote','table'].includes(tag)) {
             targetEl = el; break;
           }
         }
@@ -1486,6 +1512,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                           Row H:
                           <input type="number" min={10} max={500} value={tableRowHeight}
+                            onMouseDown={e => e.preventDefault()}
                             onChange={e => setTableRowHeight(e.target.value === '' ? '' : Number(e.target.value))}
                             onBlur={e => { const v = Number(e.target.value); if (v > 0) applyRowHeight(v); }}
                             className="w-14 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -1495,6 +1522,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                           Col W:
                           <input type="number" min={20} max={1000} value={tableColWidth}
+                            onMouseDown={e => e.preventDefault()}
                             onChange={e => setTableColWidth(e.target.value === '' ? '' : Number(e.target.value))}
                             onBlur={e => { const v = Number(e.target.value); if (v > 0) applyColWidth(v); }}
                             className="w-16 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -1504,6 +1532,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                           Table W:
                           <input type="number" min={10} max={100} value={tableWidthPct}
+                            onMouseDown={e => e.preventDefault()}
                             onChange={e => setTableWidthPct(e.target.value === '' ? '' : Number(e.target.value))}
                             onBlur={e => { const v = Number(e.target.value); if (v > 0) applyTableWidth(v); }}
                             className="w-14 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -1515,6 +1544,12 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       <ToolbarBtn onClick={deleteTable} title="Delete entire table">
                         <span className="text-red-500 font-medium">✕ Table</span>
                       </ToolbarBtn>
+                      <div className="w-px h-5 bg-slate-200 dark:bg-slate-600" />
+                      <button onClick={() => { setRibbonTab('formatting'); setCursorInTable(false); }}
+                        className="px-2 py-0.5 text-[11px] text-teal-700 dark:text-teal-400 border border-teal-300 dark:border-teal-600 rounded hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors font-medium"
+                        title="Exit Table mode">
+                        ✕ Done
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1551,6 +1586,35 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       </div>
                     );
                   })()}
+                  {/* Image resize toolbar — shown when an image is clicked */}
+                  {selectedImage && (
+                    <div style={{ position: 'fixed', left: selectedImage.x, top: selectedImage.y, zIndex: 50 }}
+                      className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 flex items-center gap-2">
+                      <span className="text-xs text-slate-500 font-medium">W</span>
+                      <input type="number" min={20} max={2000} value={selectedImage.width}
+                        onMouseDown={e => e.preventDefault()}
+                        onChange={e => {
+                          const w = Number(e.target.value);
+                          selectedImage.el.style.width = w + 'px';
+                          selectedImage.el.removeAttribute('width');
+                          setSelectedImage(s => s ? { ...s, width: w } : null);
+                          if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+                        }}
+                        className="w-16 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      <span className="text-xs text-slate-500 font-medium">H</span>
+                      <input type="number" min={20} max={2000} value={selectedImage.height}
+                        onMouseDown={e => e.preventDefault()}
+                        onChange={e => {
+                          const h = Number(e.target.value);
+                          selectedImage.el.style.height = h + 'px';
+                          selectedImage.el.removeAttribute('height');
+                          setSelectedImage(s => s ? { ...s, height: h } : null);
+                          if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+                        }}
+                        className="w-16 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                      <button onClick={() => setSelectedImage(null)} className="text-slate-400 hover:text-slate-600 text-xs ml-1">✕</button>
+                    </div>
+                  )}
                   <div className="max-w-[800px] mx-auto bg-white dark:bg-slate-900 shadow-lg rounded min-h-[1000px] p-12">
                     <div
                       ref={editorRef}
@@ -1562,8 +1626,16 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         if (badge) {
                           const rect = badge.getBoundingClientRect();
                           setBadgePopup({ x: rect.left, y: rect.bottom + 4, key: badge.getAttribute('data-rule-badge') ?? '' });
+                          setSelectedImage(null);
+                          return;
+                        }
+                        setBadgePopup(null);
+                        const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null;
+                        if (img) {
+                          const rect = img.getBoundingClientRect();
+                          setSelectedImage({ el: img, width: img.offsetWidth || img.naturalWidth, height: img.offsetHeight || img.naturalHeight, x: rect.left, y: rect.bottom + 6 });
                         } else {
-                          setBadgePopup(null);
+                          setSelectedImage(null);
                         }
                       }}
                       className="outline-none min-h-[800px] text-slate-800 dark:text-slate-200 leading-relaxed [&_table]:border-collapse [&_table]:w-full [&_td]:border [&_td]:border-slate-300 [&_td]:p-1 [&_th]:border [&_th]:border-slate-300 [&_th]:p-1 [&_th]:bg-slate-50 dark:[&_td]:border-slate-600 dark:[&_th]:border-slate-600 dark:[&_th]:bg-slate-700"
@@ -1620,10 +1692,19 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Field</label>
-                      <input value={ruleDialog.rule.rule_config.field ?? ''}
+                      <input list="rule-field-datalist"
+                        value={ruleDialog.rule.rule_config.field ?? ''}
                         onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { ...d.rule.rule_config, field: e.target.value } } } : null)}
                         className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         placeholder="e.g. policy_type" />
+                      <datalist id="rule-field-datalist">
+                        {[...new Set([
+                          ...(fields ?? []).map(f => f.field_name),
+                          ...(editorProjectSchema ?? []).map(f => f.field_name),
+                        ].filter(Boolean))].map(name => (
+                          <option key={name} value={name} />
+                        ))}
+                      </datalist>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Operator</label>
@@ -1647,7 +1728,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 {ruleDialog.rule.rule_type === 'loop' && (
                   <div>
                     <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Array Field</label>
-                    <input value={ruleDialog.rule.rule_config.arrayField ?? ''}
+                    <input list="rule-field-datalist"
+                      value={ruleDialog.rule.rule_config.arrayField ?? ''}
                       onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { arrayField: e.target.value } } } : null)}
                       className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       placeholder="e.g. line_items" />

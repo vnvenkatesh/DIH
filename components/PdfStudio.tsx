@@ -291,6 +291,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [selectionInEditor, setSelectionInEditor] = useState(false);
   const [cursorRule, setCursorRule] = useState<TemplateRule | null>(null);
   const rulesRef = useRef<TemplateRule[]>(rules);
+  // Tracks the last block-level element the cursor was in — survives button clicks that steal focus
+  const cursorElementRef = useRef<HTMLElement | null>(null);
   const [tableRowHeight, setTableRowHeight] = useState<number | ''>(30);
   const [tableColWidth, setTableColWidth] = useState<number | ''>(100);
   const [tableWidthPct, setTableWidthPct] = useState<number | ''>(100);
@@ -474,7 +476,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       const body = {
         name: tplName.trim(),
         description: tplDescription,
-        html_content: editorRef.current?.innerHTML ?? htmlContent,
+        html_content: editorRef.current ? htmlWithoutBadges(editorRef.current) : htmlContent,
         original_format: originalFormat,
         page_size: tplPageSize,
         margin_mm: tplMarginMm,
@@ -523,7 +525,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          html_content: editorRef.current?.innerHTML ?? htmlContent,
+          html_content: editorRef.current ? htmlWithoutBadges(editorRef.current) : htmlContent,
           rules: rules.map(({ _key, ...r }) => r),
           sample_data: sample,
         }),
@@ -922,12 +924,19 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       const inEditor = editorRef.current.contains(range.commonAncestorContainer);
       setSelectionInEditor(inEditor);
       if (!inEditor) { setCursorRule(null); return; }
-      // Walk up from cursor to find the nearest element with data-block-id
+      // Walk up from cursor: track the innermost block element, and check for a rule
       let node: Node | null = range.startContainer;
       let found: TemplateRule | null = null;
+      let trackedEl: HTMLElement | null = null;
       while (node && node !== editorRef.current) {
         if (node.nodeType === 1) {
-          const blockId = (node as HTMLElement).getAttribute('data-block-id');
+          const el = node as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+          // Track the innermost block-level element (for addRuleToSelected to use after focus moves)
+          if (!trackedEl && ['p','h1','h2','h3','h4','h5','h6','li','td','th','tr','div','blockquote','table'].includes(tag)) {
+            trackedEl = el;
+          }
+          const blockId = el.getAttribute('data-block-id');
           if (blockId) {
             found = rulesRef.current.find(r => r.block_id === blockId) ?? null;
             break;
@@ -935,6 +944,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         }
         node = node.parentNode;
       }
+      if (trackedEl) cursorElementRef.current = trackedEl;
       setCursorRule(found);
     };
     document.addEventListener('selectionchange', checkSel);
@@ -944,6 +954,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   // ── Rule handlers (shared by Layout ribbon tab and Step 4 screen) ─────────
   const addRuleToSelected = () => {
     if (!editorRef.current) return;
+    // Try live selection first (works when editor still has focus)
     const sel = window.getSelection();
     let targetEl: HTMLElement | null = null;
     if (sel && sel.rangeCount > 0) {
@@ -958,6 +969,10 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
         }
         node = node.parentNode;
       }
+    }
+    // Fall back to last tracked cursor element (survives button-click focus stealing)
+    if (!targetEl && cursorElementRef.current && editorRef.current.contains(cursorElementRef.current)) {
+      targetEl = cursorElementRef.current;
     }
     if (!targetEl) targetEl = editorRef.current.firstElementChild as HTMLElement | null;
     if (!targetEl) return;
@@ -976,11 +991,17 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
 
   const handleRuleDialogConfirm = () => {
     if (!ruleDialog) return;
+    const updatedRule = ruleDialog.rule;
     if (ruleDialog.mode === 'add') {
-      setRules(prev => [...prev, ruleDialog.rule]);
+      const next = [...rulesRef.current, updatedRule];
+      rulesRef.current = next;      // sync ref immediately so selectionchange sees new rule
+      setRules(next);
     } else {
-      setRules(prev => prev.map(r => r._key === ruleDialog.rule._key ? ruleDialog.rule : r));
+      const next = rulesRef.current.map(r => r._key === updatedRule._key ? updatedRule : r);
+      rulesRef.current = next;
+      setRules(next);
     }
+    setCursorRule(updatedRule);       // show rule in Active Rule panel right away
     setRuleDialog(null);
     // badges re-inject via the [rules] useEffect
   };
@@ -1695,12 +1716,17 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active Rule</span>
                     <div className="flex items-center gap-2">
                       {cursorRule && (
-                        <button onClick={() => setRuleDialog({ mode: 'edit', blockId: cursorRule.block_id, rule: { ...cursorRule, rule_config: { ...cursorRule.rule_config } } })}
+                        <button
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => setRuleDialog({ mode: 'edit', blockId: cursorRule.block_id, rule: { ...cursorRule, rule_config: { ...cursorRule.rule_config } } })}
                           className="text-[10px] text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 font-medium">
                           Edit
                         </button>
                       )}
-                      <button onClick={addRuleToSelected} disabled={!selectionInEditor}
+                      <button
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={addRuleToSelected}
+                        disabled={!selectionInEditor}
                         className="text-[10px] px-1.5 py-0.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded transition-colors font-medium"
                         title={selectionInEditor ? 'Add rule to selected element' : 'Click an element in the editor first'}>
                         + Add Rule

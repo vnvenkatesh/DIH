@@ -283,12 +283,14 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   // ── Layout ribbon & inline rule badges ───────────────────────────────────
-  const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'rules' | 'table'>('formatting');
+  const [ribbonTab, setRibbonTab] = useState<'formatting' | 'insert' | 'review' | 'table'>('formatting');
   const [badgePopup, setBadgePopup] = useState<BadgePopupPos | null>(null);
   const [fontColor, setFontColor] = useState('#000000');
   const [ruleDialog, setRuleDialog] = useState<RuleDialogState | null>(null);
   const [reviewResult, setReviewResult] = useState<string | null>(null);
   const [selectionInEditor, setSelectionInEditor] = useState(false);
+  const [cursorRule, setCursorRule] = useState<TemplateRule | null>(null);
+  const rulesRef = useRef<TemplateRule[]>(rules);
   const [tableRowHeight, setTableRowHeight] = useState<number | ''>(30);
   const [tableColWidth, setTableColWidth] = useState<number | ''>(100);
   const [tableWidthPct, setTableWidthPct] = useState<number | ''>(100);
@@ -296,6 +298,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [selectedImage, setSelectedImage] = useState<ImageSelectState | null>(null);
   const ribbonTabRef = useRef(ribbonTab);
   useEffect(() => { ribbonTabRef.current = ribbonTab; }, [ribbonTab]);
+  useEffect(() => { rulesRef.current = rules; }, [rules]);
 
   // Inject global CSS for rule-annotated elements once on mount
   useEffect(() => {
@@ -879,7 +882,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       badge.setAttribute('contenteditable', 'false');
       badge.textContent = rule.rule_type === 'condition' ? '⚡' : '↺';
       badge.title = ruleLabel(rule);
-      badge.style.cssText = 'float:right;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:rgba(99,102,241,0.12);color:#4f46e5;border-radius:4px;font-size:12px;cursor:pointer;user-select:none;margin-left:6px;line-height:1;flex-shrink:0;';
+      badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:rgba(99,102,241,0.15);color:#4f46e5;border-radius:3px;font-size:10px;cursor:pointer;user-select:none;margin-left:4px;vertical-align:middle;line-height:1;flex-shrink:0;';
 
       const tag = target.tagName.toLowerCase();
       if (['td', 'th'].includes(tag)) {
@@ -906,15 +909,33 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
     return () => cancelAnimationFrame(raf);
   }, [rules, editorStep, htmlContent, injectBadgesIntoEditor]);
 
-  // Track whether cursor/selection is inside the editor (enables Add Rule button)
+  // Track whether cursor/selection is inside the editor and detect any rule on the focused element
   useEffect(() => {
     const checkSel = () => {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || !editorRef.current) {
-        setSelectionInEditor(false); return;
+        setSelectionInEditor(false);
+        setCursorRule(null);
+        return;
       }
       const range = sel.getRangeAt(0);
-      setSelectionInEditor(editorRef.current.contains(range.commonAncestorContainer));
+      const inEditor = editorRef.current.contains(range.commonAncestorContainer);
+      setSelectionInEditor(inEditor);
+      if (!inEditor) { setCursorRule(null); return; }
+      // Walk up from cursor to find the nearest element with data-block-id
+      let node: Node | null = range.startContainer;
+      let found: TemplateRule | null = null;
+      while (node && node !== editorRef.current) {
+        if (node.nodeType === 1) {
+          const blockId = (node as HTMLElement).getAttribute('data-block-id');
+          if (blockId) {
+            found = rulesRef.current.find(r => r.block_id === blockId) ?? null;
+            break;
+          }
+        }
+        node = node.parentNode;
+      }
+      setCursorRule(found);
     };
     document.addEventListener('selectionchange', checkSel);
     return () => document.removeEventListener('selectionchange', checkSel);
@@ -1367,14 +1388,14 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
                   {/* Tab labels */}
                   <div className="flex items-center border-b border-slate-100 dark:border-slate-700 px-3">
-                    {(['formatting', 'insert', 'review', 'rules'] as const).map(tab => (
+                    {(['formatting', 'insert', 'review'] as const).map(tab => (
                       <button key={tab} onClick={() => setRibbonTab(tab)}
                         className={`px-4 py-2 text-xs font-medium border-b-2 transition-colors -mb-px ${
                           ribbonTab === tab
                             ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
                             : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                         }`}>
-                        {tab === 'formatting' ? 'Formatting' : tab === 'insert' ? 'Insert' : tab === 'review' ? 'Review' : `Rules${rules.length ? ` (${rules.length})` : ''}`}
+                        {tab === 'formatting' ? 'Formatting' : tab === 'insert' ? 'Insert' : 'Review'}
                       </button>
                     ))}
                     {cursorInTable && (
@@ -1507,23 +1528,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       </ToolbarBtn>
                       {reviewResult && (
                         <span className="text-xs text-slate-600 dark:text-slate-400 ml-2 italic">{reviewResult}</span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Rules tab — Add Rule button only; badge shows inline on selected element */}
-                  {ribbonTab === 'rules' && (
-                    <div className="px-3 py-1.5 flex items-center gap-3 min-h-[36px]">
-                      <button onClick={addRuleToSelected} disabled={!selectionInEditor}
-                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
-                        title={selectionInEditor ? 'Add a rule to the selected element' : 'Click or select an element in the editor first'}>
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-                          <rect x="7" y="1" width="2" height="14" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/>
-                        </svg>
-                        Add Rule
-                      </button>
-                      {!selectionInEditor && (
-                        <span className="text-xs text-slate-400 italic">Click or select text, an image, or a table row in the editor to enable.</span>
                       )}
                     </div>
                   )}
@@ -1683,8 +1687,49 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   </div>
                 </div>
               </div>
-              {/* Fields panel */}
-              <FieldsPanel fields={fields} projectFields={editorProjectSchema} projectName={editorProjectName || undefined} onInsert={insertPlaceholder} />
+              {/* Right sidebar: active rule panel + fields */}
+              <div className="flex flex-col gap-0 overflow-y-auto" style={{ minWidth: 220 }}>
+                {/* Active Rule panel — shows rule for the focused element */}
+                <div className="border-b border-slate-200 dark:border-slate-700">
+                  <div className="px-3 py-2 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active Rule</span>
+                    {cursorRule && (
+                      <button onClick={() => setRuleDialog({ mode: 'edit', blockId: cursorRule.block_id, rule: { ...cursorRule, rule_config: { ...cursorRule.rule_config } } })}
+                        className="text-[10px] text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 font-medium">
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  <div className="px-3 py-2 min-h-[48px]">
+                    {cursorRule ? (
+                      <div className="text-xs space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${cursorRule.rule_type === 'condition' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' : 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'}`}>
+                            {cursorRule.rule_type === 'condition' ? '⚡ Condition' : '↺ Loop'}
+                          </span>
+                        </div>
+                        {cursorRule.rule_type === 'condition' && (
+                          <p className="text-slate-600 dark:text-slate-300 leading-snug">
+                            <span className="font-medium">{cursorRule.rule_config.field ?? '—'}</span>
+                            {' '}{cursorRule.rule_config.operator ?? ''}{' '}
+                            <span className="font-medium">{cursorRule.rule_config.value ?? ''}</span>
+                          </p>
+                        )}
+                        {cursorRule.rule_type === 'loop' && (
+                          <p className="text-slate-600 dark:text-slate-300 leading-snug">
+                            Loop over <span className="font-medium">{cursorRule.rule_config.arrayField ?? '—'}</span>
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 italic leading-snug">
+                        {selectionInEditor ? 'No rule on this element.' : 'Click an element in the editor.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <FieldsPanel fields={fields} projectFields={editorProjectSchema} projectName={editorProjectName || undefined} onInsert={insertPlaceholder} />
+              </div>
             </div>
           )}
 

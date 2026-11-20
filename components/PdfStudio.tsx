@@ -202,18 +202,19 @@ function buildSampleJson(fields: TemplateField[]): Record<string, unknown> {
   const obj: Record<string, unknown> = {};
   for (const f of fields) {
     if (f.default_value) { obj[f.field_name] = f.default_value; continue; }
+    // is_array flag takes precedence: always generate an array regardless of field_type
+    if (f.is_array || f.field_type === 'array') {
+      const childFields = fields.filter(c => c.parent_field === f.field_name);
+      const childSample = childFields.length
+        ? Object.fromEntries(childFields.map(c => [c.field_name, `Sample ${c.field_name}`]))
+        : { [f.field_name]: `Sample ${f.field_name}` };
+      obj[f.field_name] = [childSample, { ...childSample }];
+      continue;
+    }
     switch (f.field_type) {
       case 'number':  obj[f.field_name] = 1; break;
       case 'boolean': obj[f.field_name] = true; break;
       case 'date':    obj[f.field_name] = '2025-01-31'; break;
-      case 'array': {
-        const childFields = fields.filter(c => c.parent_field === f.field_name);
-        const childSample = childFields.length
-          ? Object.fromEntries(childFields.map(c => [c.field_name, `Sample ${c.field_name}`]))
-          : { item: 'Sample item' };
-        obj[f.field_name] = [childSample, { ...childSample }];
-        break;
-      }
       case 'object':  obj[f.field_name] = {}; break;
       default:        obj[f.field_name] = `Sample ${f.field_name}`; break;
     }
@@ -937,8 +938,9 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       if (['td', 'th'].includes(tag)) {
         target.appendChild(badge);
       } else if (tag === 'tr') {
-        const firstCell = target.querySelector('td, th') as HTMLElement | null;
-        if (firstCell) firstCell.appendChild(badge);
+        const cells = target.querySelectorAll('td, th');
+        const lastCell = cells.length ? cells[cells.length - 1] as HTMLElement : null;
+        if (lastCell) lastCell.appendChild(badge);
         else target.insertAdjacentElement('afterend', badge);
       } else if (['p','h1','h2','h3','h4','h5','h6','li','div','blockquote'].includes(tag)) {
         target.appendChild(badge);

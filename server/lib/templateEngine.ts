@@ -101,15 +101,22 @@ function stripBlockHeader(inner: string): string {
   return inner.replace(/^\s*<div[^>]*\bcontenteditable="false"[^>]*>[\s\S]*?<\/div>\s*/i, '');
 }
 
-/** Replace placeholder chip spans with resolved data values */
+/** Replace placeholder chip spans AND raw {{field}} text with resolved data values */
 function fillPlaceholders(html: string, data: Record<string, any>): string {
-  return html.replace(
+  // Replace chip-based placeholders (inserted via field picker)
+  let result = html.replace(
     /<span[^>]*\bdata-placeholder="([^"]+)"[^>]*>[^<]*<\/span>/gi,
     (_match, field) => {
       const val = resolvePath(data, field);
       return val != null ? String(val) : '';
     }
   );
+  // Also replace raw {{fieldName}} typed directly (not as a chip)
+  result = result.replace(/\{\{([^}]+)\}\}/g, (_match, field) => {
+    const val = resolvePath(data, field.trim());
+    return val != null ? String(val) : _match;
+  });
+  return result;
 }
 
 /** Strip editor-only rule-badge superscripts so they don't appear in the output PDF */
@@ -143,8 +150,10 @@ function applyConditions(html: string, rules: Rule[], data: Record<string, any>)
 /** Repeat block content for each item in an array field */
 function expandLoops(html: string, rules: Rule[], data: Record<string, any>): string {
   for (const rule of rules.filter(r => r.ruleType === 'loop')) {
-    const items: any[] = resolvePath(data, rule.ruleConfig.arrayField ?? '') ?? [];
-    console.log(`[templateEngine] loop blockId="${rule.blockId}" items=${items.length}`);
+    const rawItems = resolvePath(data, rule.ruleConfig.arrayField ?? '') ?? [];
+    // Guard: only iterate if the resolved value is actually an array
+    const items: any[] = Array.isArray(rawItems) ? rawItems : [];
+    console.log(`[templateEngine] loop blockId="${rule.blockId}" arrayField="${rule.ruleConfig.arrayField}" items=${items.length}`);
     const block = findBlock(html, rule.blockId);
     if (!block) continue;
     const innerContent = stripBlockHeader(block.inner);

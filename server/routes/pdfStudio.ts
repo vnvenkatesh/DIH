@@ -286,13 +286,9 @@ router.post('/preview', requireAuth, async (req, res) => {
       ruleType: r.rule_type as 'condition' | 'loop',
       ruleConfig: typeof r.rule_config === 'string' ? JSON.parse(r.rule_config) : (r.rule_config ?? {}),
     }));
-    const rendered = renderTemplate(html_content, mappedRules, sample_data, false);
-    const pageHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-      body{font-family:Arial,sans-serif;margin:40px;color:#222;line-height:1.6}
-      .pdf-placeholder{background:#dbeafe;color:#1e40af;border-radius:3px;padding:0 3px;font-size:.85em}
-      [data-block-id]{border-left:3px solid #e5e7eb;padding-left:8px}
-    </style></head><body>${rendered}</body></html>`;
-    res.json({ html: pageHtml });
+    // renderTemplate returns a complete <!DOCTYPE html> document — use it directly
+    const rendered = renderTemplate(html_content, mappedRules, sample_data, false) as string;
+    res.json({ html: rendered });
   } catch (err: any) {
     res.status(400).json({ error: err.message ?? 'Render failed' });
   }

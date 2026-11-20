@@ -33,6 +33,7 @@ const PROJECT_FIELD_TYPES: ProjectFieldType[] = ['string', 'number', 'date', 'bo
 interface TemplateRule {
   _key?: string;
   block_id: string;
+  rule_name?: string;
   rule_type: 'condition' | 'loop';
   rule_config: {
     field?: string;
@@ -111,6 +112,20 @@ function ruleLabel(rule: TemplateRule): string {
   const { arrayField } = rule.rule_config;
   if (!arrayField) return 'Loop (unconfigured)';
   return `Loop over {{${arrayField}}}`;
+}
+
+function computeFieldXPath(field: TemplateField, allFields: TemplateField[]): string {
+  const path: string[] = [];
+  let current: TemplateField | undefined = field;
+  const visited = new Set<string>();
+  while (current) {
+    if (visited.has(current.field_name)) break;
+    visited.add(current.field_name);
+    path.unshift(current.is_array ? `${current.field_name}[]` : current.field_name);
+    if (!current.parent_field) break;
+    current = allFields.find(f => f.field_name === current!.parent_field);
+  }
+  return '/' + path.join('/');
 }
 
 function htmlWithoutBadges(el: HTMLElement): string {
@@ -298,6 +313,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   const [tableWidthPct, setTableWidthPct] = useState<number | ''>(100);
   const [barcodeDialog, setBarcodeDialog] = useState<{ content: string; width: number; height: number } | null>(null);
   const [selectedImage, setSelectedImage] = useState<ImageSelectState | null>(null);
+  const [rulesTab, setRulesTab] = useState<'conditions' | 'loops'>('conditions');
   const ribbonTabRef = useRef(ribbonTab);
   useEffect(() => { ribbonTabRef.current = ribbonTab; }, [ribbonTab]);
   useEffect(() => { rulesRef.current = rules; }, [rules]);
@@ -391,6 +407,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       setRules((j.rules ?? []).map((r: any) => ({
         _key: uid(),
         block_id: r.block_id,
+        rule_name: r.rule_name ?? '',
         rule_type: r.rule_type,
         rule_config: typeof r.rule_config === 'string' ? JSON.parse(r.rule_config) : (r.rule_config ?? {}),
       })));
@@ -883,7 +900,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       badge.setAttribute('data-rule-badge', rule._key ?? String(idx));
       badge.setAttribute('contenteditable', 'false');
       badge.textContent = rule.rule_type === 'condition' ? '⚡' : '↺';
-      badge.title = ruleLabel(rule);
+      badge.title = rule.rule_name ? `${rule.rule_name}: ${ruleLabel(rule)}` : ruleLabel(rule);
       badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:rgba(99,102,241,0.15);color:#4f46e5;border-radius:3px;font-size:10px;cursor:pointer;user-select:none;margin-left:4px;vertical-align:middle;line-height:1;flex-shrink:0;';
 
       const tag = target.tagName.toLowerCase();
@@ -1265,9 +1282,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <div className="flex gap-2 px-2 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
                           <span className="w-36 flex-shrink-0">Name</span>
                           <span className="w-24 flex-shrink-0">Type</span>
-                          <span className="w-32 flex-shrink-0">Parent</span>
                           <span className="w-28 flex-shrink-0">Default</span>
-                          <span className="flex-1 min-w-[120px]">Description</span>
+                          <span className="flex-1 min-w-[120px]">XPath</span>
                           <span className="whitespace-nowrap">Req</span>
                           <span className="whitespace-nowrap">Array?</span>
                           <span className="w-4" />
@@ -1301,7 +1317,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         <span className="w-28">Type</span>
                         <span className="w-16 text-center">Array?</span>
                         <span className="w-20 text-center">Required</span>
-                        <span className="flex-1">Description</span>
+                        <span className="flex-1">XPath</span>
                       </div>
                       <div className="space-y-1">
                         {editorProjectSchema.map(f => (
@@ -1310,7 +1326,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                             <span className="w-28 text-xs text-slate-500 dark:text-slate-400">{f.field_type}{f.is_array ? '[]' : ''}</span>
                             <span className="w-16 text-center text-xs text-slate-400">{f.is_array ? '✓' : '—'}</span>
                             <span className="w-20 text-center text-xs text-slate-400">{f.is_required ? '✓' : '—'}</span>
-                            <span className="flex-1 text-xs text-slate-400 truncate">{f.description || '—'}</span>
+                            <span className="flex-1 text-xs font-mono text-indigo-500 dark:text-indigo-400 truncate">{`/${f.field_name}${f.is_array ? '[]' : ''}`}</span>
                             <span className="text-xs text-purple-500 italic flex-none">project</span>
                           </div>
                         ))}
@@ -1377,9 +1393,8 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     <div className="flex gap-2 px-2 pb-1 text-xs font-medium text-slate-400 uppercase tracking-wide">
                       <span className="w-36 flex-shrink-0">Name</span>
                       <span className="w-24 flex-shrink-0">Type</span>
-                      <span className="w-32 flex-shrink-0">Parent</span>
                       <span className="w-28 flex-shrink-0">Default</span>
-                      <span className="flex-1 min-w-[120px]">Description</span>
+                      <span className="flex-1 min-w-[120px]">XPath</span>
                       <span className="whitespace-nowrap">Req</span>
                       <span className="whitespace-nowrap">Array?</span>
                       <span className="w-4" />
@@ -1636,7 +1651,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${r.rule_type === 'condition' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'}`}>
                               {r.rule_type === 'condition' ? 'IF' : 'LOOP'}
                             </span>
-                            <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Rule {ruleIdx + 1}</span>
+                            <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">{r.rule_name || `Rule ${ruleIdx + 1}`}</span>
                           </div>
                           <button onClick={() => setBadgePopup(null)} className="text-slate-400 hover:text-slate-600 text-xs leading-none">✕</button>
                         </div>
@@ -1656,7 +1671,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2 flex items-center gap-2">
                       <span className="text-xs text-slate-500 font-medium">W</span>
                       <input type="number" min={20} max={2000} value={selectedImage.width}
-                        onMouseDown={e => e.preventDefault()}
                         onChange={e => {
                           const w = Number(e.target.value);
                           selectedImage.el.style.width = w + 'px';
@@ -1667,7 +1681,6 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                         className="w-16 px-1.5 py-0.5 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                       <span className="text-xs text-slate-500 font-medium">H</span>
                       <input type="number" min={20} max={2000} value={selectedImage.height}
-                        onMouseDown={e => e.preventDefault()}
                         onChange={e => {
                           const h = Number(e.target.value);
                           selectedImage.el.style.height = h + 'px';
@@ -1740,6 +1753,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${cursorRule.rule_type === 'condition' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' : 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'}`}>
                             {cursorRule.rule_type === 'condition' ? '⚡ Condition' : '↺ Loop'}
                           </span>
+                          {cursorRule.rule_name && <span className="font-medium text-slate-700 dark:text-slate-200 truncate">{cursorRule.rule_name}</span>}
                         </div>
                         {cursorRule.rule_type === 'condition' && (
                           <p className="text-slate-600 dark:text-slate-300 leading-snug">
@@ -1793,15 +1807,22 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                   </button>
                 </div>
 
+                {/* Rule name */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Rule name <span className="text-slate-400 font-normal">(displayed in the editor badge)</span></label>
+                  <input value={ruleDialog.rule.rule_name ?? ''}
+                    onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_name: e.target.value } } : null)}
+                    className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g. Show if policy active" />
+                </div>
+
                 {/* Block ID */}
                 <div className="mb-3">
                   <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    Block ID <span className="text-slate-400 font-normal">(matches <code className="bg-slate-100 dark:bg-slate-700 px-0.5 rounded">data-block-id</code> on the element)</span>
+                    Block ID <span className="text-slate-400 font-normal">(auto-assigned, links to <code className="bg-slate-100 dark:bg-slate-700 px-0.5 rounded">data-block-id</code> on the element)</span>
                   </label>
-                  <input value={ruleDialog.rule.block_id}
-                    onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, block_id: e.target.value } } : null)}
-                    className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="e.g. policy-block" />
+                  <input value={ruleDialog.rule.block_id} readOnly
+                    className="w-full text-sm border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 bg-slate-50 dark:bg-slate-700/50 text-slate-400 dark:text-slate-500 font-mono cursor-default select-all" />
                 </div>
 
                 {/* Condition fields */}
@@ -1906,36 +1927,59 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
           {/* ── Step 4: Rules ── */}
           {editorStep === 4 && (
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="max-w-[60%] mx-auto overflow-x-auto">
-                <div className="flex items-center justify-between mb-6">
+              <div className="max-w-[800px] mx-auto">
+                <div className="flex items-center justify-between mb-5">
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Conditional rules</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Rules show/hide blocks or repeat them (loops). Each rule needs a <code className="text-xs bg-slate-100 dark:bg-slate-700 px-1 rounded">data-block-id</code> attribute on the target element in your template.</p>
+                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Rules</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Rules show/hide blocks (conditions) or repeat them (loops) based on data fields.</p>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setRules(r => [...r, { _key: uid(), block_id: '', rule_type: 'condition', rule_config: { field: '', operator: 'equals', value: '' } }])}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
-                      + Condition
-                    </button>
-                    <button onClick={() => setRules(r => [...r, { _key: uid(), block_id: '', rule_type: 'loop', rule_config: { arrayField: '' } }])}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors">
-                      + Loop
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => {
+                      if (rulesTab === 'conditions') {
+                        setRules(r => [...r, { _key: uid(), block_id: '', rule_name: '', rule_type: 'condition', rule_config: { field: '', operator: 'equals', value: '' } }]);
+                      } else {
+                        setRules(r => [...r, { _key: uid(), block_id: '', rule_name: '', rule_type: 'loop', rule_config: { arrayField: '' } }]);
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm text-white rounded-lg transition-colors ${rulesTab === 'conditions' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                    + {rulesTab === 'conditions' ? 'Add Condition' : 'Add Loop'}
+                  </button>
                 </div>
 
-                {rules.length === 0 && (
-                  <div className="text-center py-16 text-slate-400">No rules yet. Rules are optional — add them when your template has conditional blocks or repeating sections.</div>
-                )}
-
-                <div className="space-y-3">
-                  {rules.map((rule, idx) => (
-                    <RuleRow key={rule._key} rule={rule} fields={fields}
-                      onChange={updated => setRules(prev => prev.map((x, i) => i === idx ? updated : x))}
-                      onRemove={() => setRules(prev => prev.filter((_, i) => i !== idx))}
-                    />
-                  ))}
+                {/* Tabs */}
+                <div className="flex border-b border-slate-200 dark:border-slate-700 mb-4">
+                  {(['conditions', 'loops'] as const).map(tab => {
+                    const count = rules.filter(r => (tab === 'conditions' ? r.rule_type === 'condition' : r.rule_type === 'loop')).length;
+                    return (
+                      <button key={tab} onClick={() => setRulesTab(tab)}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${rulesTab === tab ? (tab === 'conditions' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-purple-500 text-purple-600 dark:text-purple-400') : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+                        {tab === 'conditions' ? 'Conditions' : 'Loops'}
+                        {count > 0 && <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${rulesTab === tab ? (tab === 'conditions' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300') : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>{count}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
+
+                {/* Rule rows */}
+                {(() => {
+                  const filtered = rules.filter(r => rulesTab === 'conditions' ? r.rule_type === 'condition' : r.rule_type === 'loop');
+                  if (filtered.length === 0) {
+                    return <div className="text-center py-16 text-slate-400 text-sm border border-dashed border-slate-200 dark:border-slate-700 rounded-xl">{rulesTab === 'conditions' ? 'No conditions yet.' : 'No loops yet.'} Add one with the button above.</div>;
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {filtered.map(rule => {
+                        const globalIdx = rules.findIndex(r => r._key === rule._key);
+                        return (
+                          <RuleRow key={rule._key} rule={rule} fields={fields}
+                            onChange={updated => setRules(prev => prev.map((x, i) => i === globalIdx ? updated : x))}
+                            onRemove={() => setRules(prev => prev.filter((_, i) => i !== globalIdx))}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
                 {previewError && <p className="mt-6 text-sm text-red-600 dark:text-red-400">{previewError}</p>}
               </div>
@@ -2080,12 +2124,15 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                               const text = await file.text();
                               const parsed = parseXsd(text);
                               if (parsed.length === 0) return;
-                              // Merge: skip names already present
-                              const existing = new Set(projectSchema.map(f => f.field_name));
-                              const toAdd = parsed.filter(f => !existing.has(f.field_name)).map(f => ({
-                                ...f, parent_field: '',
-                              }));
-                              setProjectSchema(s => [...s, ...toAdd]);
+                              // Replace entire schema: merge parsed fields over existing ones (preserving user edits where field_name matches, adding new, keeping manual-only fields)
+                              const parsedMap = new Map(parsed.map(f => [f.field_name, f]));
+                              const updated = projectSchema.map(f => {
+                                const p = parsedMap.get(f.field_name);
+                                return p ? { ...f, field_type: p.field_type, is_array: p.is_array, is_required: p.is_required, description: p.description } : f;
+                              });
+                              const existingNames = new Set(projectSchema.map(f => f.field_name));
+                              const toAdd = parsed.filter(f => !existingNames.has(f.field_name)).map(f => ({ ...f, parent_field: '' }));
+                              setProjectSchema([...updated, ...toAdd]);
                             } finally {
                               setXsdUploading(false);
                               e.target.value = '';
@@ -2115,7 +2162,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                           <span className="w-28">Type</span>
                           <span className="w-16 text-center">Array</span>
                           <span className="w-20 text-center">Required</span>
-                          <span className="flex-1">Description</span>
+                          <span className="flex-1">XPath</span>
                           <span className="w-6" />
                         </div>
                         <div className="space-y-2">
@@ -2585,9 +2632,7 @@ const FieldRow: React.FC<{
   onRemove: () => void;
 }> = ({ field, allFields, onChange, onRemove }) => {
   const inp = 'px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
-  const parentOptions = allFields.filter(
-    f => (f.field_type === 'array' || f.field_type === 'object') && f.field_name !== field.field_name && f.field_name
-  );
+  const xpath = computeFieldXPath(field, allFields);
   return (
     <div className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
       {/* field_name */}
@@ -2598,22 +2643,11 @@ const FieldRow: React.FC<{
         className={`${inp} w-24 flex-shrink-0`}>
         {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
       </select>
-      {/* parent */}
-      <select value={field.parent_field ?? ''} onChange={e => onChange({ ...field, parent_field: e.target.value })}
-        className={`w-32 flex-shrink-0 px-2 py-1.5 text-sm border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-          field.parent_field
-            ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20 text-purple-800 dark:text-purple-200'
-            : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-400 dark:text-slate-500'
-        }`} title="Parent array/object (loop child)">
-        <option value="">(no parent)</option>
-        {parentOptions.map(p => <option key={p.field_name} value={p.field_name}>{p.field_name}</option>)}
-      </select>
       {/* default value */}
       <input value={field.default_value} onChange={e => onChange({ ...field, default_value: e.target.value })}
         placeholder="Default" className={`${inp} w-28 flex-shrink-0`} />
-      {/* description */}
-      <input value={field.description} onChange={e => onChange({ ...field, description: e.target.value })}
-        placeholder="Description" className={`${inp} flex-1 min-w-[120px]`} />
+      {/* xpath (computed, read-only) */}
+      <span className="flex-1 min-w-[120px] text-xs font-mono text-indigo-600 dark:text-indigo-400 truncate px-1" title={xpath}>{xpath}</span>
       {/* required */}
       <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">
         <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })}
@@ -2641,8 +2675,9 @@ const ProjectFieldRow: React.FC<{
   onRemove: () => void;
 }> = ({ field, onChange, onRemove }) => {
   const inp = 'px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
+  const xpath = `/${field.field_name || '…'}${field.is_array ? '[]' : ''}`;
   return (
-    <div className="flex items-center gap-2 flex-wrap p-2 rounded-lg border border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+    <div className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
       <input value={field.field_name} onChange={e => onChange({ ...field, field_name: e.target.value })}
         placeholder="field_name" className={`${inp} flex-1 min-w-[120px] font-mono`} />
       <select value={field.field_type as string} onChange={e => onChange({ ...field, field_type: e.target.value as ProjectFieldType })}
@@ -2661,8 +2696,8 @@ const ProjectFieldRow: React.FC<{
           className="rounded accent-indigo-600" />
         Required
       </label>
-      <input value={field.description} onChange={e => onChange({ ...field, description: e.target.value })}
-        placeholder="Description" className={`${inp} flex-1 min-w-[100px]`} />
+      {/* XPath (computed, read-only) */}
+      <span className="flex-1 min-w-[100px] text-xs font-mono text-indigo-600 dark:text-indigo-400 truncate px-1" title={xpath}>{xpath}</span>
       <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors flex-none" title="Remove field">
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -2673,49 +2708,47 @@ const ProjectFieldRow: React.FC<{
 };
 
 const RuleRow: React.FC<{ rule: TemplateRule; fields: TemplateField[]; onChange: (r: TemplateRule) => void; onRemove: () => void }> = ({ rule, fields, onChange, onRemove }) => {
-  const inp = 'flex-1 px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
-  const badge = rule.rule_type === 'condition'
-    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-    : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
+  const inp = 'px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
   return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badge} uppercase`}>{rule.rule_type}</span>
-        <input value={rule.block_id} onChange={e => onChange({ ...rule, block_id: e.target.value })}
-          placeholder="data-block-id value" className={`${inp} font-mono`} />
-        <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors" title="Remove rule">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+    <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+      {/* Name */}
+      <input value={rule.rule_name ?? ''} onChange={e => onChange({ ...rule, rule_name: e.target.value })}
+        placeholder="Rule name…" className={`${inp} w-40 flex-shrink-0`} />
+      {/* Config — condition */}
       {rule.rule_type === 'condition' && (
-        <div className="flex gap-3">
+        <>
           <select value={rule.rule_config.field ?? ''} onChange={e => onChange({ ...rule, rule_config: { ...rule.rule_config, field: e.target.value } })}
-            className={`w-40 ${inp}`}>
+            className={`${inp} w-36 flex-shrink-0`}>
             <option value="">— field —</option>
             {fields.map(f => <option key={f._key ?? f.field_name} value={f.field_name}>{f.field_name}</option>)}
           </select>
           <select value={rule.rule_config.operator ?? 'equals'} onChange={e => onChange({ ...rule, rule_config: { ...rule.rule_config, operator: e.target.value } })}
-            className={`w-36 ${inp}`}>
+            className={`${inp} w-32 flex-shrink-0`}>
             {OPERATORS.map(op => <option key={op} value={op}>{op.replace('_', ' ')}</option>)}
           </select>
           {!['not_empty', 'is_empty'].includes(rule.rule_config.operator ?? 'equals') && (
             <input value={rule.rule_config.value ?? ''} onChange={e => onChange({ ...rule, rule_config: { ...rule.rule_config, value: e.target.value } })}
-              placeholder="Value" className={inp} />
+              placeholder="Value" className={`${inp} flex-1 min-w-[80px]`} />
           )}
-        </div>
+        </>
       )}
+      {/* Config — loop */}
       {rule.rule_type === 'loop' && (
-        <div className="flex gap-3 items-center">
-          <span className="text-sm text-slate-500">Repeat block for each item in:</span>
+        <>
+          <span className="text-sm text-slate-400 dark:text-slate-500 flex-shrink-0">repeat over</span>
           <select value={rule.rule_config.arrayField ?? ''} onChange={e => onChange({ ...rule, rule_config: { ...rule.rule_config, arrayField: e.target.value } })}
-            className={`w-48 ${inp}`}>
+            className={`${inp} flex-1 min-w-[120px]`}>
             <option value="">— array field —</option>
             {fields.filter(f => f.field_type === 'array').map(f => <option key={f._key ?? f.field_name} value={f.field_name}>{f.field_name}</option>)}
           </select>
-        </div>
+        </>
       )}
+      {/* Delete */}
+      <button onClick={onRemove} className="text-slate-400 hover:text-red-500 transition-colors flex-shrink-0 ml-auto" title="Remove rule">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 };

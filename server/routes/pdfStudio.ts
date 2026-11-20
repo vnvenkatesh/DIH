@@ -380,8 +380,8 @@ router.post('/:id/duplicate', requireAuth, async (req, res) => {
     }
     for (const r of rulesRes.rows) {
       await client.query(
-        `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config) VALUES ($1,$2,$3,$4)`,
-        [newId, r.block_id, r.rule_type, JSON.stringify(r.rule_config)]
+        `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config, rule_name) VALUES ($1,$2,$3,$4,$5)`,
+        [newId, r.block_id, r.rule_type, JSON.stringify(r.rule_config), r.rule_name ?? '']
       );
     }
     await client.query('COMMIT');
@@ -425,9 +425,9 @@ router.post('/', requireAuth, async (req, res) => {
     if (rules?.length) {
       for (const r of rules) {
         await client.query(
-          `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config)
-           VALUES ($1,$2,$3,$4)`,
-          [templateId, r.block_id, r.rule_type, JSON.stringify(r.rule_config)]
+          `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config, rule_name)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [templateId, r.block_id, r.rule_type, JSON.stringify(r.rule_config), r.rule_name ?? '']
         );
       }
     }
@@ -481,9 +481,9 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (rules?.length) {
       for (const r of rules) {
         await client.query(
-          `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config)
-           VALUES ($1,$2,$3,$4)`,
-          [req.params.id, r.block_id, r.rule_type, JSON.stringify(r.rule_config)]
+          `INSERT INTO pdf_template_rules (template_id, block_id, rule_type, rule_config, rule_name)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [req.params.id, r.block_id, r.rule_type, JSON.stringify(r.rule_config), r.rule_name ?? '']
         );
       }
     }

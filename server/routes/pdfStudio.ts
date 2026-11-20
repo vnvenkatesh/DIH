@@ -374,8 +374,8 @@ router.post('/:id/duplicate', requireAuth, async (req, res) => {
     for (let i = 0; i < fieldsRes.rows.length; i++) {
       const f = fieldsRes.rows[i];
       await client.query(
-        `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [newId, f.field_name, f.field_type, f.is_required, f.default_value, f.description, f.parent_field, i]
+        `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order, is_array) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [newId, f.field_name, f.field_type, f.is_required, f.default_value, f.description, f.parent_field, i, f.is_array ?? false]
       );
     }
     for (const r of rulesRes.rows) {
@@ -414,10 +414,10 @@ router.post('/', requireAuth, async (req, res) => {
       for (let i = 0; i < fields.length; i++) {
         const f = fields[i];
         await client.query(
-          `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order, is_array)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [templateId, f.field_name, f.field_type ?? 'string', f.is_required ?? false,
-           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i]
+           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i, f.is_array ?? false]
         );
       }
     }
@@ -468,10 +468,10 @@ router.put('/:id', requireAuth, async (req, res) => {
       for (let i = 0; i < fields.length; i++) {
         const f = fields[i];
         await client.query(
-          `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO pdf_template_fields (template_id, field_name, field_type, is_required, default_value, description, parent_field, sort_order, is_array)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [req.params.id, f.field_name, f.field_type ?? 'string', f.is_required ?? false,
-           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i]
+           f.default_value ?? '', f.description ?? '', f.parent_field ?? null, i, f.is_array ?? false]
         );
       }
     }

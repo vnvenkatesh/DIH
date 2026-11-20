@@ -255,6 +255,7 @@ export async function initDb(): Promise<void> {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pdf_template_rules_template ON pdf_template_rules(template_id)`);
   await pool.query(`ALTER TABLE pdf_template_rules ADD COLUMN IF NOT EXISTS rule_name VARCHAR(200) DEFAULT ''`);
+  await pool.query(`ALTER TABLE pdf_template_fields ADD COLUMN IF NOT EXISTS is_array BOOLEAN DEFAULT FALSE`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pdf_api_keys (

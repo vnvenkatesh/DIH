@@ -1097,7 +1097,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
       <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900">
 
         {/* Header */}
-        <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center gap-4 shadow-sm">
+        <div className="flex-shrink-0 border-b border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center gap-4 shadow-sm" style={{ background: '#F2F2F2' }}>
           <button onClick={() => { setEditing(false); loadTemplates(); }}
             className="flex items-center gap-2 text-slate-500 hover:text-slate-800 dark:hover:text-white text-sm font-medium transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1865,12 +1865,16 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                 {/* Loop field */}
                 {ruleDialog.rule.rule_type === 'loop' && (
                   <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Array Field</label>
-                    <input list="rule-field-datalist"
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Array Field <span className="text-slate-400 font-normal">(fields with type array or marked as array)</span></label>
+                    <select
                       value={ruleDialog.rule.rule_config.arrayField ?? ''}
                       onChange={e => setRuleDialog(d => d ? { ...d, rule: { ...d.rule, rule_config: { arrayField: e.target.value } } } : null)}
-                      className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      placeholder="e.g. line_items" />
+                      className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="">— select array field —</option>
+                      {[...fields, ...editorProjectSchema]
+                        .filter(f => f.field_type === 'array' || f.is_array)
+                        .map(f => <option key={f._key ?? f.field_name} value={f.field_name}>{f.field_name}{f.is_array ? '[]' : ''}</option>)}
+                    </select>
                   </div>
                 )}
 
@@ -1971,7 +1975,7 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       {filtered.map(rule => {
                         const globalIdx = rules.findIndex(r => r._key === rule._key);
                         return (
-                          <RuleRow key={rule._key} rule={rule} fields={fields}
+                          <RuleRow key={rule._key} rule={rule} fields={fields} projectFields={editorProjectSchema}
                             onChange={updated => setRules(prev => prev.map((x, i) => i === globalIdx ? updated : x))}
                             onRemove={() => setRules(prev => prev.filter((_, i) => i !== globalIdx))}
                           />
@@ -2707,7 +2711,7 @@ const ProjectFieldRow: React.FC<{
   );
 };
 
-const RuleRow: React.FC<{ rule: TemplateRule; fields: TemplateField[]; onChange: (r: TemplateRule) => void; onRemove: () => void }> = ({ rule, fields, onChange, onRemove }) => {
+const RuleRow: React.FC<{ rule: TemplateRule; fields: TemplateField[]; projectFields?: TemplateField[]; onChange: (r: TemplateRule) => void; onRemove: () => void }> = ({ rule, fields, projectFields = [], onChange, onRemove }) => {
   const inp = 'px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
   return (
     <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
@@ -2739,7 +2743,9 @@ const RuleRow: React.FC<{ rule: TemplateRule; fields: TemplateField[]; onChange:
           <select value={rule.rule_config.arrayField ?? ''} onChange={e => onChange({ ...rule, rule_config: { ...rule.rule_config, arrayField: e.target.value } })}
             className={`${inp} flex-1 min-w-[120px]`}>
             <option value="">— array field —</option>
-            {fields.filter(f => f.field_type === 'array').map(f => <option key={f._key ?? f.field_name} value={f.field_name}>{f.field_name}</option>)}
+            {[...fields, ...projectFields]
+              .filter(f => f.field_type === 'array' || f.is_array)
+              .map(f => <option key={f._key ?? f.field_name} value={f.field_name}>{f.field_name}{f.is_array && f.field_type !== 'array' ? '[]' : ''}</option>)}
           </select>
         </>
       )}

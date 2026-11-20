@@ -54,7 +54,7 @@ function evaluateCondition(config: RuleConfig, data: Record<string, any>): boole
 function findBlock(
   html: string,
   blockId: string
-): { start: number; end: number; inner: string } | null {
+): { start: number; end: number; inner: string; tagName: string; openTagHtml: string } | null {
   const openPattern = new RegExp(`<([a-zA-Z][a-zA-Z0-9]*)[^>]*\\bdata-block-id="${escapeRegex(blockId)}"[^>]*>`, 'i');
   const match = openPattern.exec(html);
   if (!match) {
@@ -83,7 +83,7 @@ function findBlock(
       depth--;
       if (depth === 0) {
         const end = nextClose + closeTag.length;
-        return { start: openStart, end, inner: html.slice(openStart + match[0].length, nextClose) };
+        return { start: openStart, end, inner: html.slice(openStart + match[0].length, nextClose), tagName, openTagHtml: match[0] };
       }
       pos = nextClose + closeTag.length;
     }
@@ -148,8 +148,11 @@ function expandLoops(html: string, rules: Rule[], data: Record<string, any>): st
     const block = findBlock(html, rule.blockId);
     if (!block) continue;
     const innerContent = stripBlockHeader(block.inner);
+    // Build a clean opening tag without the data-block-id so repeated rows don't trigger further processing
+    const cleanOpenTag = block.openTagHtml.replace(/\s*data-block-id="[^"]*"/, '');
+    const closeTag = `</${block.tagName}>`;
     const expanded = items.map(item =>
-      fillPlaceholders(innerContent, { ...data, ...item, _item: item })
+      cleanOpenTag + fillPlaceholders(innerContent, { ...data, ...item, _item: item }) + closeTag
     ).join('');
     html = html.slice(0, block.start) + expanded + html.slice(block.end);
   }

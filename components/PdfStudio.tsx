@@ -318,6 +318,36 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
   useEffect(() => { ribbonTabRef.current = ribbonTab; }, [ribbonTab]);
   useEffect(() => { rulesRef.current = rules; }, [rules]);
 
+  // ── Row-repeat hover handle ───────────────────────────────────────────────
+  const [rowHover, setRowHover] = useState<{ el: HTMLTableRowElement } | null>(null);
+  const [rowRepeatDialog, setRowRepeatDialog] = useState<{
+    el: HTMLTableRowElement;
+    existingRule: TemplateRule | null;
+    ruleName: string;
+    arrayField: string;
+    blockId: string;
+  } | null>(null);
+  const rowHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (editorStep !== 3) { setRowHover(null); return; }
+    const editor = editorRef.current;
+    if (!editor) return;
+    const over = (e: MouseEvent) => {
+      if (rowHoverTimerRef.current) { clearTimeout(rowHoverTimerRef.current); rowHoverTimerRef.current = null; }
+      const tr = (e.target as HTMLElement).closest('tr') as HTMLTableRowElement | null;
+      if (tr && editor.contains(tr)) setRowHover({ el: tr });
+    };
+    const leave = () => { rowHoverTimerRef.current = setTimeout(() => setRowHover(null), 150); };
+    editor.addEventListener('mouseover', over);
+    editor.addEventListener('mouseleave', leave);
+    return () => {
+      editor.removeEventListener('mouseover', over);
+      editor.removeEventListener('mouseleave', leave);
+      if (rowHoverTimerRef.current) clearTimeout(rowHoverTimerRef.current);
+    };
+  }, [editorStep]);
+
   // Inject global CSS for rule-annotated elements once on mount
   useEffect(() => {
     const styleId = 'dih-rule-styles';
@@ -1692,6 +1722,28 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                       <button onClick={() => setSelectedImage(null)} className="text-slate-400 hover:text-slate-600 text-xs ml-1">✕</button>
                     </div>
                   )}
+                  {/* Row-repeat hover handle — fixed button that appears at the right of a hovered <tr> */}
+                  {rowHover && editorStep === 3 && !rowRepeatDialog && (() => {
+                    const r = rowHover.el.getBoundingClientRect();
+                    if (!r.width) return null;
+                    return (
+                      <div
+                        style={{ position: 'fixed', left: r.right - 94, top: r.top + (r.height - 22) / 2, zIndex: 48, pointerEvents: 'auto' }}
+                        onMouseEnter={() => { if (rowHoverTimerRef.current) { clearTimeout(rowHoverTimerRef.current); rowHoverTimerRef.current = null; } }}
+                        onMouseLeave={() => { rowHoverTimerRef.current = setTimeout(() => setRowHover(null), 100); }}
+                        onClick={() => {
+                          const row = rowHover.el;
+                          const bid = row.getAttribute('data-block-id') ?? '';
+                          const existingRule = bid ? rulesRef.current.find(rx => rx.block_id === bid && rx.rule_type === 'loop') ?? null : null;
+                          setRowRepeatDialog({ el: row, existingRule, ruleName: existingRule?.rule_name ?? '', arrayField: existingRule?.rule_config.arrayField ?? '', blockId: bid || uid() });
+                          setRowHover(null);
+                        }}
+                        className="bg-teal-500 hover:bg-teal-600 text-white rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer shadow-md flex items-center gap-1 select-none transition-colors"
+                        title="Set row as repeating">
+                        ↺ Repeat row
+                      </div>
+                    );
+                  })()}
                   <div className="max-w-[800px] mx-auto bg-white dark:bg-slate-900 shadow-lg rounded min-h-[1000px] p-12">
                     <div
                       ref={editorRef}
@@ -1923,6 +1975,88 @@ const PdfStudio: React.FC<Props> = ({ onBack, onOpenFetchDoc }) => {
                     className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors">Cancel</button>
                   <button onClick={handleInsertBarcode} disabled={!barcodeDialog.content.trim()}
                     className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors">Insert Barcode</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Row Repeat Dialog ── */}
+          {rowRepeatDialog && (
+            <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-[480px] mx-4">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-white mb-1">
+                  {rowRepeatDialog.existingRule ? 'Edit Repeating Row' : 'Make Repeating Row'}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  This row will repeat once per item in the chosen array. Variables like{' '}
+                  <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded font-mono">{'{{fieldName}}'}</code>{' '}
+                  placed in cells automatically resolve to that item's value.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Rule name</label>
+                    <input
+                      autoFocus
+                      value={rowRepeatDialog.ruleName}
+                      onChange={e => setRowRepeatDialog(d => d ? { ...d, ruleName: e.target.value } : null)}
+                      placeholder="e.g. Repeat line items"
+                      className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                      Array field <span className="text-slate-400 font-normal">(row repeats once per item)</span>
+                    </label>
+                    <select
+                      value={rowRepeatDialog.arrayField}
+                      onChange={e => setRowRepeatDialog(d => d ? { ...d, arrayField: e.target.value } : null)}
+                      className="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="">— select array field —</option>
+                      {[...fields, ...editorProjectSchema]
+                        .filter(f => f.field_type === 'array' || f.is_array)
+                        .map(f => <option key={f._key ?? f.field_name} value={f.field_name}>{f.field_name}{f.is_array ? '[]' : ''}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center mt-5">
+                  <div>
+                    {rowRepeatDialog.existingRule && (
+                      <button
+                        onClick={() => {
+                          rowRepeatDialog.el.removeAttribute('data-block-id');
+                          const removedId = rowRepeatDialog.existingRule!.block_id;
+                          setRules(r => r.filter(x => x.block_id !== removedId));
+                          if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+                          setRowRepeatDialog(null);
+                        }}
+                        className="px-3 py-2 text-sm text-red-500 hover:text-red-700 dark:text-red-400 font-medium transition-colors">
+                        Remove repeat
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setRowRepeatDialog(null)}
+                      className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancel</button>
+                    <button
+                      onClick={() => {
+                        if (!rowRepeatDialog.arrayField) return;
+                        const { el, blockId, ruleName, arrayField, existingRule } = rowRepeatDialog;
+                        el.setAttribute('data-block-id', blockId);
+                        if (existingRule) {
+                          setRules(r => r.map(x => x.block_id === existingRule.block_id
+                            ? { ...x, block_id: blockId, rule_name: ruleName, rule_config: { arrayField } }
+                            : x));
+                        } else {
+                          setRules(r => [...r, { _key: uid(), block_id: blockId, rule_name: ruleName, rule_type: 'loop', rule_config: { arrayField } }]);
+                        }
+                        if (editorRef.current) setHtmlContent(htmlWithoutBadges(editorRef.current));
+                        setRowRepeatDialog(null);
+                      }}
+                      disabled={!rowRepeatDialog.arrayField}
+                      className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 transition-colors font-medium">
+                      {rowRepeatDialog.existingRule ? 'Update' : 'Make Repeating'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

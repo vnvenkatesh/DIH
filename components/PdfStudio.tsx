@@ -25,6 +25,7 @@ interface TemplateField {
   description: string;
   parent_field: string;
   is_array?: boolean;
+  custom_xpath?: string;
 }
 
 type ProjectFieldType = 'string' | 'number' | 'date' | 'boolean';
@@ -2772,7 +2773,7 @@ const FieldRow: React.FC<{
   onRemove: () => void;
 }> = ({ field, allFields, onChange, onRemove }) => {
   const inp = 'px-2 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500';
-  const xpath = computeFieldXPath(field, allFields);
+  const computedXpath = computeFieldXPath(field, allFields);
   return (
     <div className="flex items-center gap-2 p-2 rounded-lg border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
       {/* field_name */}
@@ -2786,8 +2787,18 @@ const FieldRow: React.FC<{
       {/* default value */}
       <input value={field.default_value} onChange={e => onChange({ ...field, default_value: e.target.value })}
         placeholder="Default" className={`${inp} w-28 flex-shrink-0`} />
-      {/* xpath (computed, read-only) */}
-      <span className="flex-1 min-w-[120px] text-xs font-mono text-indigo-600 dark:text-indigo-400 truncate px-1" title={xpath}>{xpath}</span>
+      {/* xpath (editable; placeholder shows computed path) */}
+      <input
+        value={field.custom_xpath ?? ''}
+        onChange={e => onChange({ ...field, custom_xpath: e.target.value })}
+        placeholder={computedXpath}
+        title={field.custom_xpath ? `Custom: ${field.custom_xpath}` : `Auto: ${computedXpath}`}
+        className={`flex-1 min-w-[120px] px-2 py-1.5 text-xs font-mono rounded-lg border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+          field.custom_xpath
+            ? 'border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/20'
+            : 'border-slate-200 dark:border-slate-600 text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-700'
+        }`}
+      />
       {/* required */}
       <label className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap flex-shrink-0">
         <input type="checkbox" checked={field.is_required} onChange={e => onChange({ ...field, is_required: e.target.checked })}
